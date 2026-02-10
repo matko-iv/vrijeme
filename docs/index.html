@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="sr">
 <head>
     <meta charset="UTF-8">
@@ -175,8 +175,9 @@
     <div class="site-header">
         <a href="/" class="site-name">Matija Ivanović</a>
         <nav>
+            <a href="forecast.html" style="color:#0366d6;font-weight:600;">🌤️ Live Prognoza</a>
             <a href="#">Blog</a>
-            <a href="https://github.com/matko-iv" target="_blank">GitHub</a>
+            <a href="https://github.com/" target="_blank">GitHub</a>
             <a href="mailto:ivanovicmatija2007@gmail.com">Kontakt</a>
         </nav>
     </div>
@@ -184,9 +185,15 @@
     <p class="date">Februar 2026</p>
     <h1>Tačnije Vremenske Prognoze za Budvu</h1>
 
-    <p>Ideja je jednostavna: globalni meteorološki modeli su odlični, ali često prave sitne sistematske greške kada prognoziraju vrijeme za određenu lokaciju. Moj cilj je da te greške identifikujem i ispravim koristeći mašinsko učenje.</p>
+    <div class="note" style="background:#e8f4fd;border-left-color:#0366d6;margin-bottom:30px;">
+        <strong>🌤️ Pogledajte živu prognozu!</strong> Korigovana prognoza za naredna 48 sati sa interaktivnim grafovima i satnim detaljima je dostupna na <a href="forecast.html"><strong>stranici za live prognozu</strong></a>.
+    </div>
 
-    <p>Projekat sam započeo nakon što sam primijetio da prognoze često pothlađuju stvarnu temperaturu u Budvi. Znatiželjan sam da li je to konzistentan obrazac i da li mogu napraviti nešto po tom pitanju.</p>
+    <p>Globalni meteorološki modeli — ECMWF, GFS, ICON, Météo-France — simuliraju kompletnu atmosferu i daju prognoze za cijelu planetu. Nevjerovatno su sofisticirani, ali nijedan od njih nije optimizovan za jednu tačku na karti. Svaki pravi sistematske greške koje su specifične za lokalnu geografiju: blizinu mora, okolne planine, dominantne vjetrove.</p>
+
+    <p>Budva je savršen primjer. Smještena na crnogorskoj obali, okružena planinama, izložena <strong>buri</strong> — jakom sjeveroistočnom vjetru koji drastično mijenja lokalne uslove. Globalni modeli to ne mogu savršeno uhvatiti. Ali mogu naučiti iz svojih grešaka.</p>
+
+    <p>U ovom projektu sam uzeo <strong>3 godine satnih podataka</strong> sa meteo stanice u Budvi (24.000+ mjerenja), uporedio ih sa prognozama 5 globalnih modela, i trenirao XGBoost model koji sistematski ispravlja njihove greške. Rezultat: <strong>temperatura tačnija za 25%</strong>, <strong>vjetar za 62%</strong>, <strong>pritisak za 68%</strong> — mjereno na podacima koje model nikad nije vidio.</p>
 
     <h2>Problem</h2>
 
@@ -324,6 +331,8 @@
         <li>BURA detekcija — flag iz svakog modela + agreement (koliko modela detektuje buru)</li>
         <li>Sezonski faktori — zima/proljeće/ljeto/jesen</li>
         <li>Cross-parameter interakcije — razlika temp/dew point, odnos vjetra i pritiska</li>
+        <li><strong>Tabele istorijskog biasa</strong> — prosječna greška svakog modela za svaki parametar, po mjesecu i satu (288 lookup features)</li>
+        <li><strong>Clear-sky model</strong> — teoretska solarna radijacija za Budvu (42.29°N, 18.84°E) kao proxy za dnevne cikluse</li>
     </ul>
 
     <p>Loss funkcija koju minimiziram je također Mean Absolute Error:</p>
@@ -414,16 +423,23 @@
 
     <table>
         <tr><th>Parametar</th><th>XGBoost MAE</th><th>Najbolji model MAE</th><th>Poboljšanje</th></tr>
-        <tr><td>Temperatura</td><td>0.98°C</td><td>1.32°C (MétéoFrance)</td><td>+26%</td></tr>
-        <tr><td>Tačka rose</td><td>1.37°C</td><td>2.34°C (MétéoFrance)</td><td>+42%</td></tr>
-        <tr><td>Vlažnost</td><td>6.87%</td><td>10.82% (GFS)</td><td>+37%</td></tr>
+        <tr><td>Temperatura</td><td>0.99°C</td><td>1.32°C (ARPÈGE)</td><td>+25%</td></tr>
+        <tr><td>Tačka rose</td><td>1.34°C</td><td>2.34°C (ARPÈGE)</td><td>+43%</td></tr>
+        <tr><td>Vlažnost</td><td>6.74%</td><td>10.82% (GFS)</td><td>+38%</td></tr>
         <tr><td>Brzina vjetra</td><td>0.45 m/s</td><td>1.16 m/s (ICON)</td><td>+62%</td></tr>
-        <tr><td>Udari vjetra</td><td>0.59 m/s</td><td>1.75 m/s (GFS)</td><td>+66%</td></tr>
-        <tr><td>Pritisak</td><td>0.32 hPa</td><td>0.92 hPa (GFS)</td><td>+65%</td></tr>
+        <tr><td>Udari vjetra</td><td>0.60 m/s</td><td>1.75 m/s (GFS)</td><td>+66%</td></tr>
+        <tr><td>Pritisak</td><td>0.29 hPa</td><td>0.92 hPa (GFS)</td><td>+68%</td></tr>
+        <tr style="background:#f0f9ff;"><td><strong>Oblačnost</strong> ☁️</td><td>9.36%</td><td>32.23% (ARPÈGE)</td><td>+71%</td></tr>
+        <tr style="background:#f0f9ff;"><td><strong>Padavine</strong> 🌧️</td><td>0.31 mm</td><td>0.46 mm (GFS)</td><td>+33%</td></tr>
+        <tr style="background:#f0f9ff;"><td><strong>Solar. radijacija</strong> ☀️</td><td>22.34 W/m²</td><td>42.46 W/m² (ICON)</td><td>+47%</td></tr>
     </table>
 
     <div class="note">
-        <strong>Ključna razlika od prethodnog modela:</strong> Ovaj model NE koristi lag feature-e opservacija (temperatura prije 1h, 6h...) za buduće prognoze — jer u realnom vremenu nemamo buduća mjerenja. Umjesto toga, oslanja se na ensemble statistike (prosjek, standardna devijacija, raspon između modela), ciklične vremenske varijable, i cross-parameter interakcije (npr. razlika temperature i tačke rose za detekciju magle).
+        <strong>Novo u v2:</strong> Oblačnost, padavine i solarna radijacija sada prolaze kroz XGBoost korekciju. Oblačnost se izvodi iz solarnog W/m² mjerenja stanice (proxy za oblačnost), a satne padavine iz precip_rate mjerenja. Prethodno su ovi parametri koristili samo ensemble prosjek jer nije bilo pouzdanih satnih opservacija.
+    </div>
+
+    <div class="note">
+        <strong>Ključna razlika od naivnog modela:</strong> Ovaj model NE koristi lag feature-e opservacija (temperatura prije 1h, 6h...) niti rolling error statistike — jer u realnom vremenu nemamo buduća mjerenja. Umjesto toga, oslanja se na: ensemble statistike (prosjek, std, raspon, medijana), ciklične vremenske varijable, cross-parameter interakcije (npr. razlika temp/tačke rose), i <strong>tabele istorijskog biasa</strong> — prosječna greška svakog modela za dati mjesec i sat, izračunata samo na trening podacima. Ove tabele su dostupne i u produkciji jer ne zahtijevaju buduće opservacije.
     </div>
 
     <h2>Ukupno rangiranje</h2>
@@ -450,17 +466,26 @@
 
     <h2>Šta dalje</h2>
 
-    <p>Production pipeline je <strong>završen</strong>. Sistem sada automatski:</p>
+    <p>Production pipeline v2 je <strong>završen i operativan</strong>. Sistem sada:</p>
 
     <ol>
         <li>Preuzima live prognoze sa Open-Meteo API za sva 4 modela (ARPÈGE, GFS, ICON, Météo-France)</li>
-        <li>Primjenjuje trenirane XGBoost modele na svaki parametar (temperatura, vlažnost, vjetar, pritisak, tačka rose)</li>
-        <li>Generiše korigovanu +48h prognozu za Budvu u CSV i JSON formatu</li>
+        <li>Primjenjuje trenirane XGBoost modele na <strong>svih 9 parametara</strong> — uključujući oblačnost, padavine i solarnu radijaciju</li>
+        <li>Koristi tabele istorijskog biasa (po mjesecu i satu) kao dodatne feature-e za preciznije korekcije</li>
+        <li>Generiše korigovanu +48h prognozu sa interaktivnim web prikazom</li>
     </ol>
 
-    <p>Padavine i oblačnost se prikazuju kao prosjek svih modela (ensemble mean), jer za te parametre nemamo pouzdane satne opservacije za trening. Ostali parametri prolaze kroz XGBoost korekciju sa mjerljivim poboljšanjem od 26-66%.</p>
+    <p><strong>📊 <a href="forecast.html">Pogledajte živu prognozu →</a></strong> — interaktivni grafovi, satni detalji, i poređenje XGBoost vs ensemble predikcija.</p>
 
-    <p>Sljedeći korak je automatizacija — cron job koji svakih 6 sati generiše novu prognozu i objavljuje je na web interfejsu.</p>
+    <p>Poboljšanja u v2 u odnosu na v1 pipeline:</p>
+    <ul>
+        <li><strong>Oblačnost iz solarne radijacije:</strong> Koristi se W/m² sa WU stanice kao proxy za oblačnost — izvedena oblačnost korelira sa modelskim cloud_cover i omogućava XGBoost trening</li>
+        <li><strong>Satne padavine:</strong> precip_rate_in × 25.4 daje pouzdane satne mm za trening</li>
+        <li><strong>Tabele biasa:</strong> Istorijski prosječni bias per model/parametar/mjesec/sat — dostupan i u produkciji</li>
+        <li><strong>9 umjesto 6 parametara:</strong> Svaki parametar sada prolazi kroz XGBoost korekciju</li>
+    </ul>
+
+    <p>Sljedeći korak je potpuna automatizacija — cron job koji svakih 6 sati generiše novu prognozu i objavljuje je na web interfejsu.</p>
 
     <p>Ako imate pitanja ili prijedloge, slobodno mi pišite na <a href="mailto:ivanovicmatija2007@gmail.com">ivanovicmatija2007@gmail.com</a>.</p>
 </body>

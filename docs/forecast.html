@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budva — Korigovana 48h Prognoza</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        :root {
+            --bg: #0b1120;
+            --card: #111827;
+            --card-hover: #1a2332;
+            --border: #1e293b;
+            --text: #e2e8f0;
+            --text-dim: #94a3b8;
+            --accent: #3b82f6;
+            --accent2: #8b5cf6;
+            --warm: #f59e0b;
+            --cool: #06b6d4;
+            --green: #10b981;
+            --red: #ef4444;
+            --rain: #60a5fa;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+
+        /* Header */
+        .header {
+            text-align: center;
+            padding: 32px 0 24px;
+        }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 4px;
+        }
+        .header .subtitle {
+            color: var(--text-dim);
+            font-size: 14px;
+        }
+        .header .method-badge {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 4px 12px;
+            border-radius: 16px;
+            background: rgba(59,130,246,0.15);
+            border: 1px solid rgba(59,130,246,0.3);
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .back-link {
+            display: inline-block;
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+        .back-link:hover { text-decoration: underline; }
+
+        /* Daily Cards */
+        .daily-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .day-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        .day-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent);
+        }
+        .day-card .day-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .day-card .day-name {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .day-card .day-date {
+            color: var(--text-dim);
+            font-size: 13px;
+        }
+        .weather-icon-large {
+            font-size: 48px;
+            line-height: 1;
+        }
+        .day-card .weather-desc {
+            font-size: 14px;
+            color: var(--text-dim);
+            text-align: center;
+            margin-top: 4px;
+        }
+        .day-card .temp-range {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin: 12px 0;
+            font-size: 28px;
+            font-weight: 700;
+        }
+        .temp-high { color: var(--warm); }
+        .temp-low { color: var(--cool); }
+        .day-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+        .detail-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+        .detail-item .detail-icon { font-size: 16px; }
+        .detail-item .detail-val { color: var(--text); font-weight: 500; }
+
+        /* Hourly strip */
+        .hourly-strip {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 32px;
+            overflow-x: auto;
+        }
+        .hourly-strip h3 {
+            font-size: 16px;
+            margin-bottom: 14px;
+            color: var(--text-dim);
+        }
+        .hourly-row {
+            display: flex;
+            gap: 0;
+            min-width: max-content;
+        }
+        .hourly-cell {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 56px;
+            padding: 8px 4px;
+            border-right: 1px solid var(--border);
+            font-size: 12px;
+        }
+        .hourly-cell:last-child { border-right: none; }
+        .hourly-cell .h-time { color: var(--text-dim); margin-bottom: 6px; font-weight: 500; }
+        .hourly-cell .h-icon { font-size: 22px; margin-bottom: 4px; }
+        .hourly-cell .h-temp { font-weight: 600; font-size: 14px; }
+        .hourly-cell .h-rain { color: var(--rain); font-size: 11px; margin-top: 4px; }
+        .hourly-cell .h-wind { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+
+        /* Charts */
+        .charts-section { margin-bottom: 32px; }
+        .charts-section h2 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+        .chart-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .chart-tab {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .chart-tab:hover { border-color: var(--accent); color: var(--text); }
+        .chart-tab.active {
+            background: rgba(59,130,246,0.15);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .chart-container {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            position: relative;
+            height: 340px;
+        }
+
+        /* Metrics bar */
+        .metrics-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+        .metric-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+        }
+        .metric-card .metric-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .metric-card .metric-value {
+            font-size: 22px;
+            font-weight: 700;
+            margin: 4px 0;
+        }
+        .metric-card .metric-improvement {
+            font-size: 12px;
+            color: var(--green);
+            font-weight: 500;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 12px;
+            padding: 24px 0;
+            border-top: 1px solid var(--border);
+        }
+        .footer a { color: var(--accent); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+
+        .generated-time {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 12px;
+            margin-bottom: 24px;
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 80px 20px;
+            color: var(--text-dim);
+        }
+        .loading .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        @media (max-width: 600px) {
+            .container { padding: 12px 8px; }
+            .header h1 { font-size: 22px; }
+            .day-card .temp-range { font-size: 22px; }
+            .chart-container { height: 280px; }
+            .metrics-bar { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <a href="index.html" class="back-link">← Nazad na analizu</a>
+
+    <div class="header">
+        <h1>Budva — Korigovana Prognoza</h1>
+        <div class="subtitle">Naredna 48 sata · XGBoost korekcija multi-model ensemble-a</div>
+        <div class="method-badge">4 modela × XGBoost + bias korekcija</div>
+    </div>
+
+    <div class="generated-time" id="genTime"></div>
+
+    <div id="app">
+        <div class="loading">
+            <div class="spinner"></div>
+            Učitavanje prognoze...
+        </div>
+    </div>
+</div>
+
+<script>
+const DAY_NAMES_SR = {
+    Monday: 'Ponedjeljak', Tuesday: 'Utorak', Wednesday: 'Srijeda',
+    Thursday: 'Četvrtak', Friday: 'Petak', Saturday: 'Subota', Sunday: 'Nedjelja'
+};
+
+const WEATHER_ICONS = {
+    0:  '☀️', 1:  '🌤️', 2:  '⛅', 3:  '☁️',
+    45: '🌫️', 48: '🌫️',
+    51: '🌦️', 53: '🌧️', 55: '🌧️',
+    61: '🌦️', 63: '🌧️', 65: '🌧️🌧️',
+    71: '🌨️', 73: '🌨️', 75: '❄️❄️',
+    80: '🌦️', 81: '🌧️', 82: '⛈️',
+    95: '⛈️', 96: '⛈️🧊', 99: '⛈️🧊'
+};
+
+function getIcon(code) {
+    return WEATHER_ICONS[code] || '🌤️';
+}
+
+function windDir(deg) {
+    if (deg == null) return '';
+    const dirs = ['S','SSI','SI','ISI','I','IJI','JI','JJI','J','JJZ','JZ','ZJZ','Z','ZSZ','SZ','SSZ'];
+    return dirs[Math.round(deg / 22.5) % 16];
+}
+
+function formatDate(ds) {
+    const d = new Date(ds);
+    return d.getDate() + '.' + (d.getMonth()+1) + '.';
+}
+
+let currentChart = null;
+let forecastData = null;
+
+async function loadForecast() {
+    try {
+        const resp = await fetch('forecast_data/forecast_48h.json');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        forecastData = await resp.json();
+        render(forecastData);
+    } catch(e) {
+        document.getElementById('app').innerHTML =
+            '<div class="loading" style="color:var(--red)">Greška: ' + e.message +
+            '<br><small>Pokrenite forecast_48h_v2.py za generisanje prognoze</small></div>';
+    }
+}
+
+function render(data) {
+    const gen = new Date(data.generated);
+    document.getElementById('genTime').textContent =
+        'Generisano: ' + gen.toLocaleDateString('sr-Latn') + ' ' +
+        gen.toLocaleTimeString('sr-Latn', {hour:'2-digit',minute:'2-digit'});
+
+    let html = '';
+
+    // ─── Daily cards ───
+    html += '<div class="daily-grid">';
+    data.daily_summary.forEach(d => {
+        const dayName = DAY_NAMES_SR[d.day_name] || d.day_name;
+        const icon = getIcon(d.weather_code);
+        html += `
+        <div class="day-card">
+            <div class="day-header">
+                <div>
+                    <div class="day-name">${dayName}</div>
+                    <div class="day-date">${formatDate(d.date)}</div>
+                </div>
+                <div style="text-align:center">
+                    <div class="weather-icon-large">${icon}</div>
+                    <div class="weather-desc">${d.weather_desc}</div>
+                </div>
+            </div>
+            <div class="temp-range">
+                <span class="temp-low">${d.temp_min}°</span>
+                <span style="color:var(--text-dim);font-size:18px;align-self:center">/</span>
+                <span class="temp-high">${d.temp_max}°</span>
+            </div>
+            <div class="day-details">
+                <div class="detail-item"><span class="detail-icon">💨</span> Vjetar: <span class="detail-val">${d.wind_max} m/s</span></div>
+                <div class="detail-item"><span class="detail-icon">🌊</span> Udari: <span class="detail-val">${d.gust_max} m/s</span></div>
+                <div class="detail-item"><span class="detail-icon">🌧️</span> Padavine: <span class="detail-val">${d.precip_total} mm</span></div>
+                <div class="detail-item"><span class="detail-icon">💧</span> Vlažnost: <span class="detail-val">${d.humidity_avg}%</span></div>
+                <div class="detail-item"><span class="detail-icon">📊</span> Pritisak: <span class="detail-val">${d.pressure_avg} hPa</span></div>
+                ${d.cloud_cover_day != null ? `<div class="detail-item"><span class="detail-icon">☁️</span> Oblačnost: <span class="detail-val">${d.cloud_cover_day}%</span></div>` : ''}
+            </div>
+        </div>`;
+    });
+    html += '</div>';
+
+    // ─── Hourly strip ───
+    html += '<div class="hourly-strip"><h3>⏱ Prognoza po satima</h3><div class="hourly-row">';
+    data.hourly_forecast.forEach(h => {
+        const t = h.temperature_2m != null ? Math.round(h.temperature_2m) + '°' : '-';
+        const rain = h.precipitation > 0.05 ? h.precipitation.toFixed(1) + 'mm' : '';
+        const wind = h.wind_speed_10m != null ? h.wind_speed_10m.toFixed(1) : '';
+        html += `
+        <div class="hourly-cell">
+            <span class="h-time">${String(h.hour).padStart(2,'0')}h</span>
+            <span class="h-icon">${getIcon(h.weather_code)}</span>
+            <span class="h-temp">${t}</span>
+            <span class="h-rain">${rain}</span>
+            <span class="h-wind">${wind ? wind + ' m/s' : ''}</span>
+        </div>`;
+    });
+    html += '</div></div>';
+
+    // ─── Metrics ───
+    html += '<div class="metrics-bar">';
+    const m = data.training_metrics;
+    const metricsDisplay = [
+        {key:'temperature_2m', label:'Temp MAE', unit:'°C', color:'var(--warm)'},
+        {key:'wind_speed_10m', label:'Vjetar MAE', unit:'m/s', color:'var(--cool)'},
+        {key:'pressure_msl',   label:'Pritisak MAE', unit:'hPa', color:'var(--green)'},
+        {key:'relative_humidity_2m', label:'Vlažnost MAE', unit:'%', color:'var(--accent2)'},
+        {key:'precipitation',  label:'Padavine MAE', unit:'mm', color:'var(--rain)'},
+        {key:'cloud_cover',    label:'Oblačnost MAE', unit:'%', color:'var(--text-dim)'},
+    ];
+    metricsDisplay.forEach(md => {
+        if (!m[md.key]) return;
+        html += `
+        <div class="metric-card">
+            <div class="metric-label">${md.label}</div>
+            <div class="metric-value" style="color:${md.color}">${m[md.key].mae}${md.unit}</div>
+            <div class="metric-improvement">+${m[md.key].improvement}% vs best model</div>
+        </div>`;
+    });
+    html += '</div>';
+
+    // ─── Charts ───
+    html += `
+    <div class="charts-section">
+        <h2>📈 Interaktivni grafovi</h2>
+        <div class="chart-tabs" id="chartTabs">
+            <button class="chart-tab active" data-chart="temp">🌡️ Temperatura</button>
+            <button class="chart-tab" data-chart="wind">💨 Vjetar</button>
+            <button class="chart-tab" data-chart="pressure">📊 Pritisak</button>
+            <button class="chart-tab" data-chart="humidity">💧 Vlažnost</button>
+            <button class="chart-tab" data-chart="precip">🌧️ Padavine</button>
+            <button class="chart-tab" data-chart="cloud">☁️ Oblačnost</button>
+        </div>
+        <div class="chart-container">
+            <canvas id="forecastChart"></canvas>
+        </div>
+    </div>`;
+
+    // ─── Footer ───
+    html += `
+    <div class="footer">
+        <p>Podaci: <a href="https://open-meteo.com" target="_blank">Open-Meteo API</a> (ARPÈGE, GFS, ICON, Météo-France) · Stanica: <a href="https://www.wunderground.com/dashboard/pws/IBUDVA5" target="_blank">ibudva5</a></p>
+        <p style="margin-top:4px">Autor: <a href="mailto:ivanovicmatija2007@gmail.com">Matija Ivanović</a> · <a href="index.html">Detaljna analiza →</a></p>
+    </div>`;
+
+    document.getElementById('app').innerHTML = html;
+
+    // Chart tabs
+    document.querySelectorAll('.chart-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            drawChart(tab.dataset.chart);
+        });
+    });
+
+    drawChart('temp');
+}
+
+function drawChart(type) {
+    if (currentChart) currentChart.destroy();
+
+    const hours = forecastData.hourly_forecast;
+    const labels = hours.map(h => h.datetime);
+
+    const configs = {
+        temp: {
+            datasets: [
+                { label: 'Temp. XGBoost (°C)', data: hours.map(h => h.temperature_2m),
+                  borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.1)', fill: true },
+                { label: 'Temp. Ensemble (°C)', data: hours.map(h => h.temperature_2m_raw),
+                  borderColor: '#94a3b8', borderDash: [5,5] },
+                { label: 'Tačka rose (°C)', data: hours.map(h => h.dew_point_2m),
+                  borderColor: '#06b6d4', borderDash: [3,3] },
+            ],
+            yTitle: 'Temperatura (°C)'
+        },
+        wind: {
+            datasets: [
+                { label: 'Vjetar XGBoost (m/s)', data: hours.map(h => h.wind_speed_10m),
+                  borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', fill: true },
+                { label: 'Vjetar Ensemble (m/s)', data: hours.map(h => h.wind_speed_10m_raw),
+                  borderColor: '#94a3b8', borderDash: [5,5] },
+                { label: 'Udari XGBoost (m/s)', data: hours.map(h => h.wind_gusts_10m),
+                  borderColor: '#ef4444', borderDash: [3,3] },
+            ],
+            yTitle: 'Brzina (m/s)'
+        },
+        pressure: {
+            datasets: [
+                { label: 'Pritisak XGBoost (hPa)', data: hours.map(h => h.pressure_msl),
+                  borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true },
+                { label: 'Pritisak Ensemble (hPa)', data: hours.map(h => h.pressure_msl_raw),
+                  borderColor: '#94a3b8', borderDash: [5,5] },
+            ],
+            yTitle: 'Pritisak (hPa)'
+        },
+        humidity: {
+            datasets: [
+                { label: 'Vlažnost XGBoost (%)', data: hours.map(h => h.relative_humidity_2m),
+                  borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,0.1)', fill: true },
+                { label: 'Vlažnost Ensemble (%)', data: hours.map(h => h.relative_humidity_2m_raw),
+                  borderColor: '#94a3b8', borderDash: [5,5] },
+            ],
+            yTitle: 'Vlažnost (%)'
+        },
+        precip: {
+            type: 'bar',
+            datasets: [
+                { label: 'Padavine XGBoost (mm)', data: hours.map(h => h.precipitation),
+                  backgroundColor: 'rgba(96,165,250,0.6)', borderColor: '#60a5fa', borderWidth: 1 },
+                { label: 'Padavine Ensemble (mm)', data: hours.map(h => h.precipitation_raw),
+                  backgroundColor: 'rgba(148,163,184,0.3)', borderColor: '#94a3b8', borderWidth: 1 },
+            ],
+            yTitle: 'Padavine (mm/h)'
+        },
+        cloud: {
+            datasets: [
+                { label: 'Oblačnost XGBoost (%)', data: hours.map(h => h.cloud_cover),
+                  borderColor: '#94a3b8', backgroundColor: 'rgba(148,163,184,0.2)', fill: true },
+                { label: 'Oblačnost Ensemble (%)', data: hours.map(h => h.cloud_cover_raw),
+                  borderColor: '#64748b', borderDash: [5,5] },
+            ],
+            yTitle: 'Oblačnost (%)'
+        }
+    };
+
+    const cfg = configs[type];
+    const chartType = cfg.type || 'line';
+
+    cfg.datasets.forEach(ds => {
+        if (chartType === 'line' && !ds.pointRadius) {
+            ds.pointRadius = 2;
+            ds.pointHoverRadius = 5;
+            ds.tension = 0.3;
+            ds.borderWidth = 2;
+        }
+    });
+
+    const ctx = document.getElementById('forecastChart').getContext('2d');
+    currentChart = new Chart(ctx, {
+        type: chartType,
+        data: { labels, datasets: cfg.datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    labels: { color: '#94a3b8', font: { size: 12 }, usePointStyle: true, pointStyle: 'line' }
+                },
+                tooltip: {
+                    backgroundColor: '#1e293b',
+                    titleColor: '#e2e8f0',
+                    bodyColor: '#cbd5e1',
+                    borderColor: '#334155',
+                    borderWidth: 1,
+                    callbacks: {
+                        title: (items) => {
+                            const d = new Date(items[0].label);
+                            return d.toLocaleDateString('sr-Latn', {weekday:'long', day:'numeric', month:'numeric'})
+                                   + ' ' + d.toLocaleTimeString('sr-Latn', {hour:'2-digit', minute:'2-digit'});
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: 'hour', displayFormats: { hour: 'HH:mm' }, tooltipFormat: 'PPpp' },
+                    grid: { color: 'rgba(148,163,184,0.1)' },
+                    ticks: { color: '#64748b', font: { size: 11 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 16 }
+                },
+                y: {
+                    title: { display: true, text: cfg.yTitle, color: '#94a3b8' },
+                    grid: { color: 'rgba(148,163,184,0.1)' },
+                    ticks: { color: '#64748b' }
+                }
+            }
+        }
+    });
+}
+
+loadForecast();
+</script>
+
+</body>
+</html>

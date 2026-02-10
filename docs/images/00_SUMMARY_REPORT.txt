@@ -1,10 +1,63 @@
 
-
-IZVJEŠTAJ O PERFORMANSAMA METEOROLOŠKIH MODELA ZA BUDVU
-
+╔════════════════════════════════════════════════════════════════════════════╗
+║            IZVJEŠTAJ O PERFORMANSAMA METEOROLOŠKIH MODELA ZA BUDVU        ║
+╚════════════════════════════════════════════════════════════════════════════╝
 
 Analizirano modela: 6
 Period: 2023-2026 (3 godine podataka)
 Lokacija: Budva, Crna Gora (42.29°N, 18.84°E)
 
-NAJBOLJI MODEL: METEOFRANCE
+════════════════════════════════════════════════════════════════════════════
+
+🏆 NAJBOLJI MODEL: METEOFRANCE
+
+Temperatura:
+  • MAE: 1.39°C
+  • RMSE: 1.75°C
+  • Bias: -0.51°C
+
+Brzina vjetra:
+  • MAE: 1.56 m/s
+  • Bias: +1.47 m/s
+
+Padavine:
+  • MAE: 9.26 mm
+  • Bias: -8.92 mm
+
+════════════════════════════════════════════════════════════════════════════
+
+📊 RANGIRANJE MODELA (po MAE temperature):
+
+  1. METEOFRANCE               MAE:  1.39°C Bias: -0.51°C
+  2. ARPEGE_EUROPE             MAE:  1.39°C Bias: -0.51°C
+  3. ITALIAMETEO_ICON2I        MAE:  1.72°C Bias: +0.84°C
+  4. GFS_SEAMLESS              MAE:  1.74°C Bias: -1.07°C
+  5. ECMWF_IFS025              MAE:  1.80°C Bias: -0.74°C
+  6. ICON_SEAMLESS             MAE:  1.97°C Bias: +0.84°C
+
+════════════════════════════════════════════════════════════════════════════
+
+💡 KLJUČNI NALAZI:
+
+1. Sistematski bias: Većina modela pokazuje negativan bias (pothlađuju)
+2. Sezonske razlike: Veće greške u zimskom periodu
+3. Vjetar: Modeli imaju tendenciju precjenjivanja brzine vjetra
+4. Padavine: Najveći izazov za sve modele (inherentna varijabilnost)
+5. BURA: Posebni uslovi zahtijevaju dodatnu pažnju
+
+════════════════════════════════════════════════════════════════════════════
+
+🎯 SLJEDEĆI KORACI:
+
+→ Machine Learning Post-Processing
+→ Feature Engineering (lag, sezonske varijable, BURA flag)
+→ XGBoost/Random Forest za korekciju bias-a
+→ Cilj: MAE < 1.0°C (30-40% poboljšanje)
+
+════════════════════════════════════════════════════════════════════════════
+
+VIZUALIZACIJE: 13+ profesionalnih grafika kreiranih
+Verzija: v5.0 - Proširena analiza
+
+════════════════════════════════════════════════════════════════════════════
+
