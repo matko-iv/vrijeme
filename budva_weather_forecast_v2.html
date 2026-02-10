@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tačnije Vremenske Prognoze za Budvu – Matija Ivanović</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            font-size: 18px;
+            line-height: 1.6;
+            color: #24292e;
+            background: #ffffff;
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 60px 20px;
+        }
+
+        h1 {
+            font-size: 40px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            line-height: 1.25;
+            color: #24292e;
+        }
+
+        h2 {
+            font-size: 30px;
+            font-weight: 600;
+            margin-top: 50px;
+            margin-bottom: 18px;
+            line-height: 1.25;
+            color: #24292e;
+        }
+
+        h3 {
+            font-size: 22px;
+            font-weight: 600;
+            margin-top: 35px;
+            margin-bottom: 14px;
+            color: #24292e;
+        }
+
+        p {
+            margin-bottom: 18px;
+            color: #24292e;
+        }
+
+        a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .date {
+            color: #586069;
+            font-size: 16px;
+            margin-bottom: 40px;
+        }
+
+        img {
+            max-width: 100%;
+            height: auto;
+            margin: 30px 0;
+            display: block;
+            border-radius: 3px;
+        }
+
+        code {
+            background: #f6f8fa;
+            padding: 3px 6px;
+            border-radius: 3px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.9em;
+        }
+
+        ul, ol {
+            margin-left: 28px;
+            margin-bottom: 18px;
+        }
+
+        li {
+            margin-bottom: 6px;
+        }
+
+        table {
+            width: 100%;
+            margin: 28px 0;
+            border-collapse: collapse;
+            font-size: 16px;
+        }
+
+        th {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 2px solid #e1e4e8;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #e1e4e8;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .note {
+            background: #f6f8fa;
+            border-left: 3px solid #586069;
+            padding: 15px 20px;
+            margin: 28px 0;
+            font-size: 16px;
+        }
+
+        .site-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 60px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e1e4e8;
+            font-size: 15px;
+        }
+
+        .site-header a {
+            color: #586069;
+            text-decoration: none;
+        }
+
+        .site-header a:hover {
+            color: #24292e;
+        }
+
+        .site-header .site-name {
+            font-weight: 600;
+            color: #24292e;
+        }
+
+        .site-header nav a {
+            margin-left: 20px;
+        }
+
+        @media (max-width: 680px) {
+            body {
+                font-size: 16px;
+                padding: 40px 16px;
+            }
+
+            h1 {
+                font-size: 32px;
+            }
+
+            h2 {
+                font-size: 26px;
+            }
+
+            h3 {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="site-header">
+        <a href="/" class="site-name">Matija Ivanović</a>
+        <nav>
+            <a href="#">Blog</a>
+            <a href="https://github.com/" target="_blank">GitHub</a>
+            <a href="mailto:ivanovicmatija2007@gmail.com">Kontakt</a>
+        </nav>
+    </div>
+
+    <p class="date">Februar 2026</p>
+    <h1>Tačnije Vremenske Prognoze za Budvu</h1>
+
+    <p>Već nekoliko mjeseci radim na projektu koji bi trebao poboljšati tačnost vremenskih prognoza za Budvu. Ideja je jednostavna: globalni meteorološki modeli su odlični, ali često prave sitne sistematske greške kada prognoziraju vrijeme za određenu lokaciju. Moj cilj je da te greške identifikujem i ispravim koristeći mašinsko učenje.</p>
+
+    <p>Projekat sam započeo nakon što sam primijetio da prognoze često pothlađuju stvarnu temperaturu u Budvi. Znatiželjan sam da li je to konzistentan obrazac i da li mogu napraviti nešto po tom pitanju.</p>
+
+    <h2>Problem</h2>
+
+    <p>Globalni meteorološki modeli kao što su ECMWF, GFS ili ICON pokrivaju cijelu planetu i izvrsno rade posao na velikom nivou. Međutim, lokalna geografija, blizina mora, i specifičnosti Budve (kao što je BURA - jak sjeveroistočni vjetar) stvaraju uslove koje globalni modeli ne mogu savršeno uhvatiti.</p>
+
+    <p>Uzeo sam 5 različitih globalnih modela (ECMWF IFS025, ICON Seamless, GFS Seamless, MeteoFrance i ARPEGE Europe) i uporedio njihove prognoze sa stvarnim mjerenjima sa meteo stanice u Budvi tokom posljednje 3 godine. To mi je dalo preko 24,000 satnih tačaka podataka po modelu.</p>
+
+    <h2>Metodologija</h2>
+
+    <h3>Mean Absolute Error (MAE)</h3>
+
+    <p>Najvažnija metrika koju koristim je Mean Absolute Error (MAE) — srednja apsolutna greška. MAE mjeri prosječnu veličinu grešaka u skupu prognoza, bez obzira na njihov smjer. Za svako satno mjerenje, uzimam razliku između prognozirane i stvarne vrijednosti, uzmem apsolutnu vrijednost te razlike, i na kraju prosjek svih tih apsolutnih razlika daje MAE:</p>
+
+    <img src="https://latex.codecogs.com/svg.image?MAE=\frac{1}{n}\sum_{i=1}^{n}|y_{pred}-y_{true}|" alt="MAE formula">
+
+    <p>Na primjer, ako model prognozira temperature od 20°C, 22°C i 18°C, a stvarne temperature su 19°C, 24°C i 17°C, onda su apsolutne greške 1°C, 2°C i 1°C, pa je MAE = (1+2+1)/3 = 1.33°C.</p>
+
+    <p>MAE je intuitivan jer se izražava u istim jedinicama kao i originalni podaci (stepeni Celzijusa za temperaturu, m/s za vjetar). Ako je MAE za temperaturu 1.5°C, to bukvalno znači da u prosjeku prognoza promašuje za 1.5 stepeni. Niska vrijednost MAE ukazuje na preciznije prognoze. Još jedna prednost MAE-a je da tretira sve greške linearno — greška od 5°C je tačno pet puta „gora" od greške od 1°C, što ga čini robusnim na pojedinačne ekstremne promašaje.</p>
+
+    <h3>Mean Squared Error (MSE) i Root Mean Squared Error (RMSE)</h3>
+
+    <p>Druga veoma korisna metrika je Mean Squared Error (MSE) — srednja kvadratna greška. Za razliku od MAE koji uzima apsolutne vrijednosti, MSE kvadrira svaku pojedinačnu grešku prije prosjeka:</p>
+
+    <img src="https://latex.codecogs.com/svg.image?MSE=\frac{1}{n}\sum_{i=1}^{n}(y_{pred}-y_{true})^2" alt="MSE formula">
+
+    <p>Kvadriranje ima važnu posljedicu: veće greške se kažnjavaju neproporcijalno više. Greška od 5°C doprinosi sa 25 jedinica, dok greška od 1°C doprinosi samo sa 1 jedinicom — dakle pet puta veća greška u apsolutnom smislu daje 25 puta veći doprinos u MSE. To znači da je MSE posebno osjetljiv na „velike promašaje" — ako model povremeno napravi veliku grešku, MSE će to snažno reflektovati, čak i ako je većina prognoza tačna.</p>
+
+    <p>Pošto MSE daje rezultat u kvadriranim jedinicama (°C²), često se koristi korijen iz MSE — Root Mean Squared Error (RMSE) — koji vraća metriku u originalne jedinice:</p>
+
+    <img src="https://latex.codecogs.com/svg.image?RMSE=\sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_{pred}-y_{true})^2}" alt="RMSE formula">
+
+    <p>RMSE je uvijek veći ili jednak MAE. Razlika između RMSE i MAE govori o varijabilnosti grešaka: ako su RMSE i MAE slični, to znači da su greške uglavnom konstantne veličine. Ako je RMSE značajno veći od MAE, to ukazuje da postoje i neke velike greške pored manjih.</p>
+
+    <img src="../plots_extended/07_mae_vs_rmse.png" alt="Poređenje MAE i RMSE za sve modele">
+
+    <h3>Bias (sistematska greška)</h3>
+
+    <p>Takođe sam računao bias (sistematsku grešku):</p>
+
+    <img src="https://latex.codecogs.com/svg.image?Bias=\frac{1}{n}\sum_{i=1}^{n}(y_{pred}-y_{true})" alt="Bias formula">
+
+    <p>Pozitivan bias znači da model pregrijava, negativan da pothlađuje. Za razliku od MAE i MSE, bias ne koristi apsolutne vrijednosti niti kvadrate — pozitivne i negativne greške se međusobno poništavaju. To čini bias korisnim za otkrivanje sistematskih tendencija: model sa bias-om od -0.9°C konzistentno predviđa nižu temperaturu od stvarne.</p>
+
+    <h2>Rezultati</h2>
+
+    <p>Analiza je potvrdila moje sumnje. Evo šta sam otkrio:</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Model</th>
+                <th>MAE Temp (°C)</th>
+                <th>Bias (°C)</th>
+                <th>MAE Vjetar (m/s)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>ARPEGE Europe</td>
+                <td>1.39</td>
+                <td>-0.51</td>
+                <td>1.56</td>
+            </tr>
+            <tr>
+                <td>MeteoFrance</td>
+                <td>1.39</td>
+                <td>-0.51</td>
+                <td>1.56</td>
+            </tr>
+            <tr>
+                <td>GFS Seamless</td>
+                <td>1.74</td>
+                <td>-0.85</td>
+                <td>1.48</td>
+            </tr>
+            <tr>
+                <td>ECMWF IFS025</td>
+                <td>1.80</td>
+                <td>-0.92</td>
+                <td>0.71</td>
+            </tr>
+            <tr>
+                <td>ICON Seamless</td>
+                <td>1.97</td>
+                <td>+0.71</td>
+                <td>1.23</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <img src="../plots_extended/01_model_performance_overview.png" alt="Pregled performansi modela">
+
+    <p>Nekoliko stvari je očito. Prvo, većina modela ima negativan bias za temperaturu - što znači da sistematski pothlađuju Budvu za pola stepena ili više. Samo ICON ima pozitivan bias (pregrijava). Drugo, greške nisu uniforme tokom cijele godine. Zimi su veće nego ljeti.</p>
+
+    <img src="../plots_extended/02_systematic_bias.png" alt="Sistematski bias temperature i vjetra">
+
+    <img src="../plots_extended/06_model_comparison_matrix.png" alt="Matrica poređenja modela">
+
+    <p>Posebno me je zanimala BURA - jak sjeveroistočni vjetar koji puše sa planina prema moru. Definisao sam je kao vjetar brzine preko 8 m/s iz smjera između 315° i 45°. Tokom BURE, modeli imaju značajno veće greške nego inače.</p>
+
+    <img src="../plots_extended/03_seasonal_analysis.png" alt="Sezonska analiza grešaka">
+
+    <h2>Sezonski obrasci</h2>
+
+    <p>Greške se značajno razlikuju po sezonama. Ljeti su najveće, što je vjerovatno zbog intenzivnijih konvektivnih procesa i lokalne cirkulacije zbog mora.</p>
+
+    <img src="../plots_extended/08_bias_heatmap.png" alt="Heatmapa sezonskog biasa">
+
+    <img src="../plots_extended/04_diurnal_cycle.png" alt="Dnevni ciklus grešaka">
+
+    <img src="../plots_extended/09_weather_condition_comparison.png" alt="Poređenje po vremenskim uslovima">
+
+    <h2>Dodatna analiza</h2>
+
+    <p>Pored osnovnih metrika, analizirao sam i sposobnost modela da predviđaju oblačnost i padavine — dva parametra koja su tradicionalno teška za prognozu na lokalnom nivou.</p>
+
+    <img src="../plots_extended/12_cloudiness_skill.png" alt="Vještina predviđanja oblačnosti">
+
+    <img src="../plots_extended/10_precipitation_intensity.png" alt="Intenzitet padavina">
+
+    <p>Radar grafik ispod prikazuje performanse svakog modela na svim analiziranim varijablama — temperatura, brzina vjetra, padavine, oblačnost — dajući kompletnu sliku prednosti i slabosti svakog modela.</p>
+
+    <img src="../plots_extended/11_radar_all_variables.png" alt="Radar grafik svih varijabli">
+
+    <h2>Kako to popraviti</h2>
+
+    <p>Ideja je da treniram model mašinskog učenja (konkretno XGBoost) koji će naučiti iz grešaka koje globalni modeli prave. Model uzima sirove prognoze kao input i daje korigovanu prognozu kao output.</p>
+
+    <p>Ključno je kreirati dobre feature-e. Pored sirovih prognoza, dodajem:</p>
+
+    <ul>
+        <li>Lag features - prethodne opservacije (temperatura prije 1h, 6h, 24h)</li>
+        <li>Ciklične varijable - sat u danu i dan u godini kao sin/cos funkcije</li>
+        <li>BURA flag - binarna varijabla koja označava da li je trenutno BURA</li>
+        <li>Sezonski faktori - zima/proleće/ljeto/jesen</li>
+        <li>Ensemble - kombinirane prognoze iz više modela</li>
+    </ul>
+
+    <p>Loss funkcija koju minimiziram je također Mean Absolute Error:</p>
+
+    <img src="https://latex.codecogs.com/svg.image?L=\frac{1}{n}\sum_{i=1}^{n}|f(x_i)-y_i|" alt="Loss function">
+
+    <p>Cilj je spustiti MAE ispod 1.0°C. To bi bilo poboljšanje od oko 30-40% u odnosu na najbolji globalni model.</p>
+
+    <h2>Ukupno rangiranje</h2>
+
+    <p>Na osnovu svih analiziranih parametara, evo ukupnog rangiranja modela za Budvu:</p>
+
+    <img src="../plots_extended/13_overall_ranking.png" alt="Ukupno rangiranje modela">
+
+    <h2>Tehnički detalji</h2>
+
+    <p>Cijeli projekat je napisan u Pythonu. Koristim <code>pandas</code> i <code>numpy</code> za obradu podataka, <code>matplotlib</code> i <code>seaborn</code> za vizualizacije, i <code>xgboost</code> za mašinsko učenje.</p>
+
+    <p>Podatke preuzimam sa Open-Meteo API-ja, koji besplatno daje pristup istorijskim prognozama globalnih modela. Imam implementiran retry mehanizam jer postoje rate limiti.</p>
+
+    <div class="note">
+        <strong>Napomena:</strong> Kod projekta je potpuno open source i dostupan na GitHubu. Uključuje kompletan pipeline za preuzimanje podataka, analizu, vizualizaciju i pripremu za ML model.
+    </div>
+
+    <h2>Zašto sam zainteresovan za ovo</h2>
+
+    <p>Živim u Budvi, i kao većina ljudi ovdje, koristim vremensku prognozu svakodnevno. Turizam je ogroman dio ekonomije, i tačna prognoza direktno utiče na odluke turista, lokalnih biznisa, i pomorskog saobraćaja.</p>
+
+    <p>Ali isto tako, ovo je fascinantan problem iz perspektive data science-a. Globalni modeli su nevjerovatno sofisticirani - simuliraju cijelu atmosferu koristeći fizičke jednačine. Ali oni ne mogu biti perfektni za svaku pojedinačnu lokaciju. Tu dolazi mašinsko učenje - može naučiti lokalne obrasce bez potrebe da eksplicitno modelira fiziku.</p>
+
+    <h2>Šta dalje</h2>
+
+    <p>Sledeći korak je finalizirati i testirati ML model. Takođe planiram da implementiram real-time pipeline koji će automatski preuzimati nove prognoze, prolaziti ih kroz model, i servirati poboljšane prognoze.</p>
+
+    <p>Ako projekat bude uspio (odnosno, ako dobijem MAE ispod 1.0°C na test setu), planiram napraviti jednostavan web interfejs gdje ljudi mogu vidjeti i obične prognoze i moje ML-korigovane prognoze uporedo.</p>
+
+    <p>Ako imate pitanja ili prijedloge, slobodno mi pišite na <a href="mailto:ivanovicmatija2007@gmail.com">ivanovicmatija2007@gmail.com</a>.</p>
+</body>
+</html>
