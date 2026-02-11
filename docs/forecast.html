@@ -262,15 +262,15 @@
         .detail-item .detail-val { color: #24292e; font-weight: 500; }
 
         .precip-badge {
-            background: #dbeafe;
-            border: 1px solid #93c5fd;
+            background: transparent;
+            border: 1px solid #e1e4e8;
             border-radius: 8px;
             padding: 6px 10px;
             margin-top: 12px;
             text-align: center;
             font-size: 14px;
             font-weight: 600;
-            color: #1e40af;
+            color: #24292e;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -774,6 +774,10 @@ function render(data) {
             Vremenski modeli gube preciznost sa horizontom prognoze.
             Na 3. dan greška temperature može biti 2x veća nego na 1. dan, a na 7. dan prognoza je tek indikacija generalnog trenda.
             Koristite ovo kao orijentir za planiranje, ne kao garanciju.
+        </p><p style="margin-top:8px">
+            Opis vremena za svaki dan (npr. "Oblačno", "Slaba kiša") bira se na osnovu najčešćeg vremenskog koda tokom 24h,
+            uz korekciju: ako postoje padavine &gt; 0.1 mm, dan ne može biti klasifikovan kao "Vedro";
+            ako je prosječna oblačnost danju &gt; 60%, postaje "Oblačno", a &gt; 30% "Djelimično oblačno".
         </p></div>`;
         html += '<div class="long-range-grid">';
         data.long_range.forEach(d => {
