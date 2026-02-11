@@ -122,20 +122,13 @@
             font-size: 16px;
         }
 
-        /* ─── Daily Cards ─── */
         .daily-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 16px;
             margin: 24px -60px 32px;
-            max-width: 800px;
-            margin-left: auto;
-            margin-right: auto;
-            margin-top: 24px;
-            margin-bottom: 32px;
         }
 
-        /* ─── Current Weather Card ─── */
         .current-weather {
             background: linear-gradient(135deg, #f6f8fa 0%, #ffffff 100%);
             border: 1px solid #e1e4e8;
@@ -267,7 +260,6 @@
         .detail-item .detail-icon { font-size: 16px; }
         .detail-item .detail-val { color: #24292e; font-weight: 500; }
 
-        /* ─── Hourly Strip ─── */
         .hourly-strip {
             background: #f6f8fa;
             border: 1px solid #e1e4e8;
@@ -308,7 +300,6 @@
         .hourly-cell .h-rain { color: #0366d6; font-size: 13px; margin-top: 6px; font-weight: 500; }
         .hourly-cell .h-wind { color: #586069; font-size: 12px; margin-top: 3px; }
 
-        /* ─── Long Range ─── */
         .long-range-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -365,7 +356,6 @@
             margin-top: 2px;
         }
 
-        /* ─── Chart Tabs ─── */
         .charts-section {
             margin-bottom: 36px;
         }
@@ -409,7 +399,6 @@
             height: 340px;
         }
 
-        /* ─── Metrics ─── */
         .metrics-bar {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -445,7 +434,6 @@
             font-weight: 500;
         }
 
-        /* ─── Footer ─── */
         .footer {
             text-align: center;
             color: #586069;
@@ -457,7 +445,6 @@
 
         .footer a { color: #0366d6; }
 
-        /* ─── Loading ─── */
         .loading {
             text-align: center;
             padding: 80px 20px;
@@ -487,7 +474,7 @@
             .day-card .temp-range { font-size: 22px; }
             .chart-container { height: 280px; }
             .metrics-bar { grid-template-columns: repeat(2, 1fr); }
-            .daily-grid { grid-template-columns: 1fr; max-width: 100%; }
+            .daily-grid { grid-template-columns: 1fr; margin-left: 0; margin-right: 0; }
             .current-weather { margin-left: 0; margin-right: 0; flex-direction: column; text-align: center; }
             .current-weather .cw-details { justify-content: center; }
             .hourly-strip { margin-left: 0; margin-right: 0; }
@@ -524,8 +511,6 @@ const DAY_NAMES_SR = {
     Thursday: 'Četvrtak', Friday: 'Petak', Saturday: 'Subota', Sunday: 'Nedjelja'
 };
 
-// ─── SVG weather icons (inline, no external deps) ───
-// Clean, minimal line-art icons inspired by weather apps
 const SVG_ICONS = {
     clear_day: `<svg viewBox="0 0 64 64" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"><circle cx="32" cy="32" r="11"/><line x1="32" y1="6" x2="32" y2="14"/><line x1="32" y1="50" x2="32" y2="58"/><line x1="6" y1="32" x2="14" y2="32"/><line x1="50" y1="32" x2="58" y2="32"/><line x1="13.6" y1="13.6" x2="19.3" y2="19.3"/><line x1="44.7" y1="44.7" x2="50.4" y2="50.4"/><line x1="50.4" y1="13.6" x2="44.7" y2="19.3"/><line x1="19.3" y1="44.7" x2="13.6" y2="50.4"/></svg>`,
     clear_night: `<svg viewBox="0 0 64 64" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round"><path d="M38 10c-12.7 2.2-22 13-22 26 0 14.4 11.6 26 26 26 8.5 0 16-4.1 20.7-10.4C50 54 38.5 45 38.5 32c0-9 4.5-17 11.5-21.5C46.5 9 42 9 38 10z" fill="#94a3b8" opacity="0.15"/></svg>`,
@@ -542,7 +527,6 @@ const SVG_ICONS = {
     shower_night: `<svg viewBox="0 0 64 64" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M18 6c-4.5 1-7.5 4.5-7.5 9.5 0 5.5 4.5 9.5 9.5 9.5 2.8 0 5.3-1.2 7-3.2" stroke="#94a3b8" fill="#94a3b8" opacity="0.1"/><path d="M18 36c0-5.5 4.5-10 10-10 4.8 0 8.8 3.2 10 7.6C43 34 47 38.5 47 44c0 5-4 9-9 9H21c-4 0-7.5-3.5-7.5-7.5S17 38 21 38" stroke="#64748b" fill="#64748b" opacity="0.08"/><line x1="22" y1="56" x2="20" y2="62" stroke="#3b82f6"/><line x1="32" y1="56" x2="30" y2="62" stroke="#3b82f6"/></svg>`,
 };
 
-// Map WMO codes → icon key + support night variants
 function getWeatherSvg(code, hour) {
     const isNight = hour < 6 || hour >= 20;
     const map = {
@@ -563,7 +547,6 @@ function getWeatherSvg(code, hour) {
     return SVG_ICONS[key] || SVG_ICONS.clear_day;
 }
 
-// ─── Meteocons CDN icons ───
 const ICON_CDN = 'https://bmcdn.nl/assets/weather-icons/v3.0/fill/svg/';
 const ICON_MAP = {
     clear_day: 'clear-day.svg', clear_night: 'clear-night.svg',
@@ -631,19 +614,17 @@ function windArrow(deg) {
     return `<span style="display:inline-block;transform:rotate(${deg}deg);line-height:1">↓</span>`;
 }
 
-// ─── Accuracy % from MAE (meaningful range-based) ───
 function maeToAccuracy(param, mae) {
-    // Typical ranges for Budva weather parameters
     const ranges = {
-        temperature_2m: 35,         // roughly -5 to 30°C
-        wind_speed_10m: 15,         // 0-15 m/s typical
-        pressure_msl: 40,           // ~990-1030 hPa
-        relative_humidity_2m: 100,  // 0-100%
-        precipitation: 10,          // 0-10 mm/h
-        cloud_cover: 100,           // 0-100%
-        dew_point_2m: 30,           // -10 to 20°C
-        wind_gusts_10m: 25,         // 0-25 m/s
-        shortwave_radiation: 800,   // 0-800 W/m²
+        temperature_2m: 35,         
+        wind_speed_10m: 15,         
+        pressure_msl: 40,           
+        relative_humidity_2m: 100,  
+        precipitation: 10,          
+        cloud_cover: 100,           
+        dew_point_2m: 30,           
+        wind_gusts_10m: 25,         
+        shortwave_radiation: 800,   
     };
     const range = ranges[param] || 30;
     return Math.max(0, Math.min(100, (1 - mae / range) * 100));
@@ -673,7 +654,6 @@ function render(data) {
 
     let html = '';
 
-    // ─── Daily summary cards ───
     html += '<div class="daily-grid">';
     data.daily_summary.forEach(d => {
         const dayName = DAY_NAMES_SR[d.day_name] || d.day_name;
@@ -707,7 +687,6 @@ function render(data) {
     });
     html += '</div>';
 
-    // ─── Current Weather Card ───
     const now = new Date();
     const currentHour = now.getHours();
     const currentData = data.hourly_forecast.find(h => h.hour === currentHour) || data.hourly_forecast[0];
@@ -732,7 +711,6 @@ function render(data) {
         </div>`;
     }
 
-    // ─── Hourly strip with SVG icons ───
     html += '<div class="hourly-strip"><h3>Prognoza po satima</h3><div class="hourly-row">';
     data.hourly_forecast.forEach(h => {
         const t = h.temperature_2m != null ? Math.round(h.temperature_2m) + '°' : '-';
@@ -751,7 +729,6 @@ function render(data) {
     });
     html += '</div></div>';
 
-    // ─── Charts ───
     html += `
     <h2>Interaktivni grafovi</h2>
     <p style="color:#586069;font-size:15px;margin-bottom:16px;">Puna linija: XGBoost korekcija · Isprekidana linija: sirovi ensemble prosjek</p>
@@ -769,7 +746,6 @@ function render(data) {
         </div>
     </div>`;
 
-    // ─── Long Range (7 dana) ───
     if (data.long_range && data.long_range.length > 0) {
         html += '<h2>Dugorocna prognoza</h2>';
         html += `<div class="note" style="margin-bottom:20px">
@@ -806,7 +782,6 @@ function render(data) {
         html += '</div>';
     }
 
-    // ─── Footer ───
     html += `
     <div class="footer">
         <div class="note" style="text-align:left;margin-bottom:24px;">
@@ -819,7 +794,6 @@ function render(data) {
 
     document.getElementById('app').innerHTML = html;
 
-    // Chart tabs
     document.querySelectorAll('.chart-tab').forEach(tab => {
         tab.addEventListener('click', () => {
             document.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
