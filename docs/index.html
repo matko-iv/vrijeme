@@ -190,18 +190,16 @@
     <h1>Tačnije Vremenske Prognoze za Budvu</h1>
 
     <div class="note" style="background:#e8f4fd;border-left-color:#0366d6;margin-bottom:30px;">
-        <strong>🌤️ Pogledajte živu prognozu!</strong> Korigovana prognoza za naredna 48 sati sa interaktivnim grafovima i satnim detaljima je dostupna na <a href="forecast.html"><strong>stranici za live prognozu</strong></a>.
+        Korigovana prognoza za narednih 48 sati sa interaktivnim grafovima i satnim detaljima je dostupna na <a href="forecast.html"><strong>stranici za live prognozu</strong></a>.
     </div>
 
-    <p>Globalni meteorološki modeli — ECMWF, GFS, ICON, Météo-France — simuliraju kompletnu atmosferu i daju prognoze za cijelu planetu. Nevjerovatno su sofisticirani, ali nijedan od njih nije optimizovan za jednu tačku na karti. Svaki pravi sistematske greške koje su specifične za lokalnu geografiju: blizinu mora, okolne planine, dominantne vjetrove.</p>
+    <p>Globalni i kontinentalni meteorološki modeli — ECMWF, GFS, ICON, Météo-France — simuliraju kompletnu atmosferu i daju prognoze za cijelu planetu. Nevjerovatno su sofisticirani, ali nijedan od njih nije optimizovan za jednu tačku na karti. Svaki pravi sistematske greške koje su specifične za lokalnu geografiju: blizinu mora, okolne planine, dominantne vjetrove.</p>
 
-    <p>Budva je savršen primjer. Smještena na crnogorskoj obali, okružena planinama, izložena <strong>buri</strong> — jakom sjeveroistočnom vjetru koji drastično mijenja lokalne uslove. Globalni modeli to ne mogu savršeno uhvatiti. Ali mogu naučiti iz svojih grešaka.</p>
-
-    <p>U ovom projektu sam uzeo <strong>3 godine satnih podataka</strong> sa meteo stanice u Budvi (24.000+ mjerenja), uporedio ih sa prognozama <strong>6 globalnih modela</strong>, i trenirao XGBoost model koji sistematski ispravlja njihove greške. Rezultat: <strong>temperatura tačnija za 25%</strong>, <strong>vjetar za 62%</strong>, <strong>pritisak za 68%</strong> — mjereno na podacima koje model nikad nije vidio.</p>
+    <p>Budva je savršen primjer. U ovom projektu sam uzeo 3 godine satnih podataka sa meteo stanice u Budvi (24.000+ mjerenja), uporedio ih sa prognozama 6 globalnih modela, i trenirao XGBoost model koji sistematski ispravlja njihove greške. Rezultat: <strong>temperatura tačnija za 25%</strong>, <strong>vjetar za 62%</strong>, <strong>pritisak za 68%</strong> — mjereno na podacima koje model nikad nije vidio.</p>
 
     <h2>Problem</h2>
 
-    <p>Globalni meteorološki modeli kao što su ECMWF, GFS ili ICON pokrivaju cijelu planetu i izvrsno rade posao na velikom nivou. Međutim, lokalna geografija, blizina mora, i specifičnosti Budve (kao što je BURA - jak sjeveroistočni vjetar) stvaraju uslove koje globalni modeli ne mogu savršeno uhvatiti.</p>
+    <p>Globalni meteorološki modeli kao što su ECMWF, GFS ili ICON pokrivaju cijelu planetu i izvrsno rade posao na velikom nivou. Međutim, lokalna geografija, blizina mora, i specifičnosti Budve stvaraju uslove koje globalni modeli ne mogu savršeno uhvatiti.</p>
 
     <p>Uzeo sam 6 različitih globalnih modela (ECMWF IFS025, ICON Seamless, GFS Seamless, MeteoFrance, ARPEGE Europe i ItaliaMeteo ICON2I) i uporedio njihove prognoze sa stvarnim mjerenjima sa meteo stanice u Budvi tokom posljednje 3 godine. To mi je dalo preko 24,000 satnih tačaka podataka po modelu.</p>
 
@@ -296,7 +294,7 @@
 
     <img src="images/06_model_comparison_matrix.png" alt="Matrica poređenja modela">
 
-    <p>Posebno me je zanimala BURA - jak sjeveroistočni vjetar koji puše sa planina prema moru. Definisao sam je kao vjetar brzine preko 8 m/s iz smjera između 315° i 45°. Tokom BURE, modeli imaju značajno veće greške nego inače.</p>
+    <p>Posebno me je zanimala bura. Definisao sam je kao vjetar brzine preko 8 m/s iz smjera između 315° i 45°. Tokom bure, modeli imaju značajno veće greške nego inače.</p>
 
     <img src="images/03_seasonal_analysis.png" alt="Sezonska analiza grešaka">
 
@@ -332,14 +330,13 @@
         <li>Ensemble statistike — prosjek, standardna devijacija, raspon i medijana prognoza sva 4 modela</li>
         <li>Devijacije — koliko svaki model odstupa od ensemble prosjeka</li>
         <li>Ciklične varijable — sat u danu i dan u godini kao sin/cos funkcije</li>
-        <li>BURA detekcija — flag iz svakog modela + agreement (koliko modela detektuje buru)</li>
         <li>Sezonski faktori — zima/proljeće/ljeto/jesen</li>
         <li>Cross-parameter interakcije — razlika temp/dew point, odnos vjetra i pritiska</li>
         <li><strong>Tabele istorijskog biasa</strong> — prosječna greška svakog modela za svaki parametar, po mjesecu i satu (288 lookup features)</li>
         <li><strong>Clear-sky model</strong> — teoretska solarna radijacija za Budvu (42.29°N, 18.84°E) kao proxy za dnevne cikluse</li>
     </ul>
 
-    <p>Loss funkcija koju minimiziram je također Mean Absolute Error:</p>
+    <p>Loss funkcija koju minimiziram je isto Mean Absolute Error:</p>
 
     <img src="https://latex.codecogs.com/svg.image?L=\frac{1}{n}\sum_{i=1}^{n}|f(x_i)-y_i|" alt="Loss function">
 
@@ -423,7 +420,7 @@
         <tr><td><code>min_child_weight</code></td><td>5</td><td>Minimalni zbroj hesijana u listu</td></tr>
     </table>
 
-    <p>Treniram <strong>poseban model za svaki parametar</strong> (temperatura, pritisak, vlažnost, vjetar, tačka rose, udari vjetra), koristeći prognoze sva 4 modela kao input. Na validacionom setu (juli 2025 — februar 2026), rezultati su:</p>
+    <p>Treniram poseban model za svaki parametar (temperatura, pritisak, vlažnost, vjetar, tačka rose, udari vjetra), koristeći prognoze sva 4 modela kao input. Na validacionom setu (jul 2025 — februar 2026), rezultati su:</p>
 
     <table>
         <tr><th>Parametar</th><th>XGBoost MAE</th><th>Najbolji model MAE</th><th>Poboljšanje</th></tr>
@@ -439,10 +436,6 @@
     </table>
 
     <div class="note">
-        <strong>Novo u v2:</strong> Oblačnost, padavine i solarna radijacija sada prolaze kroz XGBoost korekciju. Oblačnost se izvodi iz solarnog W/m² mjerenja stanice (proxy za oblačnost), a satne padavine iz precip_rate mjerenja. Prethodno su ovi parametri koristili samo ensemble prosjek jer nije bilo pouzdanih satnih opservacija.
-    </div>
-
-    <div class="note">
         <strong>Ključna razlika od naivnog modela:</strong> Ovaj model NE koristi lag feature-e opservacija (temperatura prije 1h, 6h...) niti rolling error statistike — jer u realnom vremenu nemamo buduća mjerenja. Umjesto toga, oslanja se na: ensemble statistike (prosjek, std, raspon, medijana), ciklične vremenske varijable, cross-parameter interakcije (npr. razlika temp/tačke rose), i <strong>tabele istorijskog biasa</strong> — prosječna greška svakog modela za dati mjesec i sat, izračunata samo na trening podacima. Ove tabele su dostupne i u produkciji jer ne zahtijevaju buduće opservacije.
     </div>
 
@@ -452,9 +445,9 @@
 
     <p><strong>Konvektivne padavine i mini pljuskovi.</strong> Kratkotrajne oluje, iznenadni pljuskovi i lokalne konvektivne ćelije su najteži problem. Ovi događaji se dešavaju na prostornoj skali od nekoliko kilometara i vremenskoj skali od 15-30 minuta. Globalni modeli koje koristimo (ARPÈGE ~10km, GFS ~25km, ICON ~13km, Météo-France ~10km) jednostavno nemaju dovoljnu rezoluciju da ih uhvate. XGBoost može naučiti da prepozna uslove koji favorizuju konvekciju, ali ne može predvidjeti tačnu lokaciju i tajming pljuska — jer ni input modeli to ne vide.</p>
 
-    <p><strong>Rezolucija za Crnu Goru.</strong> Budva leži na obali, sa planinama od 1000+ metara na samo nekoliko kilometara od mora. Ova izuzetna orografska kompleksnost zahtijeva rezoluciju od <2km da bi se adekvatno modelirali lokalni efekti — priobalni brize, orografsko podizanje, i pojačanja vjetra u kanjonima. Nijedan od globalnih modela koje koristimo nema takvu rezoluciju za ovo područje. Ovo važi generalno za citavu Crnu Goru, čija izrazito kompleksna topografija predstavlja poseban izazov za numeričke prognoze.</p>
+    <p><strong>Rezolucija za Crnu Goru.</strong> Budva leži na obali, sa planinama od 1000+ metara na samo nekoliko kilometara od mora. Ova izuzetna orografska kompleksnost zahtijeva rezoluciju od 2km ili manje da bi se adekvatno modelirali lokalni efekti. Nijedan od globalnih modela koje koristimo nema takvu rezoluciju za ovo područje. Ovo važi generalno za čitavu Crnu Goru, čija izrazito kompleksna topografija predstavlja poseban izazov za numeričke prognoze.</p>
 
-    <p><strong>Ensemble ≠ novi model.</strong> Naš pristup koristi ansambl postojećih modela — ali 6 modela koji svi griješe na sličan način neće magično dati tačan odgovor. Ansambl smanjuje slučajnu grešku, ali ne može kompenzovati sistematski nedostatak rezolucije. Za zaista novi kvalitet prognoze za Budvu, bio bi potreban high-resolution LAM (Limited Area Model) na ~1km gridu, poput AROME ili ICON-D2 kalibrisan za Jadransku obalu.</p>
+    <p><strong>Ensemble ≠ novi model.</strong> Moj pristup koristi ansambl postojećih modela — ali 6 modela koji svi griješe na sličan način neće magično dati tačan odgovor. Ansambl smanjuje slučajnu grešku, ali ne može kompenzovati sistematski nedostatak rezolucije. Za zaista novi kvalitet prognoze za Budvu, bio bi potreban high-resolution LAM (Limited Area Model) na ~1km gridu, poput AROME ili ICON-D2 kalibrisan za Jadransku obalu.</p>
 
     <div class="note">
         <strong>Ukratko:</strong> Ovaj sistem daje najbolju moguću korekciju postojećih globalnih prognoza — ali ne zamjenjuje potrebu za visoko-rezolutivnim regionalnim modelima. Najveća poboljšanja su na "glatkim" varijablama (temperatura, pritisak, vlažnost), dok padavine i lokalni vjetrovi ostaju fundamentalno limitirani ulaznom rezolucijom.
@@ -473,14 +466,14 @@
     <p>Podatke preuzimam sa Open-Meteo API-ja, koji besplatno daje pristup istorijskim prognozama globalnih modela. Imam implementiran retry mehanizam jer postoje rate limiti.</p>
 
     <div class="note">
-        <strong>Napomena:</strong> Kod projekta je potpuno open source i dostupan na GitHubu. Uključuje kompletan pipeline za preuzimanje podataka, analizu, vizualizaciju i pripremu za ML model.
+        <strong>Napomena:</strong> Kod projekta će uskoro biti potpuno open source i dostupan na GitHubu. Uključivaće kompletan proces preuzimanja podataka, analizu, vizualizaciju i pripremu za ML model. Ovo će omogućiti svima da repliciraju analizu, treniraju vlastite modele, ili primjene sličan pristup na druge lokacije osim Budve.
     </div>
 
     <h2>Zašto sam zainteresovan za ovo</h2>
 
-    <p>Živim u Budvi, i kao većina ljudi ovdje, koristim vremensku prognozu svakodnevno. Turizam je ogroman dio ekonomije, i tačna prognoza direktno utiče na odluke turista, lokalnih biznisa, i pomorskog saobraćaja.</p>
+    <p>Živim u Budvi. Budem nekad isfrustriran tačnošću vremenskih prognoza. </p>
 
-    <p>Ali isto tako, ovo je fascinantan problem iz perspektive data science-a. Globalni modeli su nevjerovatno sofisticirani - simuliraju cijelu atmosferu koristeći fizičke jednačine. Ali oni ne mogu biti perfektni za svaku pojedinačnu lokaciju. Tu dolazi mašinsko učenje - može naučiti lokalne obrasce bez potrebe da eksplicitno modelira fiziku.</p>
+    <p>Ali isto tako, ovo je fascinantan problem iz perspektive data science-a. Globalni modeli su nevjerovatno zanimljivi - simuliraju cijelu atmosferu koristeći fizičke jednačine. Ali oni ne mogu biti perfektni za svaku pojedinačnu lokaciju. Tu dolazi mašinsko učenje - može naučiti lokalne obrasce bez potrebe da eksplicitno modelira fiziku. A dok se ne razviju lokalni ali i pouzdani modeli, ovo je koristan pristup.</p>
 
     <h2>Tačnost XGBoost sistema</h2>
 
@@ -503,40 +496,32 @@
             return;
         }
         const m = data.training_metrics;
-        const ranges = {temperature_2m:35,wind_speed_10m:15,pressure_msl:40,relative_humidity_2m:100,precipitation:10,cloud_cover:100};
-        const keys = Object.keys(ranges);
-        let accs = [];
-        keys.forEach(k => { if (m[k]) accs.push(Math.max(0, Math.min(100, (1 - m[k].mae / ranges[k]) * 100))); });
-        const overall = accs.length > 0 ? accs.reduce((a,b) => a+b, 0) / accs.length : 0;
-
-        const colors = {temperature_2m:'#d73a49',wind_speed_10m:'#0366d6',pressure_msl:'#28a745',relative_humidity_2m:'#6f42c1',precipitation:'#0366d6',cloud_cover:'#586069'};
-        const labels = {temperature_2m:'Temperatura',wind_speed_10m:'Vjetar',pressure_msl:'Pritisak',relative_humidity_2m:'Vlažnost',precipitation:'Padavine',cloud_cover:'Oblačnost'};
-        const units = {temperature_2m:'°C',wind_speed_10m:'m/s',pressure_msl:'hPa',relative_humidity_2m:'%',precipitation:'mm',cloud_cover:'%'};
+        const keys = ['temperature_2m','dew_point_2m','relative_humidity_2m','wind_speed_10m','wind_gusts_10m','pressure_msl','cloud_cover','precipitation'];
+        const colors = {temperature_2m:'#d73a49',dew_point_2m:'#e36209',relative_humidity_2m:'#6f42c1',wind_speed_10m:'#0366d6',wind_gusts_10m:'#0366d6',pressure_msl:'#28a745',cloud_cover:'#586069',precipitation:'#0366d6'};
+        const labels = {temperature_2m:'Temperatura',dew_point_2m:'Tačka rose',relative_humidity_2m:'Vlažnost',wind_speed_10m:'Vjetar',wind_gusts_10m:'Udari vjetra',pressure_msl:'Pritisak',cloud_cover:'Oblačnost',precipitation:'Padavine'};
 
         let cards = '';
         keys.forEach(k => {
             if (!m[k]) return;
-            const acc = Math.max(0, Math.min(100, (1 - m[k].mae / ranges[k]) * 100));
             cards += '<div style="background:#f6f8fa;border:1px solid #e1e4e8;border-radius:10px;padding:16px;text-align:center">'
                 + '<div style="font-size:11px;color:#586069;text-transform:uppercase;letter-spacing:0.5px">' + labels[k] + '</div>'
-                + '<div style="font-size:22px;font-weight:700;margin:4px 0;color:' + colors[k] + '">' + acc.toFixed(1) + '%</div>'
-                + '<div style="font-size:11px;color:#959da5">MAE: ' + m[k].mae + units[k] + '</div>'
-                + '<div style="font-size:12px;color:#28a745;font-weight:500">+' + m[k].improvement + '% vs best model</div></div>';
+                + '<div style="font-size:24px;font-weight:700;margin:6px 0;color:' + colors[k] + '">' + m[k].mae + ' <span style="font-size:14px;font-weight:500">' + m[k].unit + '</span></div>'
+                + '<div style="font-size:12px;color:#959da5;margin-bottom:4px">prosječna greška (MAE)</div>'
+                + '<div style="font-size:12px;color:#28a745;font-weight:600">↑ ' + m[k].improvement + '% bolje od najboljeg modela</div></div>';
         });
 
         document.getElementById('liveAccuracy').innerHTML =
             '<div style="text-align:center;margin-bottom:24px">'
-            + '<div style="font-size:56px;font-weight:800;color:#24292e;line-height:1">' + overall.toFixed(1) + '%</div>'
-            + '<div style="font-size:15px;color:#586069;margin-top:4px">prosječna tačnost na validacionom setu</div>'
-            + '<div style="font-size:13px;color:#959da5;margin-top:2px">izračunato iz MAE relativno na tipičan raspon za svaki parametar</div></div>'
-            + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px">' + cards + '</div>'
-            + '<p style="font-size:14px;color:#586069">Generisano: ' + new Date(data.generated).toLocaleDateString('sr-Latn') + ' · ' + data.models.length + ' modela</p>';
+            + '<div style="font-size:18px;color:#24292e;font-weight:600">Prosječna greška po parametru (MAE)</div>'
+            + '<div style="font-size:14px;color:#586069;margin-top:4px">Niža vrijednost = preciznija prognoza</div></div>'
+            + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">' + cards + '</div>'
+            + '<p style="font-size:14px;color:#586069">Generisano: ' + new Date(data.generated).toLocaleDateString('sr-Latn') + ' · ' + data.models.length + ' modela · validacioni set jul 2025 — jan 2026</p>';
     })();
     </script>
 
     <h2>Šta dalje</h2>
 
-    <p>Production pipeline v2 je <strong>završen i operativan</strong>. Sistem sada:</p>
+    <p>Produkcijska verzija je završena. Možete posjetiti <strong><a href="forecast.html">stranicu sa živom prognozom</a></strong>.</p>
 
     <ol>
         <li>Preuzima live prognoze sa Open-Meteo API za svih <strong>6 modela</strong> (ARPÈGE, GFS, ICON, Météo-France, ECMWF IFS, ItaliaMeteo)</li>
@@ -545,17 +530,9 @@
         <li>Generiše korigovanu +48h prognozu sa interaktivnim web prikazom</li>
     </ol>
 
-    <p><strong>📊 <a href="forecast.html">Pogledajte živu prognozu →</a></strong> — interaktivni grafovi, satni detalji, i poređenje XGBoost vs ensemble predikcija.</p>
+    <p>Sada što slijedi jeste dodatno treniranje i usavršavanje modela kako bi prognoze bile još preciznije i pouzdanije, uz pomoć realnih obzervacija sa vremenske stanice ali i ljudske objektivne obzervacije vremena. Model koji sam trenirao ću redovno tokom godine udopunjavati sa još podataka sa stanice u Budvi. Treba napomenuti da svako udopunjavanje sada (recimo svakih mjesec dana) ne može mnogo izmijeniti marginu greške (MAE poboljšanje za <1%) s obzirom na dužinu tog podatka u odnosu na čitavih 3 godine zabilježenog prognostičkog perioda.</p>
 
-    <p>Poboljšanja u v2 u odnosu na v1 pipeline:</p>
-    <ul>
-        <li><strong>Oblačnost iz solarne radijacije:</strong> Koristi se W/m² sa WU stanice kao proxy za oblačnost — izvedena oblačnost korelira sa modelskim cloud_cover i omogućava XGBoost trening</li>
-        <li><strong>Satne padavine:</strong> precip_rate_in × 25.4 daje pouzdane satne mm za trening</li>
-        <li><strong>Tabele biasa:</strong> Istorijski prosječni bias per model/parametar/mjesec/sat — dostupan i u produkciji</li>
-        <li><strong>9 umjesto 6 parametara:</strong> Svaki parametar sada prolazi kroz XGBoost korekciju</li>
-    </ul>
-
-    <p>Sljedeći korak je potpuna automatizacija — cron job koji svakih 6 sati generiše novu prognozu i objavljuje je na web interfejsu.</p>
+    <p>Linkove korišćenih podataka možete vidjeti na stranici za live prognozu.</p>
 
     <p>Ako imate pitanja ili prijedloge, slobodno mi pišite na <a href="mailto:ivanovicmatija2007@gmail.com">ivanovicmatija2007@gmail.com</a>.</p>
 </body>

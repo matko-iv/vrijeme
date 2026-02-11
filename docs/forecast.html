@@ -440,6 +440,59 @@ function getWeatherSvg(code, hour) {
     return SVG_ICONS[key] || SVG_ICONS.clear_day;
 }
 
+// ─── Meteocons CDN icons ───
+const ICON_CDN = 'https://bmcdn.nl/assets/weather-icons/v3.0/fill/svg/';
+const ICON_MAP = {
+    clear_day: 'clear-day.svg', clear_night: 'clear-night.svg',
+    partly_cloudy_day: 'partly-cloudy-day.svg', partly_cloudy_night: 'partly-cloudy-night.svg',
+    cloudy: 'cloudy.svg', fog: 'fog.svg',
+    fog_day: 'fog-day.svg', fog_night: 'fog-night.svg',
+    light_rain: 'drizzle.svg', rain: 'rain.svg', heavy_rain: 'extreme-rain.svg',
+    snow: 'snow.svg', heavy_snow: 'extreme-snow.svg',
+    thunderstorm: 'thunderstorms-rain.svg',
+    thunderstorm_day: 'thunderstorms-day-rain.svg', thunderstorm_night: 'thunderstorms-night-rain.svg',
+    shower_day: 'partly-cloudy-day-rain.svg', shower_night: 'partly-cloudy-night-rain.svg',
+    wind: 'wind.svg', humidity: 'humidity.svg', barometer: 'barometer.svg',
+    rain_icon: 'rain.svg', thermometer: 'thermometer.svg',
+};
+
+function weatherIcon(key, size) {
+    const file = ICON_MAP[key] || ICON_MAP.clear_day;
+    return `<img src="${ICON_CDN}${file}" width="${size}" height="${size}" alt="" style="vertical-align:middle" loading="lazy">`;
+}
+
+function getWeatherIcon(code, hour) {
+    const isNight = hour < 6 || hour >= 20;
+    const map = {
+        0: isNight ? 'clear_night' : 'clear_day',
+        1: isNight ? 'partly_cloudy_night' : 'partly_cloudy_day',
+        2: isNight ? 'partly_cloudy_night' : 'partly_cloudy_day',
+        3: 'cloudy',
+        45: isNight ? 'fog_night' : 'fog_day', 48: 'fog',
+        51: 'light_rain', 53: 'rain', 55: 'rain',
+        61: 'light_rain', 63: 'rain', 65: 'heavy_rain',
+        71: 'snow', 73: 'snow', 75: 'heavy_snow',
+        80: isNight ? 'shower_night' : 'shower_day',
+        81: isNight ? 'shower_night' : 'shower_day',
+        82: 'heavy_rain',
+        95: isNight ? 'thunderstorm_night' : 'thunderstorm_day',
+        96: 'thunderstorm', 99: 'thunderstorm'
+    };
+    return map[code] || (isNight ? 'clear_night' : 'clear_day');
+}
+
+function dailyIconKey(iconField) {
+    const map = {
+        clear: 'clear_day', mostly_clear: 'clear_day',
+        partly_cloudy: 'partly_cloudy_day', cloudy: 'cloudy',
+        fog: 'fog_day', light_rain: 'light_rain', rain: 'rain',
+        heavy_rain: 'heavy_rain', snow: 'snow', heavy_snow: 'heavy_snow',
+        thunderstorm: 'thunderstorm_day',
+        shower: 'shower_day'
+    };
+    return map[iconField] || 'partly_cloudy_day';
+}
+
 function formatDate(ds) {
     const d = new Date(ds);
     return d.getDate() + '.' + (d.getMonth()+1) + '.';
