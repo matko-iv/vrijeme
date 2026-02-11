@@ -1,23 +1,8 @@
 """
-XGBoost Multi-Model Ensemble v2 — Corrected +48h Forecast for Budva
-====================================================================
-
-APPROACH: Historical Bias Correction + Ensemble + XGBoost
-1. Compute HISTORICAL AVERAGE BIAS per model/param/month/hour (lookup table)
-2. Use bias tables + multi-model ensemble stats + temporal features for XGBoost
-3. Train one XGBoost per parameter on 2.5 years of data
-4. Fetch live +48h forecasts and apply correction
-
-KEY: NO observation-derived features leak into training. Only model forecasts,
-ensemble statistics, temporal features, and precomputed historical bias tables
-are used. These are ALL available at forecast time.
-
-Includes:
-- Solar radiation → cloud cover proxy (from WU station W/m²)
-- precip_rate_in → hourly precipitation (mm)
-- All parameters: temp, humidity, wind, gusts, pressure, dew point, cloud, precip, solar
-
-Author: Matija Ivanovic · February 2026
+XGBoost +48h forecast correction for Budva.
+Historical bias tables + multi-model ensemble + XGBoost per parameter.
+Run: .venv/Scripts/python.exe forecast_48h_v2.py
+Author: Matija Ivanović (@matko-iv)
 """
 
 import sys, io, os, json, time, warnings
@@ -70,16 +55,13 @@ TARGET_PARAMS = {
     "shortwave_radiation":  {"obs": "shortwave_radiation_obs",  "unit": "W/m\u00b2", "display": "Solar. radijacija"},
 }
 
-SPLIT_DATE = pd.Timestamp('2025-07-01')
+SPLIT_DATE = pd.Timestamp('2025-03-01')
 
 print("=" * 72)
 print("  XGBoost +48h v2 --- Bias Correction Pipeline --- Budva")
 print("=" * 72)
 
 
-# ============================================================
-# CLEAR-SKY MODEL
-# ============================================================
 def compute_clear_sky(dt_series):
     doy = dt_series.dt.dayofyear
     hour = dt_series.dt.hour + dt_series.dt.minute / 60.0
@@ -91,9 +73,6 @@ def compute_clear_sky(dt_series):
     return (1361 * sin_e * 0.75).clip(lower=0)
 
 
-# ============================================================
-# STEP 1: LOAD & MERGE
-# ============================================================
 def load_historical_data():
     print("\n[1/6] Ucitavanje istorijskih podataka...")
     all_dfs = {}
@@ -112,16 +91,14 @@ def load_historical_data():
     base.sort_values('datetime', inplace=True)
     base.reset_index(drop=True, inplace=True)
 
-    # Derive cloud cover from solar W/m2
     solar = pd.to_numeric(base.get('shortwave_radiation_obs', pd.Series(dtype=float)), errors='coerce')
     clear = compute_clear_sky(base['datetime'])
     clarity = (solar / clear.clip(lower=1)).clip(0, 1.5)
     cloud = (1 - clarity).clip(0, 1) * 100
-    cloud[clear < 20] = np.nan  # nighttime
+    cloud[clear < 20] = np.nan
     base['_derived_cloud_obs'] = cloud
     print(f"  Cloud cover derived: {cloud.notna().sum()} valid (daytime)")
 
-    # Derive hourly precip from precip_rate_in (inches -> mm)
     if 'precip_rate_in' in base.columns:
         base['_derived_precip_obs'] = pd.to_numeric(base['precip_rate_in'], errors='coerce') * 25.4
         print(f"  Hourly precip derived: {(base['_derived_precip_obs'] > 0).sum()} non-zero hours")
@@ -132,15 +109,7 @@ def load_historical_data():
     return base
 
 
-# ============================================================
-# STEP 2: HISTORICAL BIAS TABLES + FEATURE ENGINEERING
-# ============================================================
 def compute_bias_tables(df):
-    """
-    Compute HISTORICAL AVERAGE BIAS per (model, param, month, hour).
-    These are STATIC LOOKUP TABLES -- fully available at forecast time.
-    Only computed on TRAINING data (before SPLIT_DATE).
-    """
     print("\n  Kreiranje tabela istorijskog biasa (samo na train podacima)...")
     train = df[df['datetime'] < SPLIT_DATE].copy()
     train['month'] = train['datetime'].dt.month
@@ -158,9 +127,7 @@ def compute_bias_tables(df):
             if fcst_col not in train.columns:
                 continue
             fcst = pd.to_numeric(train[fcst_col], errors='coerce')
-            err = fcst - obs  # bias = forecast - observation
-
-            # Average bias per month x hour
+            err = fcst - obs
             tmp = pd.DataFrame({'err': err, 'month': train['month'], 'hour': train['hour']})
             table = tmp.groupby(['month', 'hour'])['err'].agg(['mean', 'std']).reset_index()
             table.columns = ['month', 'hour', 'bias_mean', 'bias_std']
@@ -172,7 +139,6 @@ def compute_bias_tables(df):
 
 
 def apply_bias_features(df, bias_tables):
-    """Merge bias lookup features into the dataframe."""
     df = df.copy()
     df['_month'] = df['datetime'].dt.month
     df['_hour'] = df['datetime'].dt.hour
@@ -189,10 +155,8 @@ def apply_bias_features(df, bias_tables):
 
 
 def engineer_features(df):
-    """Create features that are ALL available at forecast time."""
     out = df.copy()
 
-    # Temporal
     out['hour'] = out['datetime'].dt.hour
     out['month'] = out['datetime'].dt.month
     out['day_of_year'] = out['datetime'].dt.dayofyear
@@ -206,12 +170,10 @@ def engineer_features(df):
                   6: 2, 7: 2, 8: 2, 9: 3, 10: 3, 11: 3}
     out['season'] = out['month'].map(season_map)
 
-    # Daytime indicator + clear sky
     clear = compute_clear_sky(out['datetime'])
     out['is_daytime'] = (clear > 20).astype(float)
     out['clear_sky_rad'] = clear
 
-    # Ensemble statistics per weather parameter
     ensemble_params = ['temperature_2m', 'dew_point_2m', 'relative_humidity_2m',
                        'apparent_temperature', 'wind_speed_10m', 'wind_gusts_10m',
                        'wind_direction_10m', 'pressure_msl', 'surface_pressure',
@@ -230,28 +192,55 @@ def engineer_features(df):
         out[f'{param}_ens_median'] = vals.median(axis=1)
         out[f'{param}_ens_min'] = vals.min(axis=1)
         out[f'{param}_ens_max'] = vals.max(axis=1)
-        # Per-model deviation from ensemble
         for m in MODELS:
             c = f"{m}_{param}_model"
             if c in out.columns:
                 out[f'{m}_{param}_dev'] = pd.to_numeric(out[c], errors='coerce') - out[f'{param}_ens_mean']
 
-    # Cross-parameter features (all from model forecasts, available at forecast time)
     if 'temperature_2m_ens_mean' in out.columns and 'dew_point_2m_ens_mean' in out.columns:
         out['temp_dew_spread'] = out['temperature_2m_ens_mean'] - out['dew_point_2m_ens_mean']
     if 'wind_speed_10m_ens_mean' in out.columns and 'pressure_msl_ens_mean' in out.columns:
         out['wind_pressure_idx'] = out['wind_speed_10m_ens_mean'] / (out['pressure_msl_ens_mean'] / 1013.25).clip(lower=0.9)
     if 'cloud_cover_ens_mean' in out.columns:
         out['cloud_solar_discrepancy'] = out.get('shortwave_radiation_ens_mean', 0) / (out['cloud_cover_ens_mean'].clip(lower=1))
-    # Pressure tendency from forecasts
     if 'pressure_msl_ens_mean' in out.columns:
         out['pres_tend_3h'] = out['pressure_msl_ens_mean'].diff(3)
         out['pres_tend_6h'] = out['pressure_msl_ens_mean'].diff(6)
-    # Temperature tendency
     if 'temperature_2m_ens_mean' in out.columns:
         out['temp_tend_3h'] = out['temperature_2m_ens_mean'].diff(3)
+        out['temp_tend_6h'] = out['temperature_2m_ens_mean'].diff(6)
 
-    # Bura detection (from model wind direction + speed)
+    rain_mcols = [f"{m}_precipitation_model" for m in MODELS if f"{m}_precipitation_model" in out.columns]
+    if rain_mcols:
+        rain_vals = out[rain_mcols].apply(pd.to_numeric, errors='coerce')
+        out['rain_model_count'] = (rain_vals > 0.1).sum(axis=1)
+        out['rain_agreement'] = out['rain_model_count'] / max(len(rain_mcols), 1)
+
+    wc_feat_cols = [f"{m}_weather_code_model" for m in MODELS if f"{m}_weather_code_model" in out.columns]
+    if wc_feat_cols:
+        wc_vals = out[wc_feat_cols].apply(pd.to_numeric, errors='coerce')
+        out['rain_wc_count'] = (wc_vals >= 51).sum(axis=1)
+        out['storm_wc_count'] = (wc_vals >= 95).sum(axis=1)
+
+    if 'precipitation_ens_mean' in out.columns and 'temperature_2m_ens_mean' in out.columns:
+        out['precip_x_temp'] = out['precipitation_ens_mean'] * out['temperature_2m_ens_mean']
+        out['precip_x_temp_std'] = out['precipitation_ens_mean'] * out.get('temperature_2m_ens_std', 0)
+
+    if 'cloud_cover_ens_mean' in out.columns:
+        out['cloud_tend_3h'] = out['cloud_cover_ens_mean'].diff(3)
+        out['cloud_tend_6h'] = out['cloud_cover_ens_mean'].diff(6)
+
+    if 'precipitation_ens_mean' in out.columns:
+        out['precip_tend_3h'] = out['precipitation_ens_mean'].diff(3)
+        out['precip_tend_6h'] = out['precipitation_ens_mean'].diff(6)
+
+    if 'relative_humidity_2m_ens_mean' in out.columns:
+        out['humidity_tend_3h'] = out['relative_humidity_2m_ens_mean'].diff(3)
+
+    if 'temp_dew_spread' in out.columns:
+        out['dew_spread_tend_3h'] = out['temp_dew_spread'].diff(3)
+        out['dew_spread_tend_6h'] = out['temp_dew_spread'].diff(6)
+
     for m in MODELS:
         wd = f"{m}_wind_direction_10m_model"
         ws = f"{m}_wind_speed_10m_model"
@@ -267,26 +256,18 @@ def engineer_features(df):
 
 
 def get_feature_columns(df):
-    """Return ONLY columns safe for forecasting (no obs data)."""
-    # Explicitly exclude any observation-derived columns
     exclude = set([
         'datetime', 'date',
-        # Raw WU obs columns
         'temp_f', 'dewpoint_f', 'wind_mph', 'gust_mph', 'pressure_in',
         'precip_rate_in', 'precip_accum_in', 'precip_rate_mm', 'precip_accum_mm',
         'temp_obs', 'wind_ms', 'solar_wm2', 'uv',
-        # Pre-derived obs aliases
         'temp_c', 'dewpoint_c', 'humidity_pct', 'wind_dir', 'gust_ms', 'pressure_hpa',
-        # Boolean flags from analysis script
         'day_night', 'time_of_day', 'has_rain', 'light_rain', 'heavy_rain',
         'strong_wind', 'very_strong_wind', 'is_bura', 'winter_bura',
         'cloudy', 'extreme_cold', 'extreme_hot',
-        # Derived observation targets
         '_derived_cloud_obs', '_derived_precip_obs',
-        # Display columns
         'date_str', 'time_str', '_h',
     ])
-    # Also exclude anything ending with _obs
     obs_suffix = '_obs'
 
     features = []
@@ -301,19 +282,11 @@ def get_feature_columns(df):
     return features
 
 
-# ============================================================
-# STEP 3: TRAIN MODELS
-# ============================================================
 def train_all_models(df):
     print("\n[3/6] Treniranje XGBoost modela...")
 
     feature_cols = get_feature_columns(df)
     print(f"  Feature-a za treniranje: {len(feature_cols)}")
-
-    # Sanity check: make sure no obs leaks
-    for f in feature_cols:
-        if '_obs' in f.lower():
-            print(f"  WARNING: possibly leaking feature: {f}")
 
     trained = {}
     results = {}
@@ -339,7 +312,6 @@ def train_all_models(df):
         tr = df_v['datetime'] < SPLIT_DATE
         te = df_v['datetime'] >= SPLIT_DATE
 
-        # Filter features that have enough data
         vf = [c for c in feature_cols if c in df_v.columns
               and df_v[c].notna().sum() > len(df_v) * 0.3]
 
@@ -361,7 +333,6 @@ def train_all_models(df):
 
         y_pred = model.predict(X_te)
 
-        # Physical clamping
         if param == 'relative_humidity_2m':
             y_pred = np.clip(y_pred, 0, 100)
         elif param == 'cloud_cover':
@@ -372,7 +343,6 @@ def train_all_models(df):
         mae = mean_absolute_error(y_te, y_pred)
         rmse = np.sqrt(mean_squared_error(y_te, y_pred))
 
-        # Best single model
         best_mae, best_m = float('inf'), ""
         for m in MODELS:
             mc = f"{m}_{param}_model"
@@ -384,7 +354,6 @@ def train_all_models(df):
                     if mm < best_mae:
                         best_mae, best_m = mm, m
 
-        # Simple ensemble
         ens_col = f'{param}_ens_mean'
         ens_mae = float('inf')
         if ens_col in df_v.columns:
@@ -424,9 +393,6 @@ def train_all_models(df):
     return trained, results
 
 
-# ============================================================
-# STEP 4: FETCH LIVE +48H FORECASTS
-# ============================================================
 def fetch_live_forecasts():
     print("\n[4/6] Preuzimanje LIVE prognoza...")
     URL = "https://api.open-meteo.com/v1/forecast"
@@ -438,7 +404,7 @@ def fetch_live_forecasts():
             "hourly": ",".join(HOURLY_VARS),
             "timezone": "auto", "temperature_unit": "celsius",
             "wind_speed_unit": "ms", "precipitation_unit": "mm",
-            "models": model_id, "forecast_days": 3,
+            "models": model_id, "forecast_days": 10,
         }
         for attempt in range(3):
             try:
@@ -471,32 +437,25 @@ def fetch_live_forecasts():
     merged.reset_index(drop=True, inplace=True)
 
     now = pd.Timestamp.now().floor('h')
-    mask = (merged['datetime'] >= now) & (merged['datetime'] < now + pd.Timedelta(hours=48))
-    fc48 = merged[mask].copy().reset_index(drop=True)
-    print(f"  48h forecast: {fc48.shape[0]} sati ({fc48['datetime'].min()} --- {fc48['datetime'].max()})")
-    return fc48
+    mask = merged['datetime'] >= now
+    fc_all = merged[mask].copy().reset_index(drop=True)
+    print(f"  Prognoza: {fc_all.shape[0]} sati ({fc_all['datetime'].min()} --- {fc_all['datetime'].max()})")
+    return fc_all
 
 
-# ============================================================
-# STEP 5: APPLY CORRECTION
-# ============================================================
 def apply_correction(fc_df, trained, bias_tables):
     print("\n[5/6] Primjena korekcije...")
 
-    # Apply bias lookup features
     fc = apply_bias_features(fc_df.copy(), bias_tables)
-    # Engineer features
     fc = engineer_features(fc)
 
     corrected = fc[['datetime']].copy()
 
-    # Store raw ensemble
     for param in TARGET_PARAMS:
         ens = f'{param}_ens_mean'
         if ens in fc.columns:
             corrected[f'{param}_ensemble'] = fc[ens]
 
-    # XGBoost correction
     for param, minfo in trained.items():
         model = minfo['model']
         features = minfo['features']
@@ -521,17 +480,15 @@ def apply_correction(fc_df, trained, bias_tables):
         elif param in ['wind_speed_10m', 'wind_gusts_10m', 'precipitation', 'shortwave_radiation']:
             pred = np.clip(pred, 0, None)
         if param == 'precipitation':
-            pred = np.clip(pred, 0, 50)  # max 50mm/h is extreme enough
+            pred = np.clip(pred, 0, 50)
 
         corrected[f'{param}_xgb'] = pred
         print(f"  {TARGET_PARAMS[param]['display']:20s} (MAE={minfo['mae']:.3f}{TARGET_PARAMS[param]['unit']})")
 
-    # Weather code: ensemble mode
     wc_cols = [f"{m}_weather_code_model" for m in MODELS if f"{m}_weather_code_model" in fc.columns]
     if wc_cols:
         corrected['weather_code'] = fc[wc_cols].apply(pd.to_numeric, errors='coerce').mode(axis=1)[0]
 
-    # Extra ensemble means
     for extra in ['apparent_temperature', 'snowfall', 'rain',
                   'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high',
                   'wind_direction_10m', 'surface_pressure']:
@@ -542,9 +499,6 @@ def apply_correction(fc_df, trained, bias_tables):
     return corrected
 
 
-# ============================================================
-# STEP 6: OUTPUT
-# ============================================================
 WMO_CODES = {
     0: {"desc": "Vedro", "icon": "clear", "emoji": "\u2600\ufe0f"},
     1: {"desc": "Pretezno vedro", "icon": "mostly_clear", "emoji": "\U0001f324\ufe0f"},
@@ -573,9 +527,13 @@ WMO_CODES = {
 def generate_output(corrected, trained, results):
     print("\n[6/6] Generisanje izlaza...")
     now_str = pd.Timestamp.now().isoformat()
+    now_ts = pd.Timestamp.now().floor('h')
+    cutoff_48h = now_ts + pd.Timedelta(hours=48)
 
     forecast_hours = []
     for _, row in corrected.iterrows():
+        if row['datetime'] >= cutoff_48h:
+            continue
         wc = int(row.get('weather_code', 0)) if pd.notna(row.get('weather_code', np.nan)) else 0
         wmo = WMO_CODES.get(wc, WMO_CODES[0])
 
@@ -608,7 +566,6 @@ def generate_output(corrected, trained, results):
 
         forecast_hours.append(entry)
 
-    # Daily summary
     fc_df = pd.DataFrame(forecast_hours)
     daily = []
     for date, grp in fc_df.groupby('date'):
@@ -623,6 +580,11 @@ def generate_output(corrected, trained, results):
             "humidity_avg": round(float(grp['relative_humidity_2m'].mean()), 0) if 'relative_humidity_2m' in grp else None,
             "pressure_avg": round(float(grp['pressure_msl'].mean()), 0) if 'pressure_msl' in grp else None,
         }
+        if 'wind_direction_10m' in grp.columns:
+            wd = pd.to_numeric(grp['wind_direction_10m'], errors='coerce').dropna()
+            if len(wd) > 0:
+                rad = np.radians(wd)
+                ds['wind_dir_avg'] = round(float(np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) % 360), 0)
         if 'weather_code' in grp:
             wc_mode = int(grp['weather_code'].mode().iloc[0])
             wmo = WMO_CODES.get(wc_mode, WMO_CODES[0])
@@ -634,6 +596,62 @@ def generate_output(corrected, trained, results):
                 ds['cloud_cover_day'] = round(float(daytime['cloud_cover'].mean()), 0)
         daily.append(ds)
 
+    long_range = []
+    long_data = corrected[corrected['datetime'] >= cutoff_48h].copy()
+    if len(long_data) > 0:
+        long_data['_date'] = long_data['datetime'].dt.strftime('%Y-%m-%d')
+        long_data['_day_name'] = long_data['datetime'].dt.strftime('%A')
+        long_data['_hour'] = long_data['datetime'].dt.hour
+
+        for ldate, lgrp in long_data.groupby('_date'):
+            def _get(col_xgb, col_ens):
+                c = lgrp.get(col_xgb, lgrp.get(col_ens, pd.Series(dtype=float)))
+                return pd.to_numeric(c, errors='coerce') if isinstance(c, pd.Series) else pd.Series(dtype=float)
+
+            temp = _get('temperature_2m_xgb', 'temperature_2m_ensemble')
+            wind = _get('wind_speed_10m_xgb', 'wind_speed_10m_ensemble')
+            gusts = _get('wind_gusts_10m_xgb', 'wind_gusts_10m_ensemble')
+            precip = _get('precipitation_xgb', 'precipitation_ensemble')
+            humid = _get('relative_humidity_2m_xgb', 'relative_humidity_2m_ensemble')
+            pres = _get('pressure_msl_xgb', 'pressure_msl_ensemble')
+
+            lds = {"date": ldate, "day_name": lgrp.iloc[0]['_day_name']}
+            if temp.notna().any():
+                lds['temp_min'] = round(float(temp.min()), 1)
+                lds['temp_max'] = round(float(temp.max()), 1)
+            if wind.notna().any():
+                lds['wind_max'] = round(float(wind.max()), 1)
+            if gusts.notna().any():
+                lds['gust_max'] = round(float(gusts.max()), 1)
+            lds['precip_total'] = round(float(precip.sum()), 1) if precip.notna().any() else 0
+            if humid.notna().any():
+                lds['humidity_avg'] = round(float(humid.mean()), 0)
+            if pres.notna().any():
+                lds['pressure_avg'] = round(float(pres.mean()), 0)
+
+            wd_s = pd.to_numeric(lgrp.get('wind_direction_10m_ens', pd.Series(dtype=float)), errors='coerce').dropna()
+            if len(wd_s) > 0:
+                rad = np.radians(wd_s)
+                lds['wind_dir_avg'] = round(float(np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) % 360), 0)
+
+            wc_s = pd.to_numeric(lgrp.get('weather_code', pd.Series(dtype=float)), errors='coerce').dropna()
+            if len(wc_s) > 0:
+                wc_mode = int(wc_s.mode().iloc[0])
+                wmo = WMO_CODES.get(wc_mode, WMO_CODES[0])
+                lds.update({"weather_code": wc_mode, "weather_desc": wmo['desc'],
+                           "weather_icon": wmo['icon'], "weather_emoji": wmo['emoji']})
+
+            cloud = _get('cloud_cover_xgb', 'cloud_cover_ensemble')
+            daytime = (lgrp['_hour'] >= 7) & (lgrp['_hour'] <= 19)
+            if cloud.notna().any() and daytime.any():
+                dc = cloud[daytime].dropna()
+                if len(dc) > 0:
+                    lds['cloud_cover_day'] = round(float(dc.mean()), 0)
+
+            long_range.append(lds)
+
+        print(f"  Long range: {len(long_range)} dana")
+
     output = {
         "generated": now_str,
         "location": {"name": "Budva, Crna Gora", "lat": LAT, "lon": LON,
@@ -643,6 +661,7 @@ def generate_output(corrected, trained, results):
         "training_metrics": results,
         "daily_summary": daily,
         "hourly_forecast": forecast_hours,
+        "long_range": long_range,
     }
 
     json_path = os.path.join(OUTPUT_DIR, "forecast_48h.json")
@@ -654,7 +673,6 @@ def generate_output(corrected, trained, results):
     print(f"  JSON: {json_path}")
     print(f"  CSV:  {csv_path}")
 
-    # Console summary
     print("\n" + "=" * 72)
     print("  KORIGOVANA PROGNOZA ZA BUDVU --- Naredna 48 sata")
     print("=" * 72)
@@ -666,7 +684,6 @@ def generate_output(corrected, trained, results):
         print(f"     Padavine: {d['precip_total']} mm  |  Pritisak: {d['pressure_avg']} hPa")
         print(f"     {d.get('weather_desc', '')}")
 
-    # Hourly table
     print("\n  " + "-" * 68)
     print(f"  {'Sat':>12}  {'Temp':>6}  {'Vlaz':>5}  {'Vjet':>5}  {'Prit':>6}  {'Obl':>4}  {'Kisa':>6}  Opis")
     print(f"  {'':>12}  {'':>6}  {'':>5}  {'':>5}  {'':>6}  {'':>4}  {'':>6}")
@@ -693,21 +710,15 @@ def generate_output(corrected, trained, results):
     return json_path, csv_path
 
 
-# ============================================================
-# MAIN
-# ============================================================
 if __name__ == "__main__":
-    # 1. Load
     hist = load_historical_data()
 
-    # 2. Bias tables + features
     print("\n[2/6] Feature engineering + tabele biasa...")
     bias_tables = compute_bias_tables(hist)
     hist = apply_bias_features(hist, bias_tables)
     hist = engineer_features(hist)
     print(f"  Dimenzije: {hist.shape[0]} x {hist.shape[1]}")
 
-    # Save bias tables for forecast time
     bias_path = os.path.join(MODEL_DIR, 'bias_tables.json')
     bt_serializable = {}
     for k, v in bias_tables.items():
@@ -716,16 +727,9 @@ if __name__ == "__main__":
         json.dump(bt_serializable, f)
     print(f"  Bias tabele: {bias_path}")
 
-    # 3. Train
     trained, results = train_all_models(hist)
-
-    # 4. Fetch live
-    fc48 = fetch_live_forecasts()
-
-    # 5. Correct
-    corrected = apply_correction(fc48, trained, bias_tables)
-
-    # 6. Output
+    fc_all = fetch_live_forecasts()
+    corrected = apply_correction(fc_all, trained, bias_tables)
     json_path, csv_path = generate_output(corrected, trained, results)
 
     print("\n" + "=" * 72)

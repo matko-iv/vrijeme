@@ -234,7 +234,7 @@
             justify-content: center;
             gap: 16px;
             margin: 12px 0;
-            font-size: 28px;
+            font-size: 32px;
             font-weight: 700;
         }
 
@@ -290,7 +290,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            min-width: 76px;
+            min-width: 84px;
             padding: 12px 8px;
             border-right: 1px solid #e1e4e8;
             font-size: 13px;
@@ -299,9 +299,62 @@
         .hourly-cell:last-child { border-right: none; }
         .hourly-cell .h-time { color: #586069; margin-bottom: 8px; font-weight: 600; font-size: 14px; }
         .hourly-cell .h-icon { margin-bottom: 6px; }
-        .hourly-cell .h-temp { font-weight: 700; font-size: 18px; color: #24292e; }
+        .hourly-cell .h-temp { font-weight: 700; font-size: 20px; color: #24292e; }
         .hourly-cell .h-rain { color: #0366d6; font-size: 13px; margin-top: 6px; font-weight: 500; }
         .hourly-cell .h-wind { color: #586069; font-size: 12px; margin-top: 3px; }
+
+        /* ─── Long Range ─── */
+        .long-range-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 12px;
+            margin: 0 -60px 36px;
+        }
+
+        .lr-card {
+            background: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 10px;
+            padding: 16px 12px;
+            text-align: center;
+        }
+
+        .lr-day {
+            font-weight: 600;
+            font-size: 14px;
+            color: #24292e;
+        }
+
+        .lr-date {
+            font-size: 12px;
+            color: #586069;
+            margin-bottom: 8px;
+        }
+
+        .lr-icon { margin: 4px 0; }
+
+        .lr-desc {
+            font-size: 12px;
+            color: #586069;
+            margin-bottom: 6px;
+            min-height: 18px;
+        }
+
+        .lr-temp {
+            font-size: 18px;
+            font-weight: 700;
+            margin: 6px 0;
+        }
+
+        .lr-details {
+            font-size: 12px;
+            color: #586069;
+        }
+
+        .lr-details span {
+            display: block;
+            margin-top: 2px;
+        }
 
         /* ─── Chart Tabs ─── */
         .charts-section {
@@ -429,6 +482,7 @@
             .current-weather { margin-left: 0; margin-right: 0; flex-direction: column; text-align: center; }
             .current-weather .cw-details { justify-content: center; }
             .hourly-strip { margin-left: 0; margin-right: 0; }
+            .long-range-grid { margin-left: 0; margin-right: 0; grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
@@ -558,6 +612,16 @@ function formatDate(ds) {
     return d.getDate() + '.' + (d.getMonth()+1) + '.';
 }
 
+const COMPASS_SR = ['S','SSI','SI','ISI','I','IJI','JI','JJI','J','JJZ','JZ','ZJZ','Z','ZSZ','SZ','SSZ'];
+function windDirText(deg) {
+    if (deg == null || isNaN(deg)) return '';
+    return COMPASS_SR[Math.round(deg / 22.5) % 16];
+}
+function windArrow(deg) {
+    if (deg == null || isNaN(deg)) return '';
+    return `<span style="display:inline-block;transform:rotate(${deg}deg);line-height:1">↓</span>`;
+}
+
 // ─── Accuracy % from MAE (meaningful range-based) ───
 function maeToAccuracy(param, mae) {
     // Typical ranges for Budva weather parameters
@@ -605,7 +669,8 @@ function render(data) {
     data.daily_summary.forEach(d => {
         const dayName = DAY_NAMES_SR[d.day_name] || d.day_name;
         const iconKey = dailyIconKey(d.weather_icon);
-        const icon = weatherIcon(iconKey, 64);
+        const icon = weatherIcon(iconKey, 80);
+        const wdText = d.wind_dir_avg != null ? ' ' + windArrow(d.wind_dir_avg) + ' ' + windDirText(d.wind_dir_avg) : '';
         html += `
         <div class="day-card">
             <div class="day-header">
@@ -615,7 +680,7 @@ function render(data) {
                 </div>
             </div>
             <div style="text-align:center;margin:8px 0">
-                <div style="width:64px;height:64px;margin:0 auto">${icon}</div>
+                <div style="width:80px;height:80px;margin:0 auto">${icon}</div>
                 <div class="weather-desc">${d.weather_desc}</div>
             </div>
             <div class="temp-range">
@@ -624,10 +689,10 @@ function render(data) {
                 <span class="temp-high">${d.temp_max.toFixed(1)}°</span>
             </div>
             <div class="day-details">
-                <div class="detail-item">${weatherIcon('wind', 26)}<span class="detail-val">${d.wind_max} m/s</span></div>
-                <div class="detail-item">${weatherIcon('rain_icon', 26)}<span class="detail-val">${d.precip_total} mm</span></div>
-                <div class="detail-item"><img src="${ICON_CDN}humidity.svg" width="26" height="26" alt="" style="vertical-align:middle" loading="lazy"><span class="detail-val">${d.humidity_avg}%</span></div>
-                <div class="detail-item"><img src="${ICON_CDN}barometer.svg" width="26" height="26" alt="" style="vertical-align:middle" loading="lazy"><span class="detail-val">${d.pressure_avg} hPa</span></div>
+                <div class="detail-item">${weatherIcon('wind', 30)}<span class="detail-val">${d.wind_max} m/s${wdText}</span></div>
+                <div class="detail-item">${weatherIcon('rain_icon', 30)}<span class="detail-val">${d.precip_total} mm</span></div>
+                <div class="detail-item"><img src="${ICON_CDN}humidity.svg" width="30" height="30" alt="" style="vertical-align:middle" loading="lazy"><span class="detail-val">${d.humidity_avg}%</span></div>
+                <div class="detail-item"><img src="${ICON_CDN}barometer.svg" width="30" height="30" alt="" style="vertical-align:middle" loading="lazy"><span class="detail-val">${d.pressure_avg} hPa</span></div>
             </div>
         </div>`;
     });
@@ -643,13 +708,13 @@ function render(data) {
         const cwDesc = wmoDescs[currentData.weather_code] || 'Vedro';
         html += `
         <div class="current-weather">
-            <div class="cw-icon">${weatherIcon(cwIcon, 80)}</div>
+            <div class="cw-icon">${weatherIcon(cwIcon, 96)}</div>
             <div class="cw-main">
                 <div class="cw-label">Trenutno stanje · ${String(currentHour).padStart(2,'0')}:00h</div>
                 <div class="cw-temp">${currentData.temperature_2m.toFixed(1)}°C</div>
                 <div class="cw-desc">${cwDesc}</div>
                 <div class="cw-details">
-                    <div class="cw-detail">${weatherIcon('wind', 20)} <span>${currentData.wind_speed_10m.toFixed(1)} m/s</span></div>
+                    <div class="cw-detail">${weatherIcon('wind', 20)} <span>${windArrow(currentData.wind_direction_10m)} ${currentData.wind_speed_10m.toFixed(1)} m/s ${windDirText(currentData.wind_direction_10m)}</span></div>
                     <div class="cw-detail">${weatherIcon('humidity', 20)} <span>${Math.round(currentData.relative_humidity_2m)}%</span></div>
                     <div class="cw-detail"><img src="${ICON_CDN}barometer.svg" width="20" height="20" style="vertical-align:middle"> <span>${currentData.pressure_msl.toFixed(0)} hPa</span></div>
                     ${currentData.precipitation > 0.05 ? '<div class="cw-detail">' + weatherIcon('rain_icon', 20) + ' <span>' + currentData.precipitation.toFixed(1) + ' mm</span></div>' : ''}
@@ -669,13 +734,51 @@ function render(data) {
         html += `
         <div class="hourly-cell" ${isNow ? 'style="background:#f1f8ff;border-radius:8px"' : ''}>
             <span class="h-time">${String(h.hour).padStart(2,'0')}h</span>
-            <span class="h-icon">${weatherIcon(iconKey, 42)}</span>
+            <span class="h-icon">${weatherIcon(iconKey, 48)}</span>
             <span class="h-temp">${t}</span>
             <span class="h-rain">${rain}</span>
-            <span class="h-wind">${wind ? wind + ' m/s' : ''}</span>
+            <span class="h-wind">${wind ? windArrow(h.wind_direction_10m) + ' ' + wind + ' m/s' : ''}</span>
         </div>`;
     });
     html += '</div></div>';
+
+    // ─── Long Range (7 dana) ───
+    if (data.long_range && data.long_range.length > 0) {
+        html += '<h2>📅 Dugoročna prognoza</h2>';
+        html += `<div class="note" style="margin-bottom:20px">
+            <strong>⚠️ Zašto samo okvirno?</strong> Vremenski modeli gube preciznost eksponencijalno sa horizontom prognoze.
+            Na 3. dan greška temperature može biti 2× veća nego na 1. dan, a na 7. dan prognoza je tek indikacija generalnog trenda.
+            Atmosfera je haotičan sistem — male razlike u početnim uslovima dovode do velikih odstupanja nakon nekoliko dana.
+            Zato ovdje prikazujemo samo <strong>dnevne okvire</strong> (min/max temperatura, tip vremena), a ne satne detalje
+            koji bi na ovom horizontu bili pseudopreciznost — brojevi koji <em>izgledaju</em> tačno ali to nisu.
+            Koristite ovo kao orijentir za planiranje, ne kao garanciju.
+        </div>`;
+        html += '<div class="long-range-grid">';
+        data.long_range.forEach(d => {
+            const dayName = DAY_NAMES_SR[d.day_name] || d.day_name;
+            const iconKey = dailyIconKey(d.weather_icon || 'partly_cloudy');
+            const icon = weatherIcon(iconKey, 48);
+            const wdText = d.wind_dir_avg != null ? windDirText(d.wind_dir_avg) : '';
+            const arrow = d.wind_dir_avg != null ? windArrow(d.wind_dir_avg) : '';
+            html += `
+            <div class="lr-card">
+                <div class="lr-day">${dayName}</div>
+                <div class="lr-date">${formatDate(d.date)}</div>
+                <div class="lr-icon">${icon}</div>
+                <div class="lr-desc">${d.weather_desc || ''}</div>
+                <div class="lr-temp">
+                    <span class="temp-low">${d.temp_min != null ? d.temp_min.toFixed(1) + '°' : '-'}</span>
+                    <span style="color:#d1d5db">—</span>
+                    <span class="temp-high">${d.temp_max != null ? d.temp_max.toFixed(1) + '°' : '-'}</span>
+                </div>
+                <div class="lr-details">
+                    ${d.wind_max != null ? '<span>' + arrow + ' ' + d.wind_max + ' m/s ' + wdText + '</span>' : ''}
+                    ${d.precip_total > 0 ? '<span>🌧 ' + d.precip_total + ' mm</span>' : ''}
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+    }
 
     // ─── Charts ───
     html += `
