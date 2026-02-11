@@ -585,15 +585,30 @@ def generate_output(corrected, trained, results, fc_raw=None):
             if len(wd) > 0:
                 rad = np.radians(wd)
                 ds['wind_dir_avg'] = round(float(np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) % 360), 0)
+        cloud_avg = 0
+        if 'cloud_cover' in grp:
+            daytime_cc = grp[(grp['hour'] >= 7) & (grp['hour'] <= 19)]
+            if len(daytime_cc) > 0:
+                cloud_avg = float(daytime_cc['cloud_cover'].mean())
+                ds['cloud_cover_day'] = round(cloud_avg, 0)
+
         if 'weather_code' in grp:
             wc_mode = int(grp['weather_code'].mode().iloc[0])
+            precip = ds.get('precip_total', 0)
+            rain_hours = grp[grp['weather_code'] >= 51]
+
+            if wc_mode <= 1 and precip > 0.1:
+                wc_mode = int(rain_hours['weather_code'].mode().iloc[0]) if len(rain_hours) > 0 else 61
+            elif wc_mode == 0 and cloud_avg > 60:
+                wc_mode = 3
+            elif wc_mode == 0 and cloud_avg > 30:
+                wc_mode = 2
+            elif wc_mode == 1 and cloud_avg > 60:
+                wc_mode = 3
+
             wmo = WMO_CODES.get(wc_mode, WMO_CODES[0])
             ds.update({"weather_code": wc_mode, "weather_desc": wmo['desc'],
                        "weather_icon": wmo['icon'], "weather_emoji": wmo['emoji']})
-        if 'cloud_cover' in grp:
-            daytime = grp[(grp['hour'] >= 7) & (grp['hour'] <= 19)]
-            if len(daytime) > 0:
-                ds['cloud_cover_day'] = round(float(daytime['cloud_cover'].mean()), 0)
         daily.append(ds)
 
     long_range = []
@@ -634,19 +649,33 @@ def generate_output(corrected, trained, results, fc_raw=None):
                 rad = np.radians(wd_s)
                 lds['wind_dir_avg'] = round(float(np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) % 360), 0)
 
+            lr_cloud_avg = 0
+            cloud = _get('cloud_cover_xgb', 'cloud_cover_ensemble')
+            lr_daytime = (lgrp['_hour'] >= 7) & (lgrp['_hour'] <= 19)
+            if cloud.notna().any() and lr_daytime.any():
+                dc = cloud[lr_daytime].dropna()
+                if len(dc) > 0:
+                    lr_cloud_avg = float(dc.mean())
+                    lds['cloud_cover_day'] = round(lr_cloud_avg, 0)
+
             wc_s = pd.to_numeric(lgrp.get('weather_code', pd.Series(dtype=float)), errors='coerce').dropna()
             if len(wc_s) > 0:
                 wc_mode = int(wc_s.mode().iloc[0])
+                lr_precip = lds.get('precip_total', 0)
+                lr_rain_codes = wc_s[wc_s >= 51]
+
+                if wc_mode <= 1 and lr_precip > 0.1:
+                    wc_mode = int(lr_rain_codes.mode().iloc[0]) if len(lr_rain_codes) > 0 else 61
+                elif wc_mode == 0 and lr_cloud_avg > 60:
+                    wc_mode = 3
+                elif wc_mode == 0 and lr_cloud_avg > 30:
+                    wc_mode = 2
+                elif wc_mode == 1 and lr_cloud_avg > 60:
+                    wc_mode = 3
+
                 wmo = WMO_CODES.get(wc_mode, WMO_CODES[0])
                 lds.update({"weather_code": wc_mode, "weather_desc": wmo['desc'],
                            "weather_icon": wmo['icon'], "weather_emoji": wmo['emoji']})
-
-            cloud = _get('cloud_cover_xgb', 'cloud_cover_ensemble')
-            daytime = (lgrp['_hour'] >= 7) & (lgrp['_hour'] <= 19)
-            if cloud.notna().any() and daytime.any():
-                dc = cloud[daytime].dropna()
-                if len(dc) > 0:
-                    lds['cloud_cover_day'] = round(float(dc.mean()), 0)
 
             if fc_raw is not None:
                 lr_mask = fc_raw['datetime'].isin(lgrp['datetime'])

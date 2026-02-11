@@ -261,6 +261,22 @@
         .detail-item .detail-icon { font-size: 16px; }
         .detail-item .detail-val { color: #24292e; font-weight: 500; }
 
+        .precip-badge {
+            background: #dbeafe;
+            border: 1px solid #93c5fd;
+            border-radius: 8px;
+            padding: 6px 10px;
+            margin-top: 12px;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1e40af;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
         .hourly-strip {
             background: #f6f8fa;
             border: 1px solid #e1e4e8;
@@ -684,6 +700,7 @@ function render(data) {
                 <div class="detail-item"><img src="${ICON_CDN}humidity.svg" width="30" height="30" alt="" style="vertical-align:middle" loading="lazy"><span class="detail-val">${d.humidity_avg}%</span></div>
                 <div class="detail-item"><img src="${ICON_CDN}barometer.svg" width="30" height="30" alt="" style="vertical-align:middle" loading="lazy"><span class="detail-val">${d.pressure_avg} hPa</span></div>
             </div>
+            ${d.precip_total >= 0.5 ? '<div class="precip-badge">' + weatherIcon('rain_icon', 20) + ' Padavine: ' + d.precip_total + ' mm</div>' : ''}
         </div>`;
     });
     html += '</div>';
@@ -745,15 +762,19 @@ function render(data) {
         <div class="chart-container">
             <canvas id="forecastChart"></canvas>
         </div>
+        <div id="windCompass" style="display:none;text-align:center;padding:16px 0;">
+            <canvas id="compassCanvas" width="90" height="90" style="margin:0 auto;display:block;"></canvas>
+            <div id="compassLabel" style="font-size:13px;color:#586069;margin-top:6px;font-weight:500;"></div>
+        </div>
     </div>`;
 
     if (data.long_range && data.long_range.length > 0) {
         html += '<h2>Dugoročna prognoza</h2>';
-        html += `<div class="note" style="margin-bottom:20px">
+        html += `<div style="margin-bottom:20px"><p>
             Vremenski modeli gube preciznost sa horizontom prognoze.
             Na 3. dan greška temperature može biti 2x veća nego na 1. dan, a na 7. dan prognoza je tek indikacija generalnog trenda.
             Koristite ovo kao orijentir za planiranje, ne kao garanciju.
-        </div>`;
+        </p></div>`;
         html += '<div class="long-range-grid">';
         data.long_range.forEach(d => {
             const dayName = DAY_NAMES_SR[d.day_name] || d.day_name;
@@ -785,9 +806,9 @@ function render(data) {
 
     html += `
     <div class="footer">
-        <div class="note" style="text-align:left;margin-bottom:24px;">
+        <div style="text-align:left;margin-bottom:24px;"><p>
             <strong>Limitacije:</strong> Bez prisustva tehni&#269;ki novog vremenskog modela, ovaj pristup ima ograni&#269;enja. Kompleksne olujne konvektivne padavine, mini pljuskovi i lokalni vjetrovi ostaju najte&#382;i problem — globalni modeli (ARP&#200;GE ~10km, GFS ~25km, ICON ~13km, ECMWF ~25km) nemaju optimalnu rezoluciju za Budvu i generalno citavu Crnu Goru, &#269;ija izrazito kompleksna topografija zahtijeva &lt;2km grid. Ensemble korekcija sa 6 modela smanjuje prosje&#269;nu gre&#353;ku, ali ne zamjenjuje high-resolution regionalni model.
-        </div>
+        </p></div>
         <p>Podaci: <a href="https://open-meteo.com" target="_blank">Open-Meteo API</a> (ARPÈGE, GFS, ICON, Météo-France, ECMWF IFS, ItaliaMeteo) · Stanica: <a href="https://www.wunderground.com/dashboard/pws/IBUDVA5" target="_blank">ibudva5</a></p>
         <p style="margin-top:6px">Ikonice: <a href="https://bas.dev/work/meteocons" target="_blank">Meteocons</a> by Bas Milius (MIT licenca)</p>
         <p style="margin-top:6px">Matija Ivanović · <a href="index.html">Detaljna analiza →</a></p>
@@ -806,8 +827,55 @@ function render(data) {
     drawChart('temp');
 }
 
+function updateCompass(dir, spd) {
+    const cv = document.getElementById('compassCanvas');
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    const s = cv.width, cx = s/2, cy = s/2, r = s/2 - 10;
+    ctx.clearRect(0, 0, s, s);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.strokeStyle = '#d0d7de'; ctx.lineWidth = 1.5; ctx.stroke();
+    for (let i = 0; i < 8; i++) {
+        const a = i*Math.PI/4, len = i%2===0?6:3;
+        ctx.beginPath();
+        ctx.moveTo(cx+Math.sin(a)*(r-1), cy-Math.cos(a)*(r-1));
+        ctx.lineTo(cx+Math.sin(a)*(r-1-len), cy-Math.cos(a)*(r-1-len));
+        ctx.strokeStyle='#959da5'; ctx.lineWidth=1; ctx.stroke();
+    }
+    ctx.font='bold 10px Inter,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle='#24292e';
+    ctx.fillText('S',cx,cy-r+13); ctx.fillText('J',cx,cy+r-13);
+    ctx.fillStyle='#586069';
+    ctx.fillText('I',cx+r-13,cy); ctx.fillText('Z',cx-r+13,cy);
+    const fromRad=dir*Math.PI/180, toRad=fromRad+Math.PI, arm=r-16;
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.lineTo(cx+Math.sin(fromRad)*arm*0.35, cy-Math.cos(fromRad)*arm*0.35);
+    ctx.strokeStyle='#959da5'; ctx.lineWidth=2; ctx.stroke();
+    const tipX=cx+Math.sin(toRad)*arm, tipY=cy-Math.cos(toRad)*arm;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(tipX,tipY);
+    ctx.strokeStyle='#0366d6'; ctx.lineWidth=2.5; ctx.stroke();
+    const ang=Math.atan2(tipY-cy,tipX-cx), hl=8, ha=0.45;
+    ctx.beginPath(); ctx.moveTo(tipX,tipY);
+    ctx.lineTo(tipX-hl*Math.cos(ang-ha),tipY-hl*Math.sin(ang-ha));
+    ctx.lineTo(tipX-hl*Math.cos(ang+ha),tipY-hl*Math.sin(ang+ha));
+    ctx.closePath(); ctx.fillStyle='#0366d6'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,3,0,Math.PI*2); ctx.fillStyle='#24292e'; ctx.fill();
+    const lbl=document.getElementById('compassLabel');
+    if(lbl) lbl.textContent=windDirText(dir)+' \u00b7 '+(spd!=null?spd.toFixed(1)+' m/s':'');
+}
+
 function drawChart(type) {
     if (currentChart) currentChart.destroy();
+
+    const compassEl = document.getElementById('windCompass');
+    if (compassEl) {
+        if (type === 'wind') {
+            compassEl.style.display = 'block';
+            document.getElementById('compassLabel').textContent = 'Pomjerite mi\u0161 preko grafa';
+        } else {
+            compassEl.style.display = 'none';
+        }
+    }
 
     const hours = forecastData.hourly_forecast;
     const labels = hours.map(h => h.datetime);
@@ -894,6 +962,14 @@ function drawChart(type) {
             responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
+            onHover: (event, activeElements) => {
+                const cEl = document.getElementById('windCompass');
+                if (!cEl || type !== 'wind') return;
+                if (activeElements.length > 0) {
+                    const h = hours[activeElements[0].index];
+                    if (h.wind_direction_10m != null) updateCompass(h.wind_direction_10m, h.wind_speed_10m);
+                }
+            },
             plugins: {
                 legend: {
                     labels: { color: '#586069', font: { size: 12 }, usePointStyle: true, pointStyle: 'line' }
@@ -909,6 +985,13 @@ function drawChart(type) {
                             const d = new Date(items[0].label);
                             return d.toLocaleDateString('sr-Latn', {weekday:'long', day:'numeric', month:'numeric'})
                                    + ' ' + d.toLocaleTimeString('sr-Latn', {hour:'2-digit', minute:'2-digit'});
+                        },
+                        afterBody: (items) => {
+                            if (type === 'wind' && items.length > 0) {
+                                const h = hours[items[0].dataIndex];
+                                if (h.wind_direction_10m != null) return ['Smjer: ' + windDirText(h.wind_direction_10m) + ' (' + Math.round(h.wind_direction_10m) + '\u00b0)'];
+                            }
+                            return [];
                         }
                     }
                 }
