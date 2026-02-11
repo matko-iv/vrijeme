@@ -506,9 +506,9 @@ WMO_CODES = {
     3: {"desc": "Oblacno", "icon": "cloudy", "emoji": "\u2601\ufe0f"},
     45: {"desc": "Magla", "icon": "fog", "emoji": "\U0001f32b\ufe0f"},
     48: {"desc": "Magla (inje)", "icon": "fog", "emoji": "\U0001f32b\ufe0f"},
-    51: {"desc": "Slaba rosulja", "icon": "light_rain", "emoji": "\U0001f326\ufe0f"},
-    53: {"desc": "Rosulja", "icon": "rain", "emoji": "\U0001f327\ufe0f"},
-    55: {"desc": "Jaka rosulja", "icon": "rain", "emoji": "\U0001f327\ufe0f"},
+    51: {"desc": "Sitna kisa", "icon": "light_rain", "emoji": "\U0001f326\ufe0f"},
+    53: {"desc": "Sitna kisa, umjerena", "icon": "rain", "emoji": "\U0001f327\ufe0f"},
+    55: {"desc": "Sitna kisa, jaka", "icon": "rain", "emoji": "\U0001f327\ufe0f"},
     61: {"desc": "Slaba kisa", "icon": "light_rain", "emoji": "\U0001f326\ufe0f"},
     63: {"desc": "Umjerena kisa", "icon": "rain", "emoji": "\U0001f327\ufe0f"},
     65: {"desc": "Jaka kisa", "icon": "heavy_rain", "emoji": "\U0001f327\ufe0f\U0001f327\ufe0f"},
@@ -524,7 +524,7 @@ WMO_CODES = {
 }
 
 
-def generate_output(corrected, trained, results):
+def generate_output(corrected, trained, results, fc_raw=None):
     print("\n[6/6] Generisanje izlaza...")
     now_str = pd.Timestamp.now().isoformat()
     now_ts = pd.Timestamp.now().floor('h')
@@ -648,6 +648,14 @@ def generate_output(corrected, trained, results):
                 if len(dc) > 0:
                     lds['cloud_cover_day'] = round(float(dc.mean()), 0)
 
+            if fc_raw is not None:
+                lr_mask = fc_raw['datetime'].isin(lgrp['datetime'])
+                lr_raw = fc_raw[lr_mask]
+                precip_cols = [f"{m}_precipitation_model" for m in MODELS if f"{m}_precipitation_model" in lr_raw.columns]
+                if precip_cols:
+                    model_has_rain = [(pd.to_numeric(lr_raw[c], errors='coerce').fillna(0) > 0.1).any() for c in precip_cols]
+                    lds['precip_probability'] = round(sum(model_has_rain) / len(model_has_rain) * 100)
+
             long_range.append(lds)
 
         print(f"  Long range: {len(long_range)} dana")
@@ -730,7 +738,7 @@ if __name__ == "__main__":
     trained, results = train_all_models(hist)
     fc_all = fetch_live_forecasts()
     corrected = apply_correction(fc_all, trained, bias_tables)
-    json_path, csv_path = generate_output(corrected, trained, results)
+    json_path, csv_path = generate_output(corrected, trained, results, fc_raw=fc_all)
 
     print("\n" + "=" * 72)
     print("  GOTOVO! Fajlovi:", OUTPUT_DIR)

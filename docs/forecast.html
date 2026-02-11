@@ -128,6 +128,11 @@
             grid-template-columns: repeat(3, 1fr);
             gap: 16px;
             margin: 24px -60px 32px;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            margin-top: 24px;
+            margin-bottom: 32px;
         }
 
         /* ─── Current Weather Card ─── */
@@ -306,9 +311,13 @@
         /* ─── Long Range ─── */
         .long-range-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 12px;
-            margin: 0 -60px 36px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            margin-top: 0;
+            margin-bottom: 36px;
         }
 
         .lr-card {
@@ -478,11 +487,11 @@
             .day-card .temp-range { font-size: 22px; }
             .chart-container { height: 280px; }
             .metrics-bar { grid-template-columns: repeat(2, 1fr); }
-            .daily-grid { grid-template-columns: 1fr; margin-left: 0; margin-right: 0; }
+            .daily-grid { grid-template-columns: 1fr; max-width: 100%; }
             .current-weather { margin-left: 0; margin-right: 0; flex-direction: column; text-align: center; }
             .current-weather .cw-details { justify-content: center; }
             .hourly-strip { margin-left: 0; margin-right: 0; }
-            .long-range-grid { margin-left: 0; margin-right: 0; grid-template-columns: repeat(2, 1fr); }
+            .long-range-grid { grid-template-columns: repeat(2, 1fr); max-width: 100%; }
         }
     </style>
 </head>
@@ -704,7 +713,7 @@ function render(data) {
     const currentData = data.hourly_forecast.find(h => h.hour === currentHour) || data.hourly_forecast[0];
     if (currentData) {
         const cwIcon = getWeatherIcon(currentData.weather_code, currentData.hour);
-        const wmoDescs = {0:'Vedro',1:'Pretežno vedro',2:'Djelimično oblačno',3:'Oblačno',45:'Magla',48:'Magla',51:'Slaba kiša',53:'Kiša',55:'Jaka kiša',61:'Slaba kiša',63:'Kiša',65:'Jaka kiša',71:'Snijeg',73:'Snijeg',75:'Jak snijeg',80:'Pljuskovi',81:'Pljuskovi',82:'Jaki pljuskovi',95:'Grmljavina',96:'Grmljavina',99:'Grmljavina'};
+        const wmoDescs = {0:'Vedro',1:'Pretežno vedro',2:'Djelimično oblačno',3:'Oblačno',45:'Magla',48:'Magla',51:'Sitna kiša',53:'Sitna kiša, umjerena',55:'Sitna kiša, jaka',61:'Slaba kiša',63:'Kiša',65:'Jaka kiša',71:'Snijeg',73:'Snijeg',75:'Jak snijeg',80:'Pljuskovi',81:'Pljuskovi',82:'Jaki pljuskovi',95:'Grmljavina',96:'Grmljavina',99:'Grmljavina'};
         const cwDesc = wmoDescs[currentData.weather_code] || 'Vedro';
         html += `
         <div class="current-weather">
@@ -724,7 +733,7 @@ function render(data) {
     }
 
     // ─── Hourly strip with SVG icons ───
-    html += '<div class="hourly-strip"><h3>⏱ Prognoza po satima</h3><div class="hourly-row">';
+    html += '<div class="hourly-strip"><h3>Prognoza po satima</h3><div class="hourly-row">';
     data.hourly_forecast.forEach(h => {
         const t = h.temperature_2m != null ? Math.round(h.temperature_2m) + '°' : '-';
         const rain = h.precipitation > 0.05 ? h.precipitation.toFixed(1) + 'mm' : '';
@@ -742,15 +751,30 @@ function render(data) {
     });
     html += '</div></div>';
 
+    // ─── Charts ───
+    html += `
+    <h2>Interaktivni grafovi</h2>
+    <p style="color:#586069;font-size:15px;margin-bottom:16px;">Puna linija: XGBoost korekcija · Isprekidana linija: sirovi ensemble prosjek</p>
+    <div class="charts-section">
+        <div class="chart-tabs" id="chartTabs">
+            <button class="chart-tab active" data-chart="temp">Temperatura</button>
+            <button class="chart-tab" data-chart="wind">Vjetar</button>
+            <button class="chart-tab" data-chart="pressure">Pritisak</button>
+            <button class="chart-tab" data-chart="humidity">Vlaznost</button>
+            <button class="chart-tab" data-chart="precip">Padavine</button>
+            <button class="chart-tab" data-chart="cloud">Oblacnost</button>
+        </div>
+        <div class="chart-container">
+            <canvas id="forecastChart"></canvas>
+        </div>
+    </div>`;
+
     // ─── Long Range (7 dana) ───
     if (data.long_range && data.long_range.length > 0) {
-        html += '<h2>📅 Dugoročna prognoza</h2>';
+        html += '<h2>Dugorocna prognoza</h2>';
         html += `<div class="note" style="margin-bottom:20px">
-            <strong>⚠️ Zašto samo okvirno?</strong> Vremenski modeli gube preciznost eksponencijalno sa horizontom prognoze.
-            Na 3. dan greška temperature može biti 2× veća nego na 1. dan, a na 7. dan prognoza je tek indikacija generalnog trenda.
-            Atmosfera je haotičan sistem — male razlike u početnim uslovima dovode do velikih odstupanja nakon nekoliko dana.
-            Zato ovdje prikazujemo samo <strong>dnevne okvire</strong> (min/max temperatura, tip vremena), a ne satne detalje
-            koji bi na ovom horizontu bili pseudopreciznost — brojevi koji <em>izgledaju</em> tačno ali to nisu.
+            Vremenski modeli gube preciznost sa horizontom prognoze.
+            Na 3. dan greska temperature moze biti 2x veca nego na 1. dan, a na 7. dan prognoza je tek indikacija generalnog trenda.
             Koristite ovo kao orijentir za planiranje, ne kao garanciju.
         </div>`;
         html += '<div class="long-range-grid">';
@@ -760,6 +784,7 @@ function render(data) {
             const icon = weatherIcon(iconKey, 48);
             const wdText = d.wind_dir_avg != null ? windDirText(d.wind_dir_avg) : '';
             const arrow = d.wind_dir_avg != null ? windArrow(d.wind_dir_avg) : '';
+            const precipProb = d.precip_probability != null ? d.precip_probability + '%' : '';
             html += `
             <div class="lr-card">
                 <div class="lr-day">${dayName}</div>
@@ -768,41 +793,24 @@ function render(data) {
                 <div class="lr-desc">${d.weather_desc || ''}</div>
                 <div class="lr-temp">
                     <span class="temp-low">${d.temp_min != null ? d.temp_min.toFixed(1) + '°' : '-'}</span>
-                    <span style="color:#d1d5db">—</span>
+                    <span style="color:#d1d5db"> — </span>
                     <span class="temp-high">${d.temp_max != null ? d.temp_max.toFixed(1) + '°' : '-'}</span>
                 </div>
                 <div class="lr-details">
                     ${d.wind_max != null ? '<span>' + arrow + ' ' + d.wind_max + ' m/s ' + wdText + '</span>' : ''}
-                    ${d.precip_total > 0 ? '<span>🌧 ' + d.precip_total + ' mm</span>' : ''}
+                    ${precipProb ? '<span>Kisa: ' + precipProb + '</span>' : ''}
+                    ${d.precip_total > 0 ? '<span>' + d.precip_total + ' mm</span>' : ''}
                 </div>
             </div>`;
         });
         html += '</div>';
     }
 
-    // ─── Charts ───
-    html += `
-    <h2>Interaktivni grafovi</h2>
-    <p style="color:#586069;font-size:15px;margin-bottom:16px;">Puna linija: XGBoost korekcija · Isprekidana linija: sirovi ensemble prosjek</p>
-    <div class="charts-section">
-        <div class="chart-tabs" id="chartTabs">
-            <button class="chart-tab active" data-chart="temp">🌡️ Temperatura</button>
-            <button class="chart-tab" data-chart="wind">💨 Vjetar</button>
-            <button class="chart-tab" data-chart="pressure">📊 Pritisak</button>
-            <button class="chart-tab" data-chart="humidity">💧 Vlažnost</button>
-            <button class="chart-tab" data-chart="precip">🌧️ Padavine</button>
-            <button class="chart-tab" data-chart="cloud">☁️ Oblačnost</button>
-        </div>
-        <div class="chart-container">
-            <canvas id="forecastChart"></canvas>
-        </div>
-    </div>`;
-
     // ─── Footer ───
     html += `
     <div class="footer">
         <div class="note" style="text-align:left;margin-bottom:24px;">
-            <strong>⚠️ Limitacije:</strong> Bez prisustva tehni&#269;ki novog vremenskog modela, ovaj pristup ima ograni&#269;enja. Kompleksne olujne konvektivne padavine, mini pljuskovi i lokalni vjetrovi ostaju najte&#382;i problem — globalni modeli (ARP&#200;GE ~10km, GFS ~25km, ICON ~13km, ECMWF ~25km) nemaju optimalnu rezoluciju za Budvu i generalno citavu Crnu Goru, &#269;ija izrazito kompleksna topografija zahtijeva &lt;2km grid. Ensemble korekcija sa 6 modela smanjuje prosje&#269;nu gre&#353;ku, ali ne zamjenjuje high-resolution regionalni model.
+            <strong>Limitacije:</strong> Bez prisustva tehni&#269;ki novog vremenskog modela, ovaj pristup ima ograni&#269;enja. Kompleksne olujne konvektivne padavine, mini pljuskovi i lokalni vjetrovi ostaju najte&#382;i problem — globalni modeli (ARP&#200;GE ~10km, GFS ~25km, ICON ~13km, ECMWF ~25km) nemaju optimalnu rezoluciju za Budvu i generalno citavu Crnu Goru, &#269;ija izrazito kompleksna topografija zahtijeva &lt;2km grid. Ensemble korekcija sa 6 modela smanjuje prosje&#269;nu gre&#353;ku, ali ne zamjenjuje high-resolution regionalni model.
         </div>
         <p>Podaci: <a href="https://open-meteo.com" target="_blank">Open-Meteo API</a> (ARPÈGE, GFS, ICON, Météo-France, ECMWF IFS, ItaliaMeteo) · Stanica: <a href="https://www.wunderground.com/dashboard/pws/IBUDVA5" target="_blank">ibudva5</a></p>
         <p style="margin-top:6px">Ikonice: <a href="https://bas.dev/work/meteocons" target="_blank">Meteocons</a> by Bas Milius (MIT licenca)</p>
