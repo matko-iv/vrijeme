@@ -11,7 +11,7 @@ import time
 import json
 
 LAT, LON = 42.29, 18.84
-OBS_CSV = "C:\\Users\\Matija\\parkiranje.me\\weather-forecast\\wu_data\\ibudva5_hourly_3years_first_hour.csv"
+OBS_CSV = "wu_data\\ibudva5_hourly_3years_first_hour.csv"
 
 START_DATE = "2023-02-10"
 END_DATE = datetime.now().strftime("%Y-%m-%d")
@@ -51,7 +51,7 @@ def categorize_weather_conditions(df):
     df['season'] = df['month'].apply(lambda m: 
         'Zima' if m in [12, 1, 2] else
         'Proleće' if m in [3, 4, 5] else
-        'Leto' if m in [6, 7, 8] else 'Jesen'
+        'Ljeto' if m in [6, 7, 8] else 'Jesen'
     )
 
     df['hour'] = df['datetime'].dt.hour
@@ -165,7 +165,7 @@ def cloud_skill_metrics(df, obs_flag_col='cloudy', model_cloud_col='cloud_cover_
 
 
 def fetch_model_series(model_name, model_id):
-    print(f"\n📥 Preuzimam: {model_name} ({model_id})...")
+    print(f"\nPreuzimam: {model_name} ({model_id})...")
 
     hourly_vars = [
         "temperature_2m",
@@ -213,7 +213,7 @@ def fetch_model_series(model_name, model_id):
 
             if r.status_code == 429:
                 if attempt < max_retries - 1:
-                    print(f"   ⚠️  Rate limit (429) - čekam {retry_delay} sekundi...")
+                    print(f"Rate limit (429 (anti evropski)) - čekam {retry_delay} sekundi...")
                     time.sleep(retry_delay)
                     continue
                 else:
@@ -255,7 +255,7 @@ def fetch_model_series(model_name, model_id):
 
 
 def load_observed(csv_path):
-    print(f"\n📊 Učitavam opservacije...")
+    print(f"\nUčitavam opservacije...")
 
     obs = pd.read_csv(csv_path)
     obs['datetime'] = pd.to_datetime(obs['datetime'])
@@ -274,7 +274,7 @@ def load_observed(csv_path):
         'uv': 'uv_index_obs'
     })
 
-    print(f"   ✅ Učitano {len(obs)} sati")
+    print(f"Učitano {len(obs)} sati")
 
     return obs
 
@@ -297,7 +297,7 @@ def analyze_model_errors(model_name, merged_df):
         'precipitation_by_intensity': {}
     }
 
-    print("\n📊 UKUPNE METRIKE:")
+    print("\nUKUPNE METRIKE:")
 
     var_pairs = [
         ('temperature_2m', 'Temperatura', '°C'),
@@ -352,7 +352,7 @@ def analyze_model_errors(model_name, merged_df):
                   f"{cloud_skill['false_alarms']}/{cloud_skill['correct_neg']}")
             report['cloudiness_skill']['global'] = cloud_skill
 
-    print("\n🌍 GREŠKE PO SEZONAMA:")
+    print("\nGREŠKE PO SEZONAMA:")
 
     for season in ['Zima', 'Proleće', 'Leto', 'Jesen']:
         mask = merged_df['season'] == season
@@ -381,7 +381,7 @@ def analyze_model_errors(model_name, merged_df):
             'precipitation': {'mae': mae_P, 'rmse': rmse_P, 'bias': bias_P, 'n': n_P}
         }
 
-    print("\n⏰ GREŠKE PO DOBU DANA:")
+    print("\nGREŠKE PO DOBU DANA:")
 
     for time_period in ['Noć', 'Jutro', 'Popodne', 'Veče']:
         mask = merged_df['time_of_day'] == time_period
@@ -408,7 +408,7 @@ def analyze_model_errors(model_name, merged_df):
             'precipitation': {'mae': mae_P, 'rmse': rmse_P, 'bias': bias_P, 'n': n_P}
         }
 
-    print("\n🌦️  GREŠKE PO VREMENSKIM USLOVIMA:")
+    print("\nGREŠKE PO VREMENSKIM USLOVIMA:")
 
     weather_conditions = {
         'Kiša': merged_df['has_rain'],
@@ -444,7 +444,7 @@ def analyze_model_errors(model_name, merged_df):
             'precipitation': {'mae': mae_P, 'rmse': rmse_P, 'bias': bias_P, 'n': n_P}
         }
 
-    print("\n💨 GREŠKE PO JAKOM VJETRU I BURI:")
+    print("\nGREŠKE PO JAKOM VJETRU I BURI:")
 
     wind_conditions = {
         'Jak vjetar (>8 m/s)': merged_df['strong_wind'],
@@ -480,7 +480,7 @@ def analyze_model_errors(model_name, merged_df):
         }
 
     if 'precipitation_obs' in merged_df.columns and 'precipitation_model' in merged_df.columns:
-        print("\n🌧️  PADAVINE PO INTENZITETU:")
+        print("\nPADAVINE PO INTENZITETU:")
 
         rain_intensity = {
             'Slaba kiša (0.1-2mm)': merged_df['light_rain'],
@@ -502,7 +502,7 @@ def analyze_model_errors(model_name, merged_df):
                     'mae': mae_P, 'rmse': rmse_P, 'bias': bias_P, 'n': n_P
                 }
 
-    print("\n🔥❄️  GREŠKE U EKSTREMNIM SITUACIJAMA (temperatura):")
+    print("\nGREŠKE U EKSTREMNIM SITUACIJAMA (temperatura):")
 
     extreme_conditions = {
         'Ekstremna hladnoća': merged_df['extreme_cold'],
@@ -570,7 +570,7 @@ def main():
         json.dump(all_reports_clean, f, indent=2, ensure_ascii=False)
 
     print("\n" + "=" * 80)
-    print("✅ ANALIZA ZAVRŠENA!")
+    print("ANAL ZAVRŠENA!")
     print("=" * 80)
     print("\nKreirane datoteke:")
     print("  • budva_detailed_error_analysis.json - svi izvještaji")
