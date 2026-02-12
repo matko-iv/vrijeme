@@ -252,6 +252,71 @@ def engineer_features(df):
     if bura_cols:
         out['bura_agreement'] = out[bura_cols].sum(axis=1)
 
+    if rain_mcols:
+        rain_vals = out[rain_mcols].apply(pd.to_numeric, errors='coerce').fillna(0)
+        ens_precip = rain_vals.mean(axis=1)
+
+        out['precip_running_6h'] = ens_precip.rolling(6, min_periods=1).sum()
+        out['precip_running_12h'] = ens_precip.rolling(12, min_periods=1).sum()
+        out['precip_running_24h'] = ens_precip.rolling(24, min_periods=1).sum()
+
+        rain_hours = (rain_vals > 0.1).sum(axis=1)
+        out['rain_hours_6h'] = rain_hours.rolling(6, min_periods=1).sum()
+        out['rain_hours_12h'] = rain_hours.rolling(12, min_periods=1).sum()
+        out['rain_hours_24h'] = rain_hours.rolling(24, min_periods=1).sum()
+
+        agreement = (rain_vals > 0.1).sum(axis=1) / max(len(rain_mcols), 1)
+        out['rain_agreement_6h'] = agreement.rolling(6, min_periods=1).mean()
+        out['rain_agreement_12h'] = agreement.rolling(12, min_periods=1).mean()
+
+        out['persistent_rain'] = (
+            (out['rain_hours_6h'] >= 3) &
+            (agreement >= 0.5)
+        ).astype(float)
+
+        out['sustained_rain_12h'] = (
+            (out['rain_hours_12h'] >= 6) &
+            (out['rain_agreement_12h'] >= 0.4)
+        ).astype(float)
+
+    is_winter = out['month'].isin([11, 12, 1, 2, 3]).astype(float)
+    out['is_winter'] = is_winter
+
+    if 'temp_dew_spread' in out.columns:
+        out['dew_saturated'] = (out['temp_dew_spread'] < 2.0).astype(float)
+        if rain_mcols:
+            out['winter_rain_signal'] = (
+                is_winter *
+                out.get('persistent_rain', 0) *
+                out['dew_saturated']
+            )
+
+    if 'relative_humidity_2m_ens_mean' in out.columns:
+        rh = out['relative_humidity_2m_ens_mean']
+        out['humidity_above_90'] = (rh > 90).astype(float)
+        out['humidity_above_90_6h'] = out['humidity_above_90'].rolling(6, min_periods=1).sum()
+
+        if rain_mcols:
+            out['humid_rain_persistence'] = (
+                out['humidity_above_90_6h'] *
+                out.get('rain_agreement_6h', 0)
+            )
+
+    if 'cloud_cover_ens_mean' in out.columns:
+        cc = out['cloud_cover_ens_mean']
+        out['overcast_6h'] = (cc > 80).rolling(6, min_periods=1).mean()
+        out['overcast_12h'] = (cc > 80).rolling(12, min_periods=1).mean()
+
+    if 'precipitation_ens_mean' in out.columns:
+        pem = out['precipitation_ens_mean']
+        out['precip_ens_running_6h'] = pem.rolling(6, min_periods=1).sum()
+        out['precip_ens_nonzero_6h'] = (pem > 0.05).rolling(6, min_periods=1).sum()
+        out['precip_ens_nonzero_12h'] = (pem > 0.05).rolling(12, min_periods=1).sum()
+        out['precip_ens_intensity'] = pem.rolling(6, min_periods=1).mean()
+
+    if 'precipitation_ens_std' in out.columns:
+        out['precip_model_certainty'] = 1.0 / (1.0 + out['precipitation_ens_std'])
+
     return out
 
 
