@@ -390,17 +390,11 @@ def create_summary_report(reports):
     best_model = min(reports, key=lambda r: safe_get(r['overall'].get('temperature_2m', {}), 'mae'))
 
     report_text = f"""
-╔════════════════════════════════════════════════════════════════════════════╗
-║            IZVJEŠTAJ O PERFORMANSAMA METEOROLOŠKIH MODELA ZA BUDVU        ║
-╚════════════════════════════════════════════════════════════════════════════╝
 
 Analizirano modela: {len(reports)}
-Period: 2023-2026 (3 godine podataka)
-Lokacija: Budva, Crna Gora (42.29°N, 18.84°E)
 
-════════════════════════════════════════════════════════════════════════════
 
-🏆 NAJBOLJI MODEL: {best_model['model_name']}
+NAJBOLJI MODEL: {best_model['model_name']}
 
    Temperatura:
      • MAE:  {safe_get(best_model['overall'].get('temperature_2m', {}), 'mae'):.2f}°C
@@ -415,9 +409,8 @@ Lokacija: Budva, Crna Gora (42.29°N, 18.84°E)
      • MAE:  {safe_get(best_model['overall'].get('precipitation', {}), 'mae'):.2f} mm
      • Bias: {safe_get(best_model['overall'].get('precipitation', {}), 'bias'):+.2f} mm
 
-════════════════════════════════════════════════════════════════════════════
 
-📊 RANGIRANJE MODELA (po MAE temperature):
+RANGIRANJE MODELA (po MAE temperature):
 
 """
 
@@ -429,29 +422,6 @@ Lokacija: Budva, Crna Gora (42.29°N, 18.84°E)
         report_text += f"   {i}. {model['model_name']:25s} MAE: {mae:5.2f}°C   Bias: {bias:+5.2f}°C\n"
 
     report_text += """
-
-════════════════════════════════════════════════════════════════════════════
-
-💡 KLJUČNI NALAZI:
-
-   1. Sistematski bias: Većina modela pokazuje negativan bias (pothlađuju)
-   2. Sezonske razlike: Veće greške u zimskom periodu
-   3. Vjetar: Modeli imaju tendenciju precjenjivanja brzine vjetra
-   4. Padavine: Najveći izazov za sve modele (inherentna varijabilnost)
-   5. BURA: Posebni uslovi zahtijevaju dodatnu pažnju
-
-════════════════════════════════════════════════════════════════════════════
-
-🎯 SLJEDEĆI KORACI:
-
-   → Machine Learning Post-Processing
-   → Feature Engineering (lag, sezonske varijable, BURA flag)
-   → XGBoost/Random Forest za korekciju bias-a
-   → Cilj: MAE < 1.0°C (30-40% poboljšanje)
-
-════════════════════════════════════════════════════════════════════════════
-Generisano: Vizualizacija v4.0 - Profesionalni Dizajn
-════════════════════════════════════════════════════════════════════════════
 """
 
     with open(f'{OUTPUT_DIR}/00_SUMMARY_REPORT.txt', 'w', encoding='utf-8') as f:
