@@ -19,6 +19,7 @@ import requests
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(BASE_DIR, "forecast_output")
 MODEL_DIR = os.path.join(BASE_DIR, "trained_models_v2")
+PREV_RUNS_DIR = os.path.join(BASE_DIR, "previous_runs_data")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -35,6 +36,14 @@ MODEL_IDS = {
     "UKMO_SEAMLESS": "ukmo_seamless",
     "BOM_ACCESS": "bom_access_global",
 }
+
+PREV_RUNS_MODELS = [m for m in MODELS if m != "ITALIAMETEO_ICON2I"]
+PREV_RUNS_VARS = [
+    "temperature_2m", "dew_point_2m", "relative_humidity_2m",
+    "wind_speed_10m", "wind_gusts_10m", "pressure_msl",
+    "cloud_cover", "precipitation",
+]
+PREV_RUNS_API = "https://previous-runs-api.open-meteo.com/v1/forecast"
 
 HOURLY_VARS = [
     "temperature_2m", "relative_humidity_2m", "dew_point_2m",
@@ -62,6 +71,7 @@ SPLIT_DATE = pd.Timestamp('2025-07-01')
 print("=" * 72)
 print("  XGBoost +48h v3 --- Bias Correction Pipeline --- Budva")
 print("  Models:", len(MODELS), "| Obs: merged (2020-2026) | Split:", SPLIT_DATE.date())
+print("  Previous Runs: +Day1/Day2 forecasts for", len(PREV_RUNS_MODELS), "models")
 print("=" * 72)
 
 
@@ -111,7 +121,6 @@ def load_historical_data():
     base['_derived_cloud_obs'] = cloud
     print(f"  Cloud cover derived: {cloud.notna().sum()} valid (daytime)")
 
-    # Derive hourly precip obs — try multiple column names (merged CSV vs old format)
     precip_derived = False
     for precip_col, multiplier in [('precip_rate_in', 25.4), ('precipitation_rate_obs', 1.0), ('precip_rate_mm', 1.0)]:
         if precip_col in base.columns:
@@ -123,6 +132,29 @@ def load_historical_data():
     if not precip_derived:
         base['_derived_precip_obs'] = np.nan
         print("  WARNING: No precip obs column found")
+
+    print("  Ucitavanje previous runs podataka (Day1/Day2)...")
+    prev_merged = 0
+    for m in PREV_RUNS_MODELS:
+        prev_path = os.path.join(PREV_RUNS_DIR, f"{m}_previous_runs.csv")
+        if not os.path.exists(prev_path):
+            print(f"    {m}: nema fajla - preskačem")
+            continue
+        prev = pd.read_csv(prev_path, parse_dates=['datetime'])
+        rename_map = {}
+        for v in PREV_RUNS_VARS:
+            for lag in ['previous_day1', 'previous_day2']:
+                old_col = f"{v}_{lag}"
+                new_col = f"{m}_{v}_{lag}"
+                if old_col in prev.columns:
+                    rename_map[old_col] = new_col
+        prev_keep = ['datetime'] + list(rename_map.keys())
+        prev = prev[[c for c in prev_keep if c in prev.columns]].rename(columns=rename_map)
+        base = base.merge(prev, on='datetime', how='left')
+        prev_merged += 1
+        n_valid = base[f'{m}_temperature_2m_previous_day1'].notna().sum() if f'{m}_temperature_2m_previous_day1' in base.columns else 0
+        print(f"    {m}: merged ({n_valid} valid Day1 rows)")
+    print(f"  Previous runs: {prev_merged} modela merged")
 
     print(f"  Merged: {base.shape[0]} x {base.shape[1]}")
     return base
@@ -590,6 +622,54 @@ def engineer_features(df):
             out['is_jugo'] * out.get('is_winter', pd.Series(0, index=out.index))
         )
 
+    for v in PREV_RUNS_VARS:
+        day1_cols = [f"{m}_{v}_previous_day1" for m in PREV_RUNS_MODELS
+                     if f"{m}_{v}_previous_day1" in out.columns]
+        day2_cols = [f"{m}_{v}_previous_day2" for m in PREV_RUNS_MODELS
+                     if f"{m}_{v}_previous_day2" in out.columns]
+
+        if len(day1_cols) >= 2:
+            d1_vals = out[day1_cols].apply(pd.to_numeric, errors='coerce')
+            out[f'{v}_prev_day1_ens_mean'] = d1_vals.mean(axis=1)
+            out[f'{v}_prev_day1_ens_std'] = d1_vals.std(axis=1)
+
+        if len(day2_cols) >= 2:
+            d2_vals = out[day2_cols].apply(pd.to_numeric, errors='coerce')
+            out[f'{v}_prev_day2_ens_mean'] = d2_vals.mean(axis=1)
+
+        rev_cols = []
+        for m in PREV_RUNS_MODELS:
+            d0 = f"{m}_{v}_model"
+            d1 = f"{m}_{v}_previous_day1"
+            if d0 in out.columns and d1 in out.columns:
+                col_name = f'{m}_{v}_revision'
+                out[col_name] = (pd.to_numeric(out[d0], errors='coerce') -
+                                 pd.to_numeric(out[d1], errors='coerce'))
+                rev_cols.append(col_name)
+
+        d1d2_rev_cols = []
+        for m in PREV_RUNS_MODELS:
+            d1 = f"{m}_{v}_previous_day1"
+            d2 = f"{m}_{v}_previous_day2"
+            if d1 in out.columns and d2 in out.columns:
+                col_name = f'{m}_{v}_d1d2_revision'
+                out[col_name] = (pd.to_numeric(out[d1], errors='coerce') -
+                                 pd.to_numeric(out[d2], errors='coerce'))
+                d1d2_rev_cols.append(col_name)
+
+        if len(rev_cols) >= 2:
+            rv = out[rev_cols].apply(pd.to_numeric, errors='coerce')
+            out[f'{v}_revision_ens_mean'] = rv.mean(axis=1)
+            out[f'{v}_revision_ens_std'] = rv.std(axis=1)
+            out[f'{v}_revision_ens_abs_mean'] = rv.abs().mean(axis=1)
+
+        if len(d1d2_rev_cols) >= 2:
+            d1d2 = out[d1d2_rev_cols].apply(pd.to_numeric, errors='coerce')
+            out[f'{v}_d1d2_revision_ens_mean'] = d1d2.mean(axis=1)
+
+        if f'{v}_prev_day1_ens_mean' in out.columns and f'{v}_ens_mean' in out.columns:
+            out[f'{v}_day0_vs_day1_ens'] = out[f'{v}_ens_mean'] - out[f'{v}_prev_day1_ens_mean']
+
     return out
 
 
@@ -778,6 +858,47 @@ def fetch_live_forecasts():
     mask = merged['datetime'] >= now
     fc_all = merged[mask].copy().reset_index(drop=True)
     print(f"  Prognoza: {fc_all.shape[0]} sati ({fc_all['datetime'].min()} --- {fc_all['datetime'].max()})")
+
+    print("\n  Preuzimanje Previous Runs (Day1/Day2)...")
+    prev_hourly_list = []
+    for v in PREV_RUNS_VARS:
+        prev_hourly_list.append(v)
+        prev_hourly_list.append(f"{v}_previous_day1")
+        prev_hourly_list.append(f"{v}_previous_day2")
+    prev_hourly_str = ",".join(prev_hourly_list)
+
+    for model_name in PREV_RUNS_MODELS:
+        if model_name not in all_fc:
+            continue
+        model_id = MODEL_IDS[model_name]
+        pr_params = {
+            "latitude": LAT, "longitude": LON,
+            "hourly": prev_hourly_str,
+            "timezone": "auto", "models": model_id, "forecast_days": 10,
+        }
+        try:
+            r = requests.get(PREV_RUNS_API, params=pr_params, timeout=30)
+            if r.status_code == 429:
+                time.sleep(60)
+                r = requests.get(PREV_RUNS_API, params=pr_params, timeout=30)
+            r.raise_for_status()
+            h = r.json().get('hourly', {})
+            d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+            added = 0
+            for v in PREV_RUNS_VARS:
+                for lag in ['previous_day1', 'previous_day2']:
+                    col = f"{v}_{lag}"
+                    new_col = f"{model_name}_{v}_{lag}"
+                    if col in h:
+                        d[new_col] = h[col]
+                        added += 1
+            fc_all = fc_all.merge(d[['datetime'] + [c for c in d.columns if c != 'datetime']], 
+                                   on='datetime', how='left')
+            print(f"    {model_name}: OK ({added} columns)")
+        except Exception as e:
+            print(f"    {model_name}: FAIL ({e})")
+        time.sleep(1.5)
+
     return fc_all
 
 
@@ -895,7 +1016,6 @@ def apply_correction(fc_df, trained, bias_tables):
     wc_cols = [f"{m}_weather_code_model" for m in MODELS if f"{m}_weather_code_model" in fc.columns]
     if wc_cols:
         corrected['weather_code_raw'] = fc[wc_cols].apply(pd.to_numeric, errors='coerce').mode(axis=1)[0]
-        # Smart weather code: use XGBoost precip + cloud to correct false rain
         corrected['weather_code'] = corrected.apply(
             lambda r: correct_weather_code_row(r, fc.loc[r.name] if r.name in fc.index else None), axis=1
         )
@@ -1104,8 +1224,8 @@ def generate_output(corrected, trained, results, fc_raw=None):
         "generated": now_str,
         "location": {"name": "Budva, Crna Gora", "lat": LAT, "lon": LON,
                       "station": "ibudva5 (Weather Underground)"},
-        "method": "XGBoost Multi-Model Ensemble + Historical Bias Correction v3",
-        "description": "8 modela, 6 godina podataka (2020-2026), pametna korekcija vremena",
+        "method": "XGBoost Multi-Model Ensemble + Historical Bias + Forecast Revision v3",
+        "description": "8 modela, 6 godina podataka (2020-2026), pametna korekcija + Day1/Day2 revizije",
         "models": MODELS,
         "training_metrics": results,
         "daily_summary": daily,

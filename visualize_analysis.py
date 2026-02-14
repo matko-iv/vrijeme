@@ -19,6 +19,8 @@ COLORS = {
     'quaternary': '#845EC2',
     'quinary': '#D65DB1',
     'senary': '#F9B936',
+    'septenary': '#00CED1',
+    'octonary': '#DC143C',
     'gray': '#7A7A7A',
     'light_gray': '#E0E0E0',
     'positive': '#C73E1D',
@@ -31,7 +33,9 @@ MODEL_PALETTE = [
     COLORS['tertiary'],
     COLORS['quaternary'],
     COLORS['quinary'],
-    COLORS['senary']
+    COLORS['senary'],
+    COLORS['septenary'],
+    COLORS['octonary']
 ]
 
 plt.style.use('seaborn-v0_8-whitegrid')
@@ -390,9 +394,10 @@ def create_summary_report(reports):
     best_model = min(reports, key=lambda r: safe_get(r['overall'].get('temperature_2m', {}), 'mae'))
 
     report_text = f"""
+IZVJEŠTAJ O PERFORMANSAMA METEOROLOŠKIH MODELA ZA BUDVU
 
 Analizirano modela: {len(reports)}
-
+Period: 2020-2026 (6 godina podataka)
 
 NAJBOLJI MODEL: {best_model['model_name']}
 
@@ -421,8 +426,7 @@ RANGIRANJE MODELA (po MAE temperature):
         bias = safe_get(model['overall'].get('temperature_2m', {}), 'bias')
         report_text += f"   {i}. {model['model_name']:25s} MAE: {mae:5.2f}°C   Bias: {bias:+5.2f}°C\n"
 
-    report_text += """
-"""
+    report_text += """"""
 
     with open(f'{OUTPUT_DIR}/00_SUMMARY_REPORT.txt', 'w', encoding='utf-8') as f:
         f.write(report_text)

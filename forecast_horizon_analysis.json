@@ -1,0 +1,271 @@
+{
+  "degradation": [
+    {
+      "model": "METEOFRANCE",
+      "variable": "temperature_2m",
+      "mae_day0": 1.3746,
+      "mae_day1": 1.459,
+      "mae_day2": 1.5098,
+      "degradation_pct": 9.8
+    },
+    {
+      "model": "METEOFRANCE",
+      "variable": "dew_point_2m",
+      "mae_day0": 2.2614,
+      "mae_day1": 2.2622,
+      "mae_day2": 2.3859,
+      "degradation_pct": 5.5
+    },
+    {
+      "model": "METEOFRANCE",
+      "variable": "pressure_msl",
+      "mae_day0": 0.9939,
+      "mae_day1": 0.9285,
+      "mae_day2": 0.8206,
+      "degradation_pct": -17.4
+    },
+    {
+      "model": "METEOFRANCE",
+      "variable": "precipitation",
+      "mae_day0": 2.3448,
+      "mae_day1": 2.3575,
+      "mae_day2": 2.4952,
+      "degradation_pct": 6.4
+    },
+    {
+      "model": "ECMWF_IFS025",
+      "variable": "temperature_2m",
+      "mae_day0": 1.8112,
+      "mae_day1": 1.9346,
+      "mae_day2": 1.9622,
+      "degradation_pct": 8.3
+    },
+    {
+      "model": "ECMWF_IFS025",
+      "variable": "dew_point_2m",
+      "mae_day0": 1.9238,
+      "mae_day1": 1.9645,
+      "mae_day2": 1.9797,
+      "degradation_pct": 2.9
+    },
+    {
+      "model": "ECMWF_IFS025",
+      "variable": "wind_speed_10m",
+      "mae_day0": 0.7182,
+      "mae_day1": 0.6897,
+      "mae_day2": 0.6912,
+      "degradation_pct": -3.8
+    },
+    {
+      "model": "ECMWF_IFS025",
+      "variable": "pressure_msl",
+      "mae_day0": 1.3172,
+      "mae_day1": 1.1994,
+      "mae_day2": 1.2107,
+      "degradation_pct": -8.1
+    },
+    {
+      "model": "ECMWF_IFS025",
+      "variable": "precipitation",
+      "mae_day0": 2.1629,
+      "mae_day1": 2.1896,
+      "mae_day2": 2.2802,
+      "degradation_pct": 5.4
+    },
+    {
+      "model": "GFS_SEAMLESS",
+      "variable": "temperature_2m",
+      "mae_day0": 1.75,
+      "mae_day1": 1.7856,
+      "mae_day2": 1.8141,
+      "degradation_pct": 3.7
+    },
+    {
+      "model": "GFS_SEAMLESS",
+      "variable": "dew_point_2m",
+      "mae_day0": 2.1915,
+      "mae_day1": 2.292,
+      "mae_day2": 2.3493,
+      "degradation_pct": 7.2
+    },
+    {
+      "model": "GFS_SEAMLESS",
+      "variable": "wind_speed_10m",
+      "mae_day0": 1.481,
+      "mae_day1": 1.4545,
+      "mae_day2": 1.4424,
+      "degradation_pct": -2.6
+    },
+    {
+      "model": "GFS_SEAMLESS",
+      "variable": "pressure_msl",
+      "mae_day0": 1.0338,
+      "mae_day1": 1.1345,
+      "mae_day2": 1.1489,
+      "degradation_pct": 11.1
+    },
+    {
+      "model": "GFS_SEAMLESS",
+      "variable": "precipitation",
+      "mae_day0": 2.2619,
+      "mae_day1": 2.3358,
+      "mae_day2": 2.396,
+      "degradation_pct": 5.9
+    },
+    {
+      "model": "ICON_SEAMLESS",
+      "variable": "temperature_2m",
+      "mae_day0": 1.9594,
+      "mae_day1": 1.97,
+      "mae_day2": 1.9833,
+      "degradation_pct": 1.2
+    },
+    {
+      "model": "ICON_SEAMLESS",
+      "variable": "dew_point_2m",
+      "mae_day0": 2.3382,
+      "mae_day1": 2.1564,
+      "mae_day2": 2.1982,
+      "degradation_pct": -6.0
+    },
+    {
+      "model": "ICON_SEAMLESS",
+      "variable": "wind_speed_10m",
+      "mae_day0": 1.2251,
+      "mae_day1": 1.1564,
+      "mae_day2": 1.1562,
+      "degradation_pct": -5.6
+    },
+    {
+      "model": "ICON_SEAMLESS",
+      "variable": "pressure_msl",
+      "mae_day0": 1.0851,
+      "mae_day1": 1.029,
+      "mae_day2": 1.0677,
+      "degradation_pct": -1.6
+    },
+    {
+      "model": "ICON_SEAMLESS",
+      "variable": "precipitation",
+      "mae_day0": 2.3182,
+      "mae_day1": 2.3482,
+      "mae_day2": 2.4175,
+      "degradation_pct": 4.3
+    },
+    {
+      "model": "UKMO_SEAMLESS",
+      "variable": "temperature_2m",
+      "mae_day0": 1.7439,
+      "mae_day1": 1.8498,
+      "mae_day2": 1.8899,
+      "degradation_pct": 8.4
+    },
+    {
+      "model": "UKMO_SEAMLESS",
+      "variable": "dew_point_2m",
+      "mae_day0": 2.0108,
+      "mae_day1": 1.9815,
+      "mae_day2": 1.9992,
+      "degradation_pct": -0.6
+    },
+    {
+      "model": "UKMO_SEAMLESS",
+      "variable": "wind_speed_10m",
+      "mae_day0": 0.9646,
+      "mae_day1": 1.0,
+      "mae_day2": 1.0013,
+      "degradation_pct": 3.8
+    },
+    {
+      "model": "UKMO_SEAMLESS",
+      "variable": "pressure_msl",
+      "mae_day0": 0.8909,
+      "mae_day1": 0.8729,
+      "mae_day2": 0.958,
+      "degradation_pct": 7.5
+    },
+    {
+      "model": "UKMO_SEAMLESS",
+      "variable": "precipitation",
+      "mae_day0": 2.3875,
+      "mae_day1": 2.1763,
+      "mae_day2": 2.157,
+      "degradation_pct": -9.7
+    },
+    {
+      "model": "ARPEGE_EUROPE",
+      "variable": "temperature_2m",
+      "mae_day0": 1.3746,
+      "mae_day1": 1.459,
+      "mae_day2": 1.5098,
+      "degradation_pct": 9.8
+    },
+    {
+      "model": "ARPEGE_EUROPE",
+      "variable": "dew_point_2m",
+      "mae_day0": 2.2614,
+      "mae_day1": 2.2622,
+      "mae_day2": 2.3859,
+      "degradation_pct": 5.5
+    },
+    {
+      "model": "ARPEGE_EUROPE",
+      "variable": "pressure_msl",
+      "mae_day0": 0.9939,
+      "mae_day1": 0.9285,
+      "mae_day2": 0.8206,
+      "degradation_pct": -17.4
+    },
+    {
+      "model": "ARPEGE_EUROPE",
+      "variable": "precipitation",
+      "mae_day0": 2.3448,
+      "mae_day1": 2.3575,
+      "mae_day2": 2.4952,
+      "degradation_pct": 6.4
+    },
+    {
+      "model": "BOM_ACCESS",
+      "variable": "temperature_2m",
+      "mae_day0": 1.7798,
+      "mae_day1": 1.9258,
+      "mae_day2": 2.0141,
+      "degradation_pct": 13.2
+    },
+    {
+      "model": "BOM_ACCESS",
+      "variable": "dew_point_2m",
+      "mae_day0": 1.8664,
+      "mae_day1": 1.8728,
+      "mae_day2": 1.9704,
+      "degradation_pct": 5.6
+    },
+    {
+      "model": "BOM_ACCESS",
+      "variable": "wind_speed_10m",
+      "mae_day0": 1.6876,
+      "mae_day1": 1.6699,
+      "mae_day2": 1.6883,
+      "degradation_pct": 0.0
+    },
+    {
+      "model": "BOM_ACCESS",
+      "variable": "pressure_msl",
+      "mae_day0": 1.0007,
+      "mae_day1": 1.0974,
+      "mae_day2": 1.1746,
+      "degradation_pct": 17.4
+    },
+    {
+      "model": "BOM_ACCESS",
+      "variable": "precipitation",
+      "mae_day0": 4.5364,
+      "mae_day1": 3.772,
+      "mae_day2": 3.8794,
+      "degradation_pct": -14.5
+    }
+  ],
+  "xgboost_improvement": null,
+  "period": "2024-01-15 to 2026-02-13",
+  "generated": "2026-02-14T14:56:39.940091"
+}

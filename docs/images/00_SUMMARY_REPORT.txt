@@ -3,8 +3,8 @@
 ║            IZVJEŠTAJ O PERFORMANSAMA METEOROLOŠKIH MODELA ZA BUDVU        ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 
-Analizirano modela: 6
-Period: 2023-2026 (3 godine podataka)
+Analizirano modela: 8
+Period: 2020-2026 (6 godina podataka)
 Lokacija: Budva, Crna Gora (42.29°N, 18.84°E)
 
 ════════════════════════════════════════════════════════════════════════════
@@ -12,28 +12,30 @@ Lokacija: Budva, Crna Gora (42.29°N, 18.84°E)
 🏆 NAJBOLJI MODEL: METEOFRANCE
 
 Temperatura:
-  • MAE: 1.39°C
-  • RMSE: 1.75°C
-  • Bias: -0.51°C
+  • MAE: 1.37°C
+  • RMSE: 1.74°C
+  • Bias: -0.53°C
 
 Brzina vjetra:
-  • MAE: 1.56 m/s
-  • Bias: +1.47 m/s
+  • MAE: 1.61 m/s
+  • Bias: +1.52 m/s
 
 Padavine:
-  • MAE: 9.26 mm
-  • Bias: -8.92 mm
+  • MAE: 7.22 mm
+  • Bias: -6.88 mm
 
 ════════════════════════════════════════════════════════════════════════════
 
 📊 RANGIRANJE MODELA (po MAE temperature):
 
-  1. METEOFRANCE               MAE:  1.39°C Bias: -0.51°C
-  2. ARPEGE_EUROPE             MAE:  1.39°C Bias: -0.51°C
-  3. ITALIAMETEO_ICON2I        MAE:  1.72°C Bias: +0.84°C
-  4. GFS_SEAMLESS              MAE:  1.74°C Bias: -1.07°C
-  5. ECMWF_IFS025              MAE:  1.80°C Bias: -0.74°C
-  6. ICON_SEAMLESS             MAE:  1.97°C Bias: +0.84°C
+  1. METEOFRANCE               MAE:  1.37°C Bias: -0.53°C
+  2. ARPEGE_EUROPE             MAE:  1.38°C Bias: -0.53°C
+  3. ITALIAMETEO_ICON2I        MAE:  1.69°C Bias: +0.86°C
+  4. UKMO_SEAMLESS             MAE:  1.72°C Bias: -1.29°C
+  5. GFS_SEAMLESS              MAE:  1.74°C Bias: -1.13°C
+  6. BOM_ACCESS                MAE:  1.78°C Bias: -1.07°C
+  7. ECMWF_IFS025              MAE:  1.81°C Bias: -0.80°C
+  8. ICON_SEAMLESS             MAE:  1.91°C Bias: +0.81°C
 
 ════════════════════════════════════════════════════════════════════════════
 
