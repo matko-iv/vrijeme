@@ -266,6 +266,8 @@ Python 3.10+
 
 Ova verzija uključuje dvoprolazno treniranje - koje pokušava da pronađe optimalne `n_estimators` na 5% validacionoj podjeli, a zatim ponovo trenira na svim podacima. Takođe uključuje podjelu na dan i noć, dvostepensku analizu padavina i univerzalno optimalno miješanje, neku vrstu post-processinga za sve dostupne parametre.
 
+Realna opipljiva poboljšanja MAE su minimalna u poređenju sa v2 verzijom, ali ovo služi kao sveobuhvatno istraživanje podataka i mogućnosti modeliranja.
+
 ## Napomene
 
 - **Train/test split** je na `2025-07-01` (`SPLIT_DATE`). Podesite tako da imate barem 6–12 mjeseci za trening prije tog datuma.
