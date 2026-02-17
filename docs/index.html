@@ -400,7 +400,7 @@
 
     <img src="images/08_bias_heatmap.png" alt="Heatmapa sezonskog biasa svih modela">
 
-    <p>Heatmapa iznad prikazuje sistematski bias (pristrasnost) temperature za svih 8 modela po sezonama. Crvena boja znači da model pregrijava, plava da pothlađuje. Većina modela pothlađuje — posebno UKMO i GFS, dok ICON i ItaliaMeteo pregrijavaju.</p>
+    <p>Heatmapa iznad prikazuje sistematski bias (pristrasnost) temperature za modele po sezonama. Crvena boja znači da model pregrijava, plava da pothlađuje. Većina modela pothlađuje — posebno UKMO i GFS, dok ICON i ItaliaMeteo pregrijavaju.</p>
 
     <img src="images/04_diurnal_cycle.png" alt="Dnevni ciklus grešaka">
 
@@ -422,21 +422,21 @@
 
     <h2>Kako to popraviti</h2>
 
-    <p>Ideja je da treniram model mašinskog učenja (konkretno XGBoost) koji će naučiti iz grešaka koje globalni modeli prave. Model uzima sirove prognoze kao input i daje korigovanu prognozu kao output. Sada imam 8 modela umjesto ranijih 6, uključujući UK Met Office (UKMO) i Australian BOM ACCESS, što daje bogatiji i raznovrsniji ansambl.</p>
+    <p>Ideja je da treniram model mašinskog učenja (konkretno XGBoost) koji će naučiti iz grešaka koje globalni modeli prave. Model uzima sirove prognoze kao input i daje korigovanu prognozu kao output. Sada imam 11 modela — uključujući ECMWF IFS HRES na 9km, holandski KNMI HARMONIE AROME (5.5km) i danski DMI HARMONIE AROME (2km), uz ranijih 8 modela. Tri nova modela donose višu rezoluciju i potpuno novi model sistem (HARMONIE) koji nije zastupljen među ostalim modelima.</p>
 
     <p>Ključno je kreirati dobre feature-e. Pored sirovih prognoza, dodajem:</p>
 
     <ul>
-        <li>Ensemble statistike — prosjek, standardna devijacija, raspon i medijana prognoza svih 8 modela</li>
+        <li>Ensemble statistike — prosjek, standardna devijacija, raspon i medijana prognoza svih 11 modela</li>
         <li>Devijacije — koliko svaki model odstupa od ensemble prosjeka</li>
         <li>Ciklične varijable — sat u danu i dan u godini kao sin/cos funkcije</li>
         <li>Sezonski faktori — zima/proljeće/ljeto/jesen</li>
         <li>Cross-parameter interakcije — razlika temp/dew point, odnos vjetra i pritiska</li>
-        <li>Tabele istorijskog biasa — prosječna greška svakog modela za svaki parametar, po mjesecu i satu (sada 384+ lookup features za 8 modela)</li>
+        <li>Tabele istorijskog biasa — prosječna greška svakog modela za svaki parametar, po mjesecu i satu (sada 500+ lookup features za 11 modela)</li>
         <li>Clear-sky model — teoretska solarna radijacija za Budvu (42.29°N, 18.84°E) kao proxy za dnevne cikluse</li>
     </ul>
 
-    <p>Cilj je bio spustiti MAE ispod 1.0°C — <strong>postignut: 0.89°C</strong>. To je poboljšanje od 30.5% u odnosu na najbolji globalni model (ARPÈGE Europe). Sa integracijom Previous Runs revizija i Huber loss pristupom, model koristi 1,100+ feature-a iz 8 modela + 5 godina opservacija.</p>
+    <p>Cilj je bio spustiti MAE ispod 1.0°C — <strong>postignut: 0.86°C</strong>. To je poboljšanje od 32.5% u odnosu na najbolji globalni model (ARPÈGE Europe). Sa integracijom Previous Runs revizija, Huber loss pristupom i proširenjem na 11 modela (uključujući ECMWF IFS 9km, KNMI i DMI HARMONIE), model koristi 1,300+ feature-a iz 11 modela + 5 godina opservacija.</p>
 
     <h2>Kako XGBoost funkcioniše</h2>
 
@@ -504,16 +504,19 @@
 
     <p>Za korekciju vremenskih prognoza koristim sljedeće hiperparametre:</p>
 
+    <p>Hiperparametri su podešeni po grupi varijabli. Temperatura, tačka rose i pritisak koriste agresivniji ensemble (više stabala, sporije učenje), dok vjetar koristi brži setup. Padavine imaju poseban two-stage pipeline (klasifikator + regresor) sa jačom regularizacijom.</p>
+
     <table>
-        <tr><th>Parametar</th><th>Vrijednost</th><th>Značenje</th></tr>
-        <tr><td><code>n_estimators</code></td><td>800</td><td>Maksimalan broj stabala (sa early stopping)</td></tr>
-        <tr><td><code>max_depth</code></td><td>6</td><td>Maksimalna dubina svakog stabla</td></tr>
-        <tr><td><code>learning_rate</code> (η)</td><td>0.05</td><td>Koliko jako svako novo stablo utiče</td></tr>
-        <tr><td><code>subsample</code></td><td>0.8</td><td>Procenat podataka korišten za svako stablo</td></tr>
-        <tr><td><code>colsample_bytree</code></td><td>0.7</td><td>Procenat feature-a korišten za svako stablo</td></tr>
-        <tr><td><code>reg_alpha</code> (α)</td><td>0.1</td><td>L1 regularizacija (LASSO)</td></tr>
-        <tr><td><code>reg_lambda</code> (λ)</td><td>1.0</td><td>L2 regularizacija (Ridge)</td></tr>
-        <tr><td><code>min_child_weight</code></td><td>5</td><td>Minimalni zbroj hesijana u listu</td></tr>
+        <tr><th>Parametar</th><th>Temp / Rose / Pritisak</th><th>Oblačnost / Solar / Vlažnost</th><th>Vjetar</th><th>Značenje</th></tr>
+        <tr><td><code>n_estimators</code></td><td>1200</td><td>1000</td><td>800</td><td>Maks. broj stabala (sa early stopping)</td></tr>
+        <tr><td><code>max_depth</code></td><td>6</td><td>6</td><td>6</td><td>Maksimalna dubina svakog stabla</td></tr>
+        <tr><td><code>learning_rate</code> (η)</td><td>0.03</td><td>0.04</td><td>0.05</td><td>Koliko jako svako novo stablo utiče</td></tr>
+        <tr><td><code>subsample</code></td><td>0.8</td><td>0.8</td><td>0.8</td><td>Procenat podataka korišten za svako stablo</td></tr>
+        <tr><td><code>colsample_bytree</code></td><td>0.7</td><td>0.65</td><td>0.7</td><td>Procenat feature-a korišten za svako stablo</td></tr>
+        <tr><td><code>reg_alpha</code> (α)</td><td>0.1</td><td>0.15–0.2</td><td>0.1</td><td>L1 regularizacija (LASSO)</td></tr>
+        <tr><td><code>reg_lambda</code> (λ)</td><td>1.0</td><td>1.5</td><td>1.0</td><td>L2 regularizacija (Ridge)</td></tr>
+        <tr><td><code>min_child_weight</code></td><td>5</td><td>5</td><td>5</td><td>Minimalni zbroj hesijana u listu</td></tr>
+        <tr><td><code>gamma</code> (γ)</td><td>0.05</td><td>0.05</td><td>0.05</td><td>Min. gain za novi split</td></tr>
     </table>
 
     <h3>Huber Loss</h3>
@@ -532,23 +535,23 @@
 
     <p>Uz Huber loss, koristim i rezidualni pristup — umjesto da model direktno predviđa konačnu temperaturu (recimo 23.5°C), on predviđa korekciju: koliko ansambl prosjek treba pomjeriti da odgovara mjerenju. Korekcije su uglavnom mali brojevi (±2-3 stepena), dok su temperature u rasponu od -5 do 40°C. Manji raspon ciljne varijable = lakši problem za model.</p>
 
-    <p>Kombinacija reziduala i Huber loss-a je spustila MAE temperature sa 0.96 na 0.89°C, a tačku rose sa 1.15 na 1.07°C. To je čista promjena formulacije problema i loss funkcije — nema novih podataka, nema novih feature-a, ista količina stabala. A razlika je osjetna.</p>
+    <p>Kombinacija reziduala i Huber loss-a je spustila MAE temperature sa 0.96 na 0.89°C, a tačku rose sa 1.15 na 1.07°C. To je čista promjena formulacije problema i loss funkcije — nema novih podataka, nema novih feature-a, ista količina stabala. A razlika je osjetna. Kasnijim dodavanjem 3 nova modela (ECMWF IFS 9km, KNMI, DMI HARMONIE) temperatura je pala na 0.86°C, a pritisak sa 0.32 na 0.25 hPa.</p>
 
     <p>Nije svaki parametar imao koristi od Huber-a. Za pritisak i oblačnost, standardni squared error sa ansambl blendingom radi bolje. Svaki parametar ima svoju optimalnu kombinaciju strategije — što je prednost pristupa sa odvojenim modelima.</p>
 
-    <p>Treniram poseban model za svaki parametar (temperatura, pritisak, vlažnost, vjetar, tačka rose, udari vjetra, oblačnost, padavine, solarna radijacija), koristeći prognoze svih 8 modela kao input. Sa 5+ godina opservacija (različita dostupnost po modelu) i train/test splitom na jul 2025., rezultati su:</p>
+    <p>Treniram poseban model za svaki parametar (temperatura, pritisak, vlažnost, vjetar, tačka rose, udari vjetra, oblačnost, padavine, solarna radijacija), koristeći prognoze svih 11 modela kao input. Sa 5+ godina opservacija (različita dostupnost po modelu) i train/test splitom na jul 2025., rezultati su:</p>
 
     <table>
         <tr><th>Parametar</th><th>XGBoost MAE</th><th>Najbolji model MAE</th><th>Poboljšanje</th></tr>
-        <tr><td>Temperatura</td><td><strong>0.89°C</strong></td><td>1.28°C (ARPÈGE)</td><td style="color:#28a745">+30.5%</td></tr>
-        <tr><td>Tačka rose</td><td><strong>1.07°C</strong></td><td>2.13°C (ECMWF)</td><td style="color:#28a745">+49.8%</td></tr>
-        <tr><td>Vlažnost</td><td><strong>6.31%</strong></td><td>9.03% (ECMWF)</td><td style="color:#28a745">+30.1%</td></tr>
-        <tr><td>Brzina vjetra</td><td><strong>0.45 m/s</strong></td><td>0.72 m/s (ECMWF)</td><td style="color:#28a745">+37.5%</td></tr>
-        <tr><td>Udari vjetra</td><td><strong>0.60 m/s</strong></td><td>1.80 m/s (GFS)</td><td style="color:#28a745">+66.7%</td></tr>
-        <tr><td>Pritisak</td><td><strong>0.32 hPa</strong></td><td>0.70 hPa (ItaliaMeteo)</td><td style="color:#28a745">+54.3%</td></tr>
-        <tr><td>Oblačnost</td><td><strong>9.81%</strong></td><td>27.39% (BOM)</td><td style="color:#28a745">+64.2%</td></tr>
-        <tr><td>Padavine</td><td><strong>1.54 mm</strong></td><td>1.52 mm (GFS)</td><td style="color:#d73a49">-1.3%</td></tr>
-        <tr><td>Solar. radijacija</td><td><strong>21.46 W/m²</strong></td><td>35.17 W/m² (ItaliaMeteo)</td><td style="color:#28a745">+39.0%</td></tr>
+        <tr><td>Temperatura</td><td><strong>0.86°C</strong></td><td>1.28°C (ARPÈGE)</td><td style="color:#28a745">+32.5%</td></tr>
+        <tr><td>Tačka rose</td><td><strong>1.05°C</strong></td><td>1.84°C (ECMWF IFS)</td><td style="color:#28a745">+42.7%</td></tr>
+        <tr><td>Vlažnost</td><td><strong>6.10%</strong></td><td>9.03% (ECMWF IFS)</td><td style="color:#28a745">+32.5%</td></tr>
+        <tr><td>Brzina vjetra</td><td><strong>0.46 m/s</strong></td><td>0.72 m/s (ECMWF IFS)</td><td style="color:#28a745">+36.3%</td></tr>
+        <tr><td>Udari vjetra</td><td><strong>0.61 m/s</strong></td><td>1.80 m/s (GFS)</td><td style="color:#28a745">+66.3%</td></tr>
+        <tr><td>Pritisak</td><td><strong>0.25 hPa</strong></td><td>0.70 hPa (ItaliaMeteo)</td><td style="color:#28a745">+64.4%</td></tr>
+        <tr><td>Oblačnost</td><td><strong>9.69%</strong></td><td>27.39% (BOM)</td><td style="color:#28a745">+64.6%</td></tr>
+        <tr><td>Padavine</td><td><strong>1.52 mm</strong></td><td>1.52 mm (GFS)</td><td style="color:#d73a49">-0.4%</td></tr>
+        <tr><td>Solar. radijacija</td><td><strong>21.52 W/m²</strong></td><td>35.17 W/m² (ItaliaMeteo)</td><td style="color:#28a745">+38.8%</td></tr>
     </table>
 
     <h3>Verifikacija: koliko tačno modeli detektuju kišu?</h3>
@@ -590,7 +593,7 @@
 
     <p><strong>Rezolucija za Crnu Goru.</strong> Budva leži na obali, sa planinama od 1000+ metara na samo nekoliko kilometara od mora. Ova izuzetna orografska kompleksnost zahtijeva rezoluciju od 2km ili manje da bi se adekvatno modelirali lokalni efekti. Nijedan od globalnih modela koje koristimo nema takvu rezoluciju za ovo područje. Ovo važi generalno za čitavu Crnu Goru, čija izrazito kompleksna topografija predstavlja poseban izazov za numeričke prognoze.</p>
 
-    <p><strong>Ensemble ≠ novi model.</strong> Moj pristup koristi ansambl postojećih modela — ali 8 modela koji svi griješe na sličan način neće magično dati tačan odgovor. Ansambl smanjuje slučajnu grešku, ali ne može kompenzovati sistematski nedostatak rezolucije. Za zaista novi kvalitet prognoze za Budvu, bio bi potreban high-resolution LAM (Limited Area Model) na ~1km gridu, poput AROME ili ICON-D2 kalibrisan za Jadransku obalu.</p>
+    <p><strong>Ensemble ≠ novi model.</strong> Moj pristup koristi ansambl postojećih modela — ali 11 modela koji svi griješe na sličan način neće magično dati tačan odgovor. Ansambl smanjuje slučajnu grešku, ali ne može kompenzovati sistematski nedostatak rezolucije. Dodavanje KNMI (5.5km) i DMI HARMONIE (2km) donosi višu rezoluciju, ali Budva je na rubu njihove domene. Za zaista novi kvalitet prognoze za Budvu, bio bi potreban high-resolution LAM (Limited Area Model) na ~1km gridu, poput AROME ili ICON-D2 kalibrisan za Jadransku obalu.</p>
 
     <div class="note">
         <strong>Ukratko:</strong> Ovaj sistem daje najbolju moguću korekciju postojećih globalnih prognoza — ali ne zamjenjuje potrebu za visoko-rezolutivnim regionalnim modelima. Najveća poboljšanja su na "glatkim" varijablama (temperatura, pritisak, vlažnost), dok padavine i lokalni vjetrovi ostaju fundamentalno limitirani ulaznom rezolucijom.
@@ -667,14 +670,14 @@
     <p>Produkcijska verzija je završena. Možete posjetiti <strong><a href="forecast.html">stranicu sa živom prognozom</a></strong>.</p>
 
     <ol>
-        <li>Preuzima live prognoze sa Open-Meteo API za svih <strong>8 modela</strong> (ARPÈGE, GFS, ICON, Météo-France, ECMWF IFS, ItaliaMeteo, <strong>UKMO</strong>, <strong>BOM ACCESS</strong>)</li>
+        <li>Preuzima live prognoze sa Open-Meteo API za svih 11 modela (ARPÈGE, GFS, ICON, Météo-France, ECMWF IFS 0.25°, ItaliaMeteo, UKMO, BOM ACCESS, ECMWF IFS 9km, KNMI HARMONIE, DMI HARMONIE)</li>
         <li>Primjenjuje trenirane XGBoost modele na <strong>svih 9 parametara</strong> — uključujući oblačnost, padavine i solarnu radijaciju</li>
         <li>Koristi tabele istorijskog biasa (po mjesecu i satu) kao dodatne feature-e za preciznije korekcije</li>
         <li><strong>Pametna korekcija vremenskog koda</strong> — koristi XGBoost padavine i oblačnost da ispravi lažne prijave kiše</li>
         <li>Generiše korigovanu +48h prognozu sa interaktivnim web prikazom</li>
     </ol>
 
-    <p>Model je treniran na <strong>5+ godina opservacija</strong> (april 2020. — danas) sa 50.000+ satnih tačaka, spojenih iz dva izvora opservacija. Svaki od 8 modela ima različit period dostupnosti u Open-Meteo API-ju (od 7.000 do 41.500 sati poređenja). Sa 8 modela u ansamblu i pametnom korekcijom vremenskog koda, ovo je značajan korak naprijed u odnosu na prethodnu verziju. Svako mjesečno ažuriranje sa novim podacima donosi marginalna poboljšanja (&lt;1% MAE) s obzirom na već veliku količinu trening podataka.</p>
+    <p>Model je treniran na <strong>5+ godina opservacija</strong> (april 2020. — danas) sa 50.000+ satnih tačaka, spojenih iz dva izvora opservacija. Svaki od 11 modela ima različit period dostupnosti u Open-Meteo API-ju. Sa 11 modela u ansamblu — uključujući 3 visoko-rezolutivna LAM modela (ItaliaMeteo 2.2km, DMI HARMONIE 2km, KNMI HARMONIE 5.5km) — i pametnom korekcijom vremenskog koda, ovo je značajan korak naprijed. Svako mjesečno ažuriranje sa novim podacima donosi marginalna poboljšanja (&lt;1% MAE) s obzirom na već veliku količinu trening podataka.</p>
 
     <p>Linkove korišćenih podataka možete vidjeti na stranici za live prognozu.</p>
 

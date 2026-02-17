@@ -1,6 +1,6 @@
 # Unaprijeđeni vremenski model — XGBoost korekcija vremenske prognoze
 
-Sistem koji koristi **XGBoost** za korekciju grešaka iz **8 NWP modela** na osnovu 6 godina istorijskih podataka, tabela biasa i revizija prognoza (Previous Runs). Trenira poseban model za svaki meteorološki parametar koristeći 1,100+ feature-a, sa Huber loss i rezidualnim pristupom za temperature i tačku rose.
+Sistem koji koristi **XGBoost** za korekciju grešaka iz **11 NWP modela** na osnovu 6 godina istorijskih podataka, tabela biasa i revizija prognoza (Previous Runs). Trenira poseban model za svaki meteorološki parametar koristeći 1,300+ feature-a, sa Huber loss i rezidualnim pristupom za temperature i tačku rose.
 
 Trenutno radi za **Budvu, Crna Gora** (stanica ibudva5) — ali se lako prilagođava za bilo koju lokaciju sa Weather Underground ličnom meteorološkom stanicom.
 
@@ -12,28 +12,28 @@ Trenutno radi za **Budvu, Crna Gora** (stanica ibudva5) — ali se lako prilago�
 
 | Parametar | XGBoost MAE | Najbolji model | Poboljšanje |
 |-----------|-------------|----------------|:-----------:|
-| **Temperatura** | **0.89°C** | 1.28°C (ARPÈGE) | **+30.5%** |
-| Tačka rose | 1.07°C | 2.13°C (ECMWF) | +49.8% |
-| Vlažnost | 6.31% | 9.03% (ECMWF) | +30.1% |
-| **Brzina vjetra** | **0.45 m/s** | 0.72 m/s (ECMWF) | **+37.5%** |
-| Udari vjetra | 0.60 m/s | 1.80 m/s (GFS) | +66.7% |
-| **Pritisak** | **0.32 hPa** | 0.70 hPa (ItaliaMeteo) | **+54.3%** |
-| Oblačnost | 9.81% | 27.39% (BOM) | +64.2% |
-| Padavine | 1.54 mm | 1.52 mm (GFS) | −1.3% |
-| Solar. radijacija | 21.46 W/m² | 35.17 W/m² (ItaliaMeteo) | +39.0% |
+| **Temperatura** | **0.86°C** | 1.28°C (ARPÈGE) | **+32.5%** |
+| Tačka rose | 1.05°C | 1.84°C (ECMWF IFS) | +42.7% |
+| Vlažnost | 6.10% | 9.03% (ECMWF IFS) | +32.5% |
+| **Brzina vjetra** | **0.46 m/s** | 0.72 m/s (ECMWF IFS) | **+36.3%** |
+| Udari vjetra | 0.61 m/s | 1.80 m/s (GFS) | +66.3% |
+| **Pritisak** | **0.25 hPa** | 0.70 hPa (ItaliaMeteo) | **+64.4%** |
+| Oblačnost | 9.69% | 27.39% (BOM) | +64.6% |
+| Padavine | 1.52 mm | 1.52 mm (GFS) | −0.4% |
+| Solar. radijacija | 21.52 W/m² | 35.17 W/m² (ItaliaMeteo) | +38.8% |
 
-> Temperatura ispod **0.9°C MAE** zahvaljujući Huber loss + rezidualnom pristupu. Pritisak poboljšan za **54%**. Jedino padavine ostaju na nivou najboljeg modela — precipitacija je inherentno najteža varijabla.
+> Temperatura ispod **0.87°C MAE** zahvaljujući Huber loss + rezidualnom pristupu + 11 modela. Pritisak poboljšan za **64%** — ECMWF IFS 9km donosi značajno bolju rezoluciju za pritisak. Jedino padavine ostaju na nivou najboljeg modela — precipitacija je inherentno najteža varijabla.
 
 ---
 
 ## Kako radi
 
 ```
-WU Stanica          8 NWP Modela              Previous Runs API
+WU Stanica          11 NWP Modela             Previous Runs API
 (opservacije)       (Open-Meteo)              (Day1/Day2 revizije)
      │                   │                          │
      ▼                   ▼                          ▼
-  Feature Engineering (1,006 feature-a)               
+  Feature Engineering (1,300+ feature-a)               
   • Ensemble stats (mean, std, range, median)         
   • Tabele istorijskog biasa (mjesec × sat)           
   • Forecast revision (Day0−Day1, Day1−Day2)          
@@ -54,9 +54,9 @@ WU Stanica          8 NWP Modela              Previous Runs API
 ### Pipeline koraci
 
 1. **Scrape opservacije** — satni podaci sa Weather Underground stanice (temperatura, vlažnost, vjetar, pritisak, padavine, solarna radijacija). 6 godina, ~50,000 sati.
-2. **Preuzmi istorijske prognoze** — iz 8 modela preko [Open-Meteo Historical Forecast API](https://open-meteo.com/en/docs/historical-forecast-api)
+2. **Preuzmi istorijske prognoze** — iz 11 modela preko [Open-Meteo Historical Forecast API](https://open-meteo.com/en/docs/historical-forecast-api)
 3. **Preuzmi Previous Runs** — Day1/Day2 revizije prognoza iz [Previous Runs API](https://previous-runs-api.open-meteo.com) (od jan 2024)
-4. **Feature engineering** — 1,100+ feature-a: ensemble statistike, bias tabele, forecast revizije, meteorološki signali
+4. **Feature engineering** — 1,300+ feature-a: ensemble statistike, bias tabele, forecast revizije, meteorološki signali
 5. **Treniraj XGBoost** — 9 modela, dvoprolazno treniranje (5% val → retrain na svim podacima), Huber loss za rezidualne modele, ensemble blending, train/test split na jul 2025
 6. **Generiši prognozu** — live prognoze + Previous Runs → korekcija → pametni vremenski kodovi → JSON za frontend
 
@@ -71,13 +71,16 @@ Pipeline se pokreće automatski preko GitHub Actions i objavljuje na GitHub Page
 | Météo-France Seamless | `meteofrance_seamless` | ~10 km | Evropa |
 | ARPÈGE Europe | `arpege_europe` | ~10 km | Evropa |
 | ItaliaMeteo ICON 2I | `italia_meteo_arpae_icon_2i` | ~2.2 km | Jadran/Italija |
+| DMI HARMONIE AROME | `dmi_seamless` | ~2 km | Centralna/Sjeverna Evropa |
+| KNMI HARMONIE AROME | `knmi_seamless` | ~5.5 km | Centralna/Sjeverna Evropa |
 | UKMO Seamless | `ukmo_seamless` | ~10 km | Globalna |
 | GFS Seamless | `gfs_seamless` | ~25 km | Globalna |
 | BOM ACCESS Global | `bom_access_global` | ~25 km | Globalna |
 | ECMWF IFS 0.25° | `ecmwf_ifs025` | ~25 km | Globalna |
+| ECMWF IFS HRES | `ecmwf_ifs` | ~9 km | Globalna |
 | ICON Seamless | `icon_seamless` | ~13 km | Globalna |
 
-Sortirano po MAE za temperaturu (niži = bolji). Météo-France i ARPÈGE su najprecizniji za Budvu.
+Sortirano po MAE za temperaturu (niži = bolji). Météo-France i ARPÈGE su najprecizniji za Budvu. ECMWF IFS 9km, KNMI i DMI HARMONIE dodani u v11 — donose višu rezoluciju i nezavisni HARMONIE model sistem.
 
 > ⚠️ **ItaliaMeteo ICON 2I** pokriva samo Italiju i neposrednu okolinu (jadransku obalu, Sloveniju, Hrvatsku). Ako je vaša lokacija van tog područja, uklonite ga iz `MODELS`.
 
@@ -87,7 +90,7 @@ Sortirano po MAE za temperaturu (niži = bolji). Météo-France i ARPÈGE su naj
 
 Korišcenje [Previous Runs API](https://previous-runs-api.open-meteo.com) donosi ~100 novih feature-a:
 
-- **Day1/Day2 prognoze** za svaki od 7 modela × 8 varijabli
+- **Day1/Day2 prognoze** za svaki od 9 modela × 8 varijabli
 - **Revision (Day0 − Day1)** — koliko se model korigirao u zadnja 24h
 - **Day1-to-Day2 revision** — trend korekcija
 - **Ensemble revision stats** — prosjek, std, abs_mean revizija svih modela
@@ -155,7 +158,7 @@ python advanced_model_analysis.py
 
 Kreira `budva_{MODEL}_detailed.csv` per model i `budva_detailed_error_analysis.json` sa metrikama.
 
-> **Napomena:** Open-Meteo historical forecast API je besplatan ali ima rate limit. Skripta automatski retryuje na 429 sa 60s pauzom. Preuzimanje 6 godina za 8 modela traje ~10–20 minuta.
+> **Napomena:** Open-Meteo historical forecast API je besplatan ali ima rate limit. Skripta automatski retryuje na 429 sa 60s pauzom. Preuzimanje 6 godina za 11 modela traje ~15–25 minuta.
 
 ### 4. Preuzmite Previous Runs podatke (opciono ali preporučeno)
 
@@ -163,7 +166,7 @@ Kreira `budva_{MODEL}_detailed.csv` per model i `budva_detailed_error_analysis.j
 python forecast_horizon_analysis.py
 ```
 
-Kreira `previous_runs_data/{MODEL}_previous_runs.csv` za 7 modela (od jan 2024). Dodaje ~100 feature-a za trening.
+Kreira `previous_runs_data/{MODEL}_previous_runs.csv` za 9 modela (od jan 2024). Dodaje ~140 feature-a za trening.
 
 ### 5. Trenirajte i pokrenite forecast pipeline
 
@@ -173,7 +176,9 @@ Editujte `forecast_48h_v2.py`:
 LAT, LON = 42.32, 18.92
 
 MODELS = ["ARPEGE_EUROPE", "GFS_SEAMLESS", "ICON_SEAMLESS",
-          "METEOFRANCE", "ECMWF_IFS025", "UKMO_SEAMLESS", "BOM_ACCESS"]
+          "METEOFRANCE", "ECMWF_IFS025", "ITALIAMETEO_ICON2I",
+          "UKMO_SEAMLESS", "BOM_ACCESS",
+          "ECMWF_IFS", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
 
 MODEL_IDS = {
     "ARPEGE_EUROPE": "arpege_europe",
@@ -181,8 +186,12 @@ MODEL_IDS = {
     "ICON_SEAMLESS": "icon_seamless",
     "METEOFRANCE": "meteofrance_seamless",
     "ECMWF_IFS025": "ecmwf_ifs025",
+    "ITALIAMETEO_ICON2I": "italia_meteo_arpae_icon_2i",
     "UKMO_SEAMLESS": "ukmo_seamless",
     "BOM_ACCESS": "bom_access_global",
+    "ECMWF_IFS": "ecmwf_ifs",
+    "KNMI_SEAMLESS": "knmi_seamless",
+    "DMI_SEAMLESS": "dmi_seamless",
 }
 ```
 
@@ -208,7 +217,7 @@ Output: `forecast_output/forecast_48h.json` + `forecast_output/forecast_48h.csv`
 ├── forecast_horizon_analysis.py    # Previous Runs analiza degradacije
 ├── advanced_model_analysis.py      # Istorijska analiza grešaka po modelu
 ├── complete_analysis.py            # Cloud cover + weather code verifikacija
-├── recompute_mae.py                # Svjež MAE proračun za svih 8 modela
+├── recompute_mae.py                # Svjež MAE proračun za svih 11 modela
 ├── wu_scraper.py                   # WU scraper (satni podaci)
 ├── requirements.txt
 │
@@ -224,7 +233,7 @@ Output: `forecast_output/forecast_48h.json` + `forecast_output/forecast_48h.csv`
 │   ├── all_data.csv
 │   └── ibudva5_hourly_*.csv
 │
-├── previous_runs_data/             # Day1/Day2 revizije (7 modela, jan 2024+)
+├── previous_runs_data/             # Day1/Day2 revizije (9 modela, jan 2024+)
 │   ├── METEOFRANCE_previous_runs.csv
 │   ├── ARPEGE_EUROPE_previous_runs.csv
 │   ├── ECMWF_IFS025_previous_runs.csv
@@ -268,7 +277,7 @@ Umjesto standardnog squared error-a, za temperaturu i tačku rose koristimo rezi
 
 Rezidualni pristup znači da model ne predviđa direktno konačnu vrijednost (npr. 23.5°C), nego korekciju — razliku između ensemble prosjeka i stvarnog mjerenja. Korekcije su mali brojevi (±2-3°C), što olakšava posao modelu.
 
-Huber loss je kompromis između MSE i MAE. Za male greške (ispod praga δ) ponaša se kao MSE — glatki gradijenti, stabilna optimizacija. Za velike greške prelazi u MAE — ne eksplodira na outlierima. Kombinacija reziduala i Huber-a je spustila MAE temperature sa 0.96 na 0.89°C.
+Huber loss je kompromis između MSE i MAE. Za male greške (ispod praga δ) ponaša se kao MSE — glatki gradijenti, stabilna optimizacija. Za velike greške prelazi u MAE — ne eksplodira na outlierima. Kombinacija reziduala i Huber-a je spustila MAE temperature sa 0.96 na 0.89°C, a dodavanje 3 nova modela (ECMWF IFS 9km, KNMI, DMI HARMONIE) dalje na 0.86°C.
 
 Za svaki parametar, pipeline automatski trenira tri varijante (direktni model, rezidualni Huber, ensemble blend) i bira onu sa najnižim MAE na test setu. Padavine koriste dvostepenski pristup — klasifikator (pada/ne pada) + regressor na sqrt(amount).
 
