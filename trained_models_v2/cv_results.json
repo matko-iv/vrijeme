@@ -1,0 +1,46 @@
+{
+  "temperature_2m": {
+    "cv_mae": 0.888,
+    "cv_std": 0.046,
+    "n_folds": 4
+  },
+  "dew_point_2m": {
+    "cv_mae": 1.146,
+    "cv_std": 0.065,
+    "n_folds": 4
+  },
+  "relative_humidity_2m": {
+    "cv_mae": 5.971,
+    "cv_std": 0.151,
+    "n_folds": 4
+  },
+  "wind_speed_10m": {
+    "cv_mae": 0.41,
+    "cv_std": 0.049,
+    "n_folds": 4
+  },
+  "wind_gusts_10m": {
+    "cv_mae": 0.543,
+    "cv_std": 0.055,
+    "n_folds": 4
+  },
+  "pressure_msl": {
+    "cv_mae": 66.775,
+    "cv_std": 100.731,
+    "n_folds": 4
+  },
+  "cloud_cover": {
+    "cv_mae": 11.472,
+    "cv_std": 2.116,
+    "n_folds": 4
+  },
+  "precipitation": {
+    "cv_mae": 1.585,
+    "cv_note": "test-set (no CV)"
+  },
+  "shortwave_radiation": {
+    "cv_mae": 29.625,
+    "cv_std": 3.503,
+    "n_folds": 4
+  }
+}
