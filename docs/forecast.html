@@ -690,9 +690,14 @@ function fixLRIcon(icon, precipProb) {
 
 function precipLabel(pp, icon) {
     if (pp == null) return '';
-    const rainy = ['light_rain','rain','heavy_rain','shower','thunderstorm','snow','heavy_snow'].includes(icon);
-    if (pp <= 10) return 'Vjerovatno suvo i sunčano';
-    if (pp <= 20) return rainy ? 'Mala šansa za kišu' : 'Uglavnom suvo';
+    const sunny = ['clear','mostly_clear'].includes(icon);
+    const cloudy = ['partly_cloudy','cloudy'].includes(icon);
+    if (pp <= 10) {
+        if (sunny) return 'Bez padavina';
+        if (cloudy) return 'Suvo, bez kiše';
+        return 'Padavine malo vjerovatne';
+    }
+    if (pp <= 20) return 'Uglavnom suvo';
     if (pp <= 35) return 'Moguća kratka kiša';
     if (pp <= 50) return 'Umjerena šansa za kišu';
     if (pp <= 70) return 'Kiša vjerovatna';
@@ -1597,7 +1602,8 @@ function render(data) {
     const todayStr = _now.getFullYear() + '-' + String(_now.getMonth()+1).padStart(2,'0') + '-' + String(_now.getDate()).padStart(2,'0');
     data.daily_summary.forEach(d => {
         // For today, use only daytime hours (7-19) for icon/desc so evening doesn't override
-        if (d.date === todayStr && data.hourly_forecast) {
+        // But ONLY if no day_narrative from Python (which is more accurate)
+        if (d.date === todayStr && data.hourly_forecast && !d.day_narrative) {
             const dh = data.hourly_forecast.filter(h => {
                 const hd = h.datetime ? h.datetime.slice(0,10) : '';
                 return hd === todayStr && h.hour >= 7 && h.hour <= 19;
