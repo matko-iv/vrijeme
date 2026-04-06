@@ -8,170 +8,61 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-            font-weight: 400;
-            font-size: 18px;
-            line-height: 1.6;
-            color: #24292e;
-            background: #ffffff;
-            max-width: 680px;
-            margin: 0 auto;
-            padding: 60px 20px;
+            font-weight: 400; font-size: 18px; line-height: 1.6; color: #24292e;
+            background: #ffffff; max-width: 680px; margin: 0 auto; padding: 60px 20px;
         }
-
-        h1 {
-            font-size: 40px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            line-height: 1.25;
-            color: #24292e;
-        }
-
-        h2 {
-            font-size: 30px;
-            font-weight: 600;
-            margin-top: 50px;
-            margin-bottom: 18px;
-            line-height: 1.25;
-            color: #24292e;
-        }
-
-        h3 {
-            font-size: 22px;
-            font-weight: 600;
-            margin-top: 35px;
-            margin-bottom: 14px;
-            color: #24292e;
-        }
-
-        p {
-            margin-bottom: 18px;
-            color: #24292e;
-        }
-
-        a {
-            color: #0366d6;
-            text-decoration: none;
-        }
-
-        a:hover {
-            text-decoration: underline;
-        }
-
-        .date {
-            color: #586069;
-            font-size: 16px;
-            margin-bottom: 40px;
-        }
-
-        img {
-            max-width: 100%;
-            height: auto;
-            margin: 30px 0;
-            display: block;
-            border-radius: 3px;
-        }
-
+        h1 { font-size: 40px; font-weight: 600; margin-bottom: 12px; line-height: 1.25; }
+        h2 { font-size: 30px; font-weight: 600; margin-top: 50px; margin-bottom: 18px; line-height: 1.25; }
+        h3 { font-size: 22px; font-weight: 600; margin-top: 35px; margin-bottom: 14px; }
+        h4 { font-size: 18px; font-weight: 600; margin-top: 25px; margin-bottom: 10px; }
+        p { margin-bottom: 18px; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .date { color: #586069; font-size: 16px; margin-bottom: 40px; }
+        img { max-width: 100%; height: auto; margin: 30px 0; display: block; border-radius: 3px; }
         code {
-            background: #f6f8fa;
-            padding: 3px 6px;
-            border-radius: 3px;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            font-size: 0.9em;
+            background: #f6f8fa; padding: 3px 6px; border-radius: 3px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.9em;
         }
-
-        ul, ol {
-            margin-left: 28px;
-            margin-bottom: 18px;
-        }
-
-        li {
-            margin-bottom: 6px;
-        }
-
-        table {
-            width: 100%;
-            margin: 28px 0;
-            border-collapse: collapse;
-            font-size: 16px;
-        }
-
-        th {
-            text-align: left;
-            padding: 10px;
-            border-bottom: 2px solid #e1e4e8;
-            font-weight: 600;
-        }
-
-        td {
-            padding: 10px;
-            border-bottom: 1px solid #e1e4e8;
-        }
-
-        tr:last-child td {
-            border-bottom: none;
-        }
-
+        ul, ol { margin-left: 28px; margin-bottom: 18px; }
+        li { margin-bottom: 6px; }
+        table { width: 100%; margin: 28px 0; border-collapse: collapse; font-size: 16px; }
+        th { text-align: left; padding: 10px; border-bottom: 2px solid #e1e4e8; font-weight: 600; }
+        td { padding: 10px; border-bottom: 1px solid #e1e4e8; }
+        tr:last-child td { border-bottom: none; }
         .note {
-            background: #f6f8fa;
-            border-left: 3px solid #586069;
-            padding: 15px 20px;
-            margin: 28px 0;
-            font-size: 16px;
+            background: #f6f8fa; border-left: 3px solid #586069;
+            padding: 15px 20px; margin: 28px 0; font-size: 16px;
         }
-
+        .improvement-card {
+            background: linear-gradient(135deg, #f0fff4, #e8f5e9);
+            border: 1px solid #34d058; border-radius: 10px;
+            padding: 20px; margin: 20px 0; text-align: center;
+        }
+        .improvement-card .big-number { font-size: 48px; font-weight: 700; color: #22863a; line-height: 1.1; }
+        .improvement-card .label { font-size: 14px; color: #586069; margin-top: 4px; }
+        .version-badge {
+            display: inline-block; background: #0366d6; color: white;
+            font-size: 12px; font-weight: 600; padding: 3px 10px;
+            border-radius: 12px; margin-left: 8px; vertical-align: middle;
+        }
         .site-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 60px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #e1e4e8;
-            font-size: 15px;
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 60px; padding-bottom: 20px;
+            border-bottom: 1px solid #e1e4e8; font-size: 15px;
         }
-
-        .site-header a {
-            color: #586069;
-            text-decoration: none;
-        }
-
-        .site-header a:hover {
-            color: #24292e;
-        }
-
-        .site-header .site-name {
-            font-weight: 600;
-            color: #24292e;
-        }
-
-        .site-header nav a {
-            margin-left: 20px;
-        }
-
+        .site-header a { color: #586069; text-decoration: none; }
+        .site-header a:hover { color: #24292e; }
+        .site-header .site-name { font-weight: 600; color: #24292e; }
+        .site-header nav a { margin-left: 20px; }
+        details { margin: 18px 0; }
+        details summary { cursor: pointer; color: #0366d6; margin-bottom: 12px; }
         @media (max-width: 680px) {
-            body {
-                font-size: 16px;
-                padding: 40px 16px;
-            }
-
-            h1 {
-                font-size: 32px;
-            }
-
-            h2 {
-                font-size: 26px;
-            }
-
-            h3 {
-                font-size: 20px;
-            }
+            body { font-size: 16px; padding: 40px 16px; }
+            h1 { font-size: 32px; } h2 { font-size: 26px; } h3 { font-size: 20px; }
         }
     </style>
 </head>
@@ -179,424 +70,224 @@
     <div class="site-header">
         <a href="/" class="site-name">Matija Ivanović</a>
         <nav>
-            <a href="forecast.html" style="color:#0366d6;font-weight:600;">Live Prognoza</a>
+            <a href="forecast_b.html" style="color:#0366d6;font-weight:600;">Live Prognoza</a>
             <a href="https://matko-iv.github.io/blog/">Blog</a>
             <a href="https://github.com/matko-iv/vrijeme" target="_blank">GitHub</a>
             <a href="mailto:ivanovicmatija2007@gmail.com">Kontakt</a>
         </nav>
     </div>
 
-    <p class="date">Februar 2026 (ažurirano)</p>
+    <p class="date">April 2026 <span class="version-badge">v2</span></p>
     <h1>Tačnije Vremenske Prognoze za Budvu</h1>
 
     <div class="note" style="background:#e8f4fd;border-left-color:#0366d6;margin-bottom:30px;">
-        Korigovana prognoza za narednih 48 sati sa interaktivnim grafovima i satnim detaljima je dostupna na <a href="forecast.html"><strong>stranici za live prognozu</strong></a>.
+        Korigovana prognoza za narednih 48 sati dostupna je na <a href="forecast_b.html"><strong>stranici za live prognozu</strong></a>.
     </div>
 
-    <p>Globalni i kontinentalni meteorološki modeli — ECMWF, GFS, ICON, Météo-France, UKMO, BOM — simuliraju kompletnu atmosferu i daju prognoze za cijelu planetu (ili samo Evropu). Nevjerovatno su sofisticirani, ali nijedan od njih nije optimizovan za jednu tačku na karti. Svaki pravi sistematske greške koje su specifične za lokalnu geografiju: blizinu mora, okolne planine, dominantne vjetrove.</p>
+    <p>Budva ima taj srećan spoj mora i planina koji turizmu daje život, a meteorolozima — glavobolje. Globalni vremenski modeli (ECMWF, GFS, ICON...) pokrivaju cijelu planetu, ali za jednu primorsku tačku između Lovćena i Jadrana — nisu baš blistavi.</p>
 
-    <p>Budva je savršen primjer. U ovom projektu sam uzeo 5+ godina satnih opservacija sa jedne privatne meteo stanice u Budvi (50.000+ mjerenja, od aprila 2020. do danas), uporedio ih sa prognozama 11 globalnih i regionalnih modela (svaki model ima različit period dostupnosti — od 7.000 do 50.000 sati poređenja), i trenirao XGBoost model koji sistematski ispravlja njihove greške. Rezultat: temperatura tačnija za 37%, vjetar za 37%, pritisak za 63% — mjereno na podacima koje model nikad nije vidio.</p>
+    <p>Međutim, oni griješe na predvidljiv način. UKMO skoro uvijek daje preniske temperature, ICON precjenjuje vjetar, GFS ne razumije vlažnost... Kad imaš 5 godina podataka i 11 različitih modela koji svaki griješe drugačije, mašinsko učenje može da nauči te obrasce i sistematski ih popravi.</p>
 
-    <h2>Problem</h2>
+    <p>To je suština ovog projekta: uzeo sam 50.000+ satnih mjerenja sa privatne meteo stanice u Budvi (ibudva5, od 2020. do danas), uporedio svaki sat sa prognozama 11 modela, i napravio sistem koji automatski ispravlja njihove greške.</p>
 
-    <p>Globalni meteorološki modeli kao što su ECMWF, GFS ili ICON pokrivaju cijelu planetu i izvrsno rade posao na velikom nivou. Međutim, lokalna geografija, blizina mora, i specifičnosti Budve stvaraju uslove koje globalni modeli ne mogu savršeno uhvatiti.</p>
+    <div class="improvement-card">
+        <div class="big-number">−58.6%</div>
+        <div class="label">smanjenje greške temperature (MAE: 0.86°C → 0.36°C)</div>
+    </div>
 
-    <p>Uzeo sam 8 različitih globalnih modela (ECMWF IFS025, ICON Seamless, GFS Seamless, MeteoFrance, ARPEGE Europe, ItaliaMeteo ICON2I, UKMO i BOM) i uporedio njihove prognoze sa stvarnim mjerenjima. Realne podatke sam uzeo sa stanice ibudva5 — što mi je dalo preko 50.000 satnih opservacija. Svaki model ima različitu dostupnost u Open-Meteo Historical Forecast API-ju: GFS od marta 2021. (~41.500h), UKMO od marta 2022. (~33.700h), MeteoFrance/ARPEGE/ICON od novembra 2022. (~27.700h), ECMWF od februara 2024. (~17.300h), BOM januar 2024.–jul 2025. (~12.600h), ItaliaMeteo od aprila 2025. (~7.000h).</p>
+    <!-- ================================================================== -->
+    <h2>Koji modeli i koliko griješe</h2>
 
-    <h2>Metodologija</h2>
-
-    <h3>Mean Absolute Error (MAE)</h3>
-
-    <p>Najvažnija metrika koju koristim je Mean Absolute Error (MAE) — srednja apsolutna greška. MAE mjeri prosječnu veličinu grešaka u skupu prognoza, bez obzira na njihov smjer. Za svako satno mjerenje, uzimam razliku između prognozirane i stvarne vrijednosti, uzmem apsolutnu vrijednost te razlike, i na kraju prosjek svih tih apsolutnih razlika daje MAE:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?MAE=\frac{1}{n}\sum_{i=1}^{n}|y_{pred}-y_{true}|" alt="MAE formula">
-
-    <p>Na primjer, ako model prognozira temperature od 20°C, 22°C i 18°C, a stvarne temperature su 19°C, 24°C i 17°C, onda su apsolutne greške 1°C, 2°C i 1°C, pa je MAE = (1+2+1)/3 = 1.33°C.</p>
-
-    <p>MAE je intuitivan jer se izražava u istim jedinicama kao i originalni podaci (stepeni Celzijusa za temperaturu, m/s za vjetar). Ako je MAE za temperaturu 1.5°C, to bukvalno znači da u prosjeku prognoza promašuje za 1.5 stepeni. Niska vrijednost MAE ukazuje na preciznije prognoze. Još jedna prednost MAE-a je da tretira sve greške linearno — greška od 5°C je tačno pet puta „gora" od greške od 1°C, što ga čini robusnim na pojedinačne ekstremne promašaje.</p>
-
-    <h3>Mean Squared Error (MSE) i Root Mean Squared Error (RMSE)</h3>
-
-    <p>Druga veoma korisna metrika je Mean Squared Error (MSE) — srednja kvadratna greška. Za razliku od MAE koji uzima apsolutne vrijednosti, MSE kvadrira svaku pojedinačnu grešku prije prosjeka:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?MSE=\frac{1}{n}\sum_{i=1}^{n}(y_{pred}-y_{true})^2" alt="MSE formula">
-
-    <p>Kvadriranje ima važnu posljedicu: veće greške se kažnjavaju neproporcijalno više. Greška od 5°C doprinosi sa 25 jedinica, dok greška od 1°C doprinosi samo sa 1 jedinicom — dakle pet puta veća greška u apsolutnom smislu daje 25 puta veći doprinos u MSE. To znači da je MSE posebno osjetljiv na „velike promašaje" — ako model povremeno napravi veliku grešku, MSE će to snažno reflektovati, čak i ako je većina prognoza tačna.</p>
-
-    <p>Pošto MSE daje rezultat u kvadriranim jedinicama (°C²), često se koristi korijen iz MSE — Root Mean Squared Error (RMSE) — koji vraća metriku u originalne jedinice:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?RMSE=\sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_{pred}-y_{true})^2}" alt="RMSE formula">
-
-    <p>RMSE je uvijek veći ili jednak MAE. Razlika između RMSE i MAE govori o varijabilnosti grešaka: ako su RMSE i MAE slični, to znači da su greške uglavnom konstantne veličine. Ako je RMSE značajno veći od MAE, to ukazuje da postoje i neke velike greške pored manjih.</p>
-
-    <img src="images/07_mae_vs_rmse.png" alt="Poređenje MAE i RMSE za sve modele">
-
-    <h3>Bias (sistematska greška)</h3>
-
-    <p>Takođe sam računao bias (sistematsku grešku):</p>
-
-    <img src="https://latex.codecogs.com/svg.image?Bias=\frac{1}{n}\sum_{i=1}^{n}(y_{pred}-y_{true})" alt="Bias formula">
-
-    <p>Pozitivan bias znači da model pregrijava, negativan da pothlađuje. Za razliku od MAE i MSE, bias ne koristi apsolutne vrijednosti niti kvadrate — pozitivne i negativne greške se međusobno poništavaju. To čini bias korisnim za otkrivanje sistematskih tendencija: model sa bias-om od -0.9°C konzistentno predviđa nižu temperaturu od stvarne.</p>
-
-    <h2>Rezultati</h2>
-
-    <p>Analiza je potvrdila moje sumnje. Evo šta sam otkrio:</p>
+    <p>Evo kako stoje sirovi modeli za temperaturu u Budvi:</p>
 
     <table>
-        <thead>
-            <tr>
-                <th>Model</th>
-                <th>MAE Temp (°C)</th>
-                <th>Bias (°C)</th>
-                <th>n (sati)</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>MeteoFrance</td>
-                <td>1.37</td>
-                <td>-0.53</td>
-                <td>27,582</td>
-            </tr>
-            <tr>
-                <td>ARPEGE Europe</td>
-                <td>1.38</td>
-                <td>-0.53</td>
-                <td>27,552</td>
-            </tr>
-            <tr>
-                <td>ItaliaMeteo ICON2I</td>
-                <td>1.69</td>
-                <td>+0.86</td>
-                <td>6,876</td>
-            </tr>
-            <tr>
-                <td>UKMO Seamless</td>
-                <td>1.72</td>
-                <td>-1.29</td>
-                <td>33,437</td>
-            </tr>
-            <tr>
-                <td>GFS Seamless</td>
-                <td>1.74</td>
-                <td>-1.13</td>
-                <td>41,216</td>
-            </tr>
-            <tr>
-                <td>BOM ACCESS</td>
-                <td>1.78</td>
-                <td>-1.07</td>
-                <td>12,532</td>
-            </tr>
-            <tr>
-                <td>ECMWF IFS025</td>
-                <td>1.81</td>
-                <td>-0.80</td>
-                <td>17,073</td>
-            </tr>
-            <tr>
-                <td>ICON Seamless</td>
-                <td>1.91</td>
-                <td>+0.81</td>
-                <td>27,446</td>
-            </tr>
-        </tbody>
+        <tr><th>Model</th><th>MAE (°C)</th><th>Bias (°C)</th><th>Sati podataka</th></tr>
+        <tr><td>MeteoFrance</td><td>1.37</td><td>-0.53</td><td>27,582</td></tr>
+        <tr><td>ARPEGE Europe</td><td>1.38</td><td>-0.53</td><td>27,552</td></tr>
+        <tr><td>ItaliaMeteo ICON2I</td><td>1.69</td><td>+0.86</td><td>6,876</td></tr>
+        <tr><td>UKMO Seamless</td><td>1.72</td><td>-1.29</td><td>33,437</td></tr>
+        <tr><td>GFS Seamless</td><td>1.74</td><td>-1.13</td><td>41,216</td></tr>
+        <tr><td>BOM ACCESS</td><td>1.78</td><td>-1.07</td><td>12,532</td></tr>
+        <tr><td>ECMWF IFS025</td><td>1.81</td><td>-0.80</td><td>17,073</td></tr>
+        <tr><td>ICON Seamless</td><td>1.91</td><td>+0.81</td><td>27,446</td></tr>
     </table>
 
-    <p>Tabela je sortirana po MAE za temperaturu (što niže to bolje). Modeli imaju različit broj validnih sati (n) jer Open-Meteo Historical Forecast API ima različite početne datume po modelu — od marta 2021. (GFS) do aprila 2025. (ItaliaMeteo). UKMO je 4. najbolji za temperaturu, a BOM ima najmanji dewpoint bias.
-    </p>
-
-    <h3>Detaljno po varijablama</h3>
-
-    <p>Temperatura nije jedina stvar koja se prognozira. Evo kako se modeli ponašaju na <strong>svim ključnim varijablama</strong>:</p>
-
-    <details>
-    <summary><strong>Brzina vjetra (m/s)</strong></summary>
-    <table>
-        <tr><th>Model</th><th>MAE</th><th>Bias</th><th>n</th></tr>
-        <tr><td><strong>ECMWF IFS025</strong></td><td><strong>0.72</strong></td><td>+0.28</td><td>16,629</td></tr>
-        <tr><td>UKMO Seamless</td><td>0.95</td><td>+0.80</td><td>32,795</td></tr>
-        <tr><td>ICON Seamless</td><td>1.25</td><td>+1.17</td><td>26,802</td></tr>
-        <tr><td>ItaliaMeteo ICON2I</td><td>1.36</td><td>+1.20</td><td>6,721</td></tr>
-        <tr><td>GFS Seamless</td><td>1.48</td><td>+1.40</td><td>40,574</td></tr>
-        <tr><td>ARPEGE Europe</td><td>1.61</td><td>+1.52</td><td>26,915</td></tr>
-        <tr><td>MeteoFrance</td><td>1.61</td><td>+1.52</td><td>26,942</td></tr>
-        <tr><td>BOM ACCESS</td><td>1.69</td><td>+1.61</td><td>12,187</td></tr>
-    </table>
-    <p><em>Svi modeli precjenjuju vjetar (pozitivan bias). ECMWF je duplo bolji od ostalih.</em></p>
-    </details>
-
-    <details>
-    <summary><strong>Vlažnost (%)</strong></summary>
-    <table>
-        <tr><th>Model</th><th>MAE</th><th>Bias</th><th>n</th></tr>
-        <tr><td><strong>ECMWF IFS025</strong></td><td><strong>9.05</strong></td><td>-1.59</td><td>16,465</td></tr>
-        <tr><td>BOM ACCESS</td><td>9.61</td><td>+3.02</td><td>12,532</td></tr>
-        <tr><td>UKMO Seamless</td><td>9.98</td><td>+3.50</td><td>33,432</td></tr>
-        <tr><td>GFS Seamless</td><td>10.37</td><td>-1.76</td><td>41,216</td></tr>
-        <tr><td>MeteoFrance</td><td>11.16</td><td>-1.79</td><td>27,582</td></tr>
-        <tr><td>ARPEGE Europe</td><td>11.16</td><td>-1.78</td><td>27,552</td></tr>
-        <tr><td>ICON Seamless</td><td>13.04</td><td>-9.27</td><td>27,446</td></tr>
-        <tr><td>ItaliaMeteo ICON2I</td><td>14.27</td><td>-11.34</td><td>6,876</td></tr>
-    </table>
-    <p><em>ICON i ItaliaMeteo drastično podcjenjuju vlažnost (bias -9 do -11%). ECMWF je najprecizniji.</em></p>
-    </details>
-
-    <details>
-    <summary><strong>Padavine (mm)</strong></summary>
-    <table>
-        <tr><th>Model</th><th>MAE</th><th>Bias</th><th>n</th></tr>
-        <tr><td><strong>GFS Seamless</strong></td><td><strong>3.73</strong></td><td>-3.59</td><td>22,363</td></tr>
-        <tr><td>UKMO Seamless</td><td>4.72</td><td>-4.34</td><td>14,582</td></tr>
-        <tr><td>ARPEGE Europe</td><td>7.20</td><td>-6.86</td><td>8,719</td></tr>
-        <tr><td>MeteoFrance</td><td>7.22</td><td>-6.88</td><td>8,735</td></tr>
-        <tr><td>ICON Seamless</td><td>7.33</td><td>-6.87</td><td>8,592</td></tr>
-        <tr><td>ItaliaMeteo ICON2I</td><td>7.51</td><td>-7.04</td><td>2,112</td></tr>
-        <tr><td>BOM ACCESS</td><td>8.00</td><td>-6.83</td><td>2,893</td></tr>
-        <tr><td>ECMWF IFS025</td><td>8.02</td><td>-7.77</td><td>4,624</td></tr>
-    </table>
-    <p><em>Svi modeli podcjenjuju padavine (negativan bias). GFS je dvostruko bolji od većine.</em></p>
-    </details>
-
-    <details>
-    <summary><strong>Pritisak (hPa)</strong></summary>
-    <table>
-        <tr><th>Model</th><th>MAE</th><th>Bias</th><th>n</th></tr>
-        <tr><td><strong>ItaliaMeteo ICON2I</strong></td><td><strong>0.68</strong></td><td>+0.58</td><td>6,979</td></tr>
-        <tr><td>BOM ACCESS</td><td>1.00</td><td>+0.87</td><td>12,593</td></tr>
-        <tr><td>MeteoFrance</td><td>1.09</td><td>+1.08</td><td>27,791</td></tr>
-        <tr><td>ARPEGE Europe</td><td>1.09</td><td>+1.08</td><td>27,761</td></tr>
-        <tr><td>ICON Seamless</td><td>1.14</td><td>+1.13</td><td>27,626</td></tr>
-        <tr><td>ECMWF IFS025</td><td>1.32</td><td>+1.31</td><td>17,208</td></tr>
-        <tr><td>UKMO Seamless</td><td>1.87</td><td>+1.85</td><td>33,643</td></tr>
-        <tr><td>GFS Seamless</td><td>2.75</td><td>+2.73</td><td>41,426</td></tr>
-    </table>
-    <p><em>Svi modeli precjenjuju pritisak. ItaliaMeteo (ICON-D2 na 2km!) je najbolji zahvaljujući visokoj rezoluciji.</em></p>
-    </details>
-
-    <details>
-    <summary><strong>Tačka rose, udari vjetra, solarna radijacija</strong></summary>
-    <p><strong>Tačka rose:</strong> BOM ACCESS je najprecizniji (MAE 1.87°C), slijedi UKMO (1.92°C) i ECMWF (1.92°C).</p>
-    <p><strong>Udari vjetra:</strong> GFS je neočekivano dominantan (MAE 1.78 m/s), dok ICON ima MAE od 5.54 m/s — trostruko gori.</p>
-    <p><strong>Solarna radijacija:</strong> ItaliaMeteo je najbolji (MAE 42.4 W/m²). GFS i BOM su najlošiji (~65 W/m²).</p>
-    </details>
+    <p>Većina modela sistematski pothlađuje Budvu (negativan bias). ICON je jedini koji pregrijava. Zimi su greške veće — modeli ne razumiju kako more stabilizuje temperaturu.</p>
 
     <img src="images/01_model_performance_overview.png" alt="Pregled performansi modela">
+    <img src="images/02_systematic_bias.png" alt="Sistematski bias">
 
-    <p>Nekoliko stvari je očito. Prvo, većina modela ima negativan bias za temperaturu - što znači da sistematski pothlađuju Budvu za pola stepena ili više. Samo ICON ima pozitivan bias (pregrijava). Drugo, greške nisu uniforme tokom cijele godine. Zimi su veće nego ljeti.</p>
+    <details>
+    <summary><strong>Detalji po varijablama (vjetar, vlažnost, pritisak)</strong></summary>
 
-    <img src="images/02_systematic_bias.png" alt="Sistematski bias temperature i vjetra">
+    <h4>Brzina vjetra (m/s)</h4>
+    <table>
+        <tr><th>Model</th><th>MAE</th><th>Bias</th></tr>
+        <tr><td><strong>ECMWF IFS025</strong></td><td><strong>0.72</strong></td><td>+0.28</td></tr>
+        <tr><td>UKMO Seamless</td><td>0.95</td><td>+0.80</td></tr>
+        <tr><td>ICON Seamless</td><td>1.25</td><td>+1.17</td></tr>
+        <tr><td>GFS Seamless</td><td>1.48</td><td>+1.40</td></tr>
+    </table>
+    <p><em>Svi bez izuzetka precjenjuju vjetar. ECMWF je duplo bolji od ostalih.</em></p>
 
-    <img src="images/06_model_comparison_matrix.png" alt="Matrica poređenja modela">
+    <h4>Vlažnost (%)</h4>
+    <table>
+        <tr><th>Model</th><th>MAE</th><th>Bias</th></tr>
+        <tr><td><strong>ECMWF IFS025</strong></td><td><strong>9.05</strong></td><td>-1.59</td></tr>
+        <tr><td>BOM ACCESS</td><td>9.61</td><td>+3.02</td></tr>
+        <tr><td>UKMO Seamless</td><td>9.98</td><td>+3.50</td></tr>
+        <tr><td>ICON Seamless</td><td>13.04</td><td>-9.27</td></tr>
+    </table>
+    <p><em>ICON ima bias od -9% za vlažnost. Devet posto!</em></p>
 
-    <p>Posebno me je zanimala bura. Definisao sam je kao vjetar brzine preko 8 m/s iz smjera između 315° i 45°. Tokom bure, modeli imaju značajno veće greške nego inače.</p>
+    <h4>Pritisak (hPa)</h4>
+    <table>
+        <tr><th>Model</th><th>MAE</th><th>Bias</th></tr>
+        <tr><td><strong>ItaliaMeteo ICON2I</strong></td><td><strong>0.68</strong></td><td>+0.58</td></tr>
+        <tr><td>BOM ACCESS</td><td>1.00</td><td>+0.87</td></tr>
+        <tr><td>MeteoFrance</td><td>1.09</td><td>+1.08</td></tr>
+        <tr><td>GFS Seamless</td><td>2.75</td><td>+2.73</td></tr>
+    </table>
+    <p><em>ItaliaMeteo (ICON-D2 na 2km rezoluciji) je daleko najbolji za pritisak.</em></p>
+    </details>
 
     <img src="images/03_seasonal_analysis.png" alt="Sezonska analiza grešaka">
-
-    <h2>Sezonski obrasci</h2>
-
-    <p>Greške se značajno razlikuju po sezonama. Ljeti su najveće, što je vjerovatno zbog intenzivnijih konvektivnih procesa i lokalne cirkulacije zbog mora.</p>
-
-    <img src="images/08_bias_heatmap.png" alt="Heatmapa sezonskog biasa svih modela">
-
-    <p>Heatmapa iznad prikazuje sistematski bias (pristrasnost) temperature za modele po sezonama. Crvena boja znači da model pregrijava, plava da pothlađuje. Većina modela pothlađuje — posebno UKMO i GFS, dok ICON i ItaliaMeteo pregrijavaju.</p>
-
+    <img src="images/06_model_comparison_matrix.png" alt="Matrica poređenja modela">
+    <img src="images/08_bias_heatmap.png" alt="Heatmapa sezonskog biasa">
     <img src="images/04_diurnal_cycle.png" alt="Dnevni ciklus grešaka">
 
-    <p>Tokom ekstremnih temperatura (hladnoća ispod 5. percentila ili vrućina iznad 95. percentila), greške modela se povećavaju — što je očekivano jer su to upravo situacije van tipičnog ponašanja.</p>
+    <!-- ================================================================== -->
+    <h2>Kako korekcija radi</h2>
 
-    <img src="images/09_weather_condition_comparison.png" alt="Poređenje po vremenskim uslovima">
+    <p>Osnovna ideja: uzmeš prognoze svih 11 modela za svaki sat, dodaš kontekst (doba dana, sezona, temperatura mora, istorijski bias, i još dosta toga), i pustiš algoritam da nauči vezu između svega toga i stvarnog mjerenja.</p>
 
-    <h2>Dodatna analiza</h2>
+    <p>Koristim <a href="https://xgboost.readthedocs.io/">XGBoost</a> — gradient boosting algoritam koji gradi stotine "stabala odlučivanja" jedno na drugo, gdje svako sljedeće stablo pokušava da popravi greške prethodnog. Plus CatBoost i LightGBM kao dodatne algoritme, čiji se rezultati kombinuju.</p>
 
-    <p>Pored osnovnih metrika, analizirao sam i sposobnost modela da predviđaju oblačnost i padavine — dva parametra koja su tradicionalno teška za prognozu na lokalnom nivou.</p>
+    <h3>Prva verzija (v1) — februar 2026.</h3>
 
-    <img src="images/12_cloudiness_skill.png" alt="Vještina predviđanja oblačnosti">
+    <p>Jedan XGBoost po parametru, ručno podešen, isti hiperparametri za sve. Radio je OK — temperatura je pala sa MAE 1.37°C (MeteoFrance, najbolji sirovi) na 0.86°C. Solidno, ali imao je dosta prostora za poboljšanje.</p>
 
-    <img src="images/10_precipitation_intensity.png" alt="Intenzitet padavina">
+    <h3>Druga verzija (v2) — april 2026.</h3>
 
-    <p>Radar grafik ispod prikazuje performanse svakog modela na svim analiziranim varijablama — temperatura, brzina vjetra, padavine, oblačnost — dajući kompletnu sliku prednosti i slabosti svakog modela.</p>
+    <p>Kompletno prepisan pipeline. Umjesto jednog modela, sada se trenira 5 baznih modela po parametru, hiperparametri se automatski pretražuju za svaki parametar posebno, sve je adaptirano na tip varijable. Temperatura je pala na <strong>0.36°C</strong>.</p>
 
-    <img src="images/11_radar_all_variables.png" alt="Radar grafik svih varijabli">
+    <p>Evo šta je sve promijenjeno:</p>
 
-    <h2>Kako to popraviti</h2>
+    <h3>NaN umjesto nula</h3>
+    <p>Ranije, kad model nema prognozu (npr. ECMWF nema podatke prije 2024.), stavljao sam 0. Problem: 0°C za temperaturu ili 0 hPa za pritisak — to je realna vrijednost i zbunjuje model. XGBoost zapravo zna da radi sa NaN-ovima nativno i rutira ih optimalno u stablima. Jednostavna promjena, ogroman efekat.</p>
 
-    <p>Ideja je da treniram model mašinskog učenja (konkretno XGBoost) koji će naučiti iz grešaka koje globalni modeli prave. Model uzima sirove prognoze kao input i daje korigovanu prognozu kao output. Sada imam 11 modela — uključujući ECMWF IFS HRES na 9km, holandski KNMI HARMONIE AROME (5.5km) i danski DMI HARMONIE AROME (2km), uz ranijih 8 modela. Tri nova modela donose višu rezoluciju i potpuno novi model sistem (HARMONIE) koji nije zastupljen među ostalim modelima.</p>
+    <h3>Automatsko podešavanje po parametru (Optuna)</h3>
+    <p><a href="https://optuna.readthedocs.io/">Optuna</a> automatski traži najbolju kombinaciju hiperparametara za svaki parametar. Dubina stabla, learning rate, regularizacija, čak i tip loss funkcije — sve se bira posebno. Ispostavilo se da pritisak voli MSE jer nema outliera, a skoro sve ostalo preferira quantile loss. Oblačnost ima kratko pamćenje (180 dana decay), a vjetar dugo (730 dana) — jer se obrasci bure ne mjenjaju brzo.</p>
 
-    <p>Ključno je kreirati dobre feature-e. Pored sirovih prognoza, dodajem:</p>
+    <table>
+        <tr><th>Parametar</th><th>Dubina</th><th>LR</th><th>Loss</th><th>Decay</th></tr>
+        <tr><td>Temperatura</td><td>5</td><td>0.038</td><td>quantile</td><td>545d</td></tr>
+        <tr><td>Tačka rose</td><td>6</td><td>0.006</td><td>huber</td><td>365d</td></tr>
+        <tr><td>Vlažnost</td><td>5</td><td>0.038</td><td>quantile</td><td>545d</td></tr>
+        <tr><td>Brzina vjetra</td><td>6</td><td>0.008</td><td>quantile</td><td>730d</td></tr>
+        <tr><td>Udari vjetra</td><td>6</td><td>0.008</td><td>quantile</td><td>730d</td></tr>
+        <tr><td>Pritisak</td><td>4</td><td>0.005</td><td>MSE</td><td>545d</td></tr>
+        <tr><td>Oblačnost</td><td>4</td><td>0.006</td><td>quantile</td><td>180d</td></tr>
+        <tr><td>Solar. radijacija</td><td>6</td><td>0.008</td><td>quantile</td><td>730d</td></tr>
+    </table>
 
+    <h3>Stacking — kombinacija više algoritama</h3>
+    <p>Umjesto samo jednog XGBoosta, za svaki parametar se trenira 5 modela: tri varijante XGBoosta (direktan, rezidualni, MSE), plus CatBoost i LightGBM. Onda RidgeCV (linearna regresija sa regularizacijom) uči optimalne težine za svaki — koliko da "sluša" koji model.</p>
+
+    <p>Pipeline testira razne strategije i automatski bira šta radi najbolje. Za temperaturu je to bio rezidualni pristup (predviđaj korekciju, ne apsolutnu vrijednost), za vlažnost ridge meta-learner, za padavine Tweedie distribucija.</p>
+
+    <h3>SHAP feature selection</h3>
+    <p>Pipeline generiše ~1.400 feature-a. Većina je korisna, ali neke su šum. SHAP dodijeli svakom feature-u ocjenu važnosti i najslabijih 5% se izbaci. Za pritisak je SHAP bio posebno agresivan — smanjio je sa 1.380 na 725 feature-a jer je signal jasan i čist.</p>
+
+    <h3>Temperatura mora (SST)</h3>
+    <p>Budva je na obali. More zimi grije, ljeti hladi. Podatke o temperaturi Jadranskog mora skidam sa Open-Meteo Marine API-ja i dodajem kao input — jer nijedan od 11 NWP modela nema tu informaciju u svom outputu za ovu lokaciju.</p>
+
+    <h3>Bura, frontovi, režimi</h3>
+    <p>Bura je specifična za ovaj dio obale — jak sjeveroistočni vjetar koji se kanališe kroz planine. Detektujem je iz prognoze svakog modela (smjer 0-90°, brzina >7 m/s) i računam slaganje modela. Isto tako otkrivam fronte (nagli pad pritiska + oblačnost), perzistentnu kišu, noćnu vlažnost, zimske oblačne režime...</p>
+
+    <h3>Tweedie za padavine</h3>
+    <p>Kiša je najteža varijabla. 90% sati je suvo, a kad pada — varira od 0.1 do 50+ mm. Tweedie distribucija je napravljena za ovakve podatke — prirodno modelira i one česte nule i rijetke obilne padavine, bez potrebe za odvojenim klasifikatorom.</p>
+
+    <h3>Ostale sitnice</h3>
     <ul>
-        <li>Ensemble statistike — prosjek, standardna devijacija, raspon i medijana prognoza svih 11 modela</li>
-        <li>Devijacije — koliko svaki model odstupa od ensemble prosjeka</li>
-        <li>Ciklične varijable — sat u danu i dan u godini kao sin/cos funkcije</li>
-        <li>Sezonski faktori — zima/proljeće/ljeto/jesen</li>
-        <li>Cross-parameter interakcije — razlika temp/dew point, odnos vjetra i pritiska</li>
-        <li>Tabele istorijskog biasa — prosječna greška svakog modela za svaki parametar, po mjesecu i satu (sada 500+ lookup features za 11 modela)</li>
-        <li>Clear-sky model — teoretska solarna radijacija za Budvu (42.29°N, 18.84°E) kao proxy za dnevne cikluse</li>
+        <li><strong>Monotonic constraints</strong> — ako ensemble kaže "toplije", korigovana prognoza mora biti toplija. Fizika ne trpi kontradikcije</li>
+        <li><strong>Kalman filter</strong> — prati bias svakog modela u realnom vremenu, jer se ponašanje modela mijenja nakon njihovih ažuriranja</li>
+        <li><strong>Previous runs</strong> — razlika između jučerašnje i današnje prognoze nosi informaciju o nesigurnosti</li>
+        <li><strong>Clear-sky index</strong> — za solarnu radijaciju, normalizuje dnevni ciklus pa se model fokusira samo na oblačnost</li>
+        <li><strong>Dew point deficit</strong> — umjesto direktne tačke rose, predviđa razliku T − T<sub>d</sub> koja je uvijek ≥ 0 i lakša za učenje</li>
+        <li><strong>QC opservacija</strong> — automatski filtrira fizički nemoguće vrijednosti sa stanice</li>
+        <li><strong>Temporal decay</strong> — noviji podaci vrijede više jer se ponašanje modela mijenja</li>
+        <li><strong>72h embargo gap</strong> — u cross-validaciji, 72 sata razmaka između train i test folda sprečava "varanje" od autokorelacije</li>
     </ul>
 
-    <p>Cilj je bio spustiti MAE ispod 1.0°C — <strong>postignut: 0.82°C</strong>. To je poboljšanje od 36.5% u odnosu na najbolji globalni model (ARPÈGE Europe). Sa integracijom Previous Runs revizija, Huber loss pristupom i proširenjem na 11 modela (uključujući ECMWF IFS 9km, KNMI i DMI HARMONIE), model koristi 1,300+ feature-a iz 11 modela + 5 godina opservacija.</p>
+    <!-- ================================================================== -->
+    <h2>Rezultati</h2>
 
-    <h2>Kako XGBoost funkcioniše</h2>
-
-    <p>XGBoost (eXtreme Gradient Boosting) je algoritam mašinskog učenja baziran na ansamblu stabala odlučivanja. Za razliku od klasičnog random foresta koji trenira stabla nezavisno, XGBoost ih gradi <em>sekvencijalno</em> — svako novo stablo pokušava ispraviti greške prethodnih.</p>
-
-    <h3>Osnovna ideja: aditivno treniranje</h3>
-
-    <p>Model se gradi iterativno. Konačna predikcija je suma predikcija svih stabala:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?\hat{y}_i=\sum_{k=1}^{K}f_k(x_i),\quad%20f_k\in\mathcal{F}" alt="XGBoost prediction formula" style="margin: 20px auto; display: block;">
-
-    <p>gdje je <em>K</em> broj stabala, <em>f<sub>k</sub></em> je predikcija k-tog stabla, a <em>F</em> je prostor svih mogućih stabala odlučivanja (CART stabla).</p>
-
-    <p>U svakoj iteraciji <em>t</em>, dodajemo novo stablo <em>f<sub>t</sub></em> koje minimizira grešku. Predikcija nakon <em>t</em> koraka:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?\hat{y}_i^{(t)}=\hat{y}_i^{(t-1)}+\eta\cdot%20f_t(x_i)" alt="Additive training" style="margin: 20px auto; display: block;">
-
-    <p>gdje je η (eta) <strong>learning rate</strong> — hiperparametar koji kontroliše koliko jako svako novo stablo utiče na konačni rezultat. Manji η znači sporije učenje ali bolju generalizaciju.</p>
-
-    <h3>Objektivna funkcija</h3>
-
-    <p>XGBoost minimizira regularizovanu objektivnu funkciju:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?\mathcal{L}=\sum_{i=1}^{n}\ell(\hat{y}_i,y_i)+\sum_{k=1}^{K}\Omega(f_k)" alt="Objective function" style="margin: 20px auto; display: block;">
-
-    <p>Prvi dio je <strong>loss funkcija</strong> (u našem slučaju MAE), a drugi dio je <strong>regularizacija</strong> koja penalizuje kompleksnost stabala:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?\Omega(f)=\gamma%20T+\frac{1}{2}\lambda\sum_{j=1}^{T}w_j^2+\alpha\sum_{j=1}^{T}|w_j|" alt="Regularization term" style="margin: 20px auto; display: block;">
-
-    <p>gdje je <em>T</em> broj listova u stablu, <em>w<sub>j</sub></em> su težine (vrijednosti) u listovima, γ je penalizacija za broj listova, λ je L2 regularizacija, a α je L1 regularizacija. Ova regularizacija sprečava overfitting i razlikuje XGBoost od klasičnog gradient boostinga.</p>
-
-    <h3>Aproksimacija drugog reda</h3>
-
-    <p>Ključna inovacija XGBoost-a je korištenje Taylor ekspanzije drugog reda za loss funkciju. U koraku <em>t</em>:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?\mathcal{L}^{(t)}\approx\sum_{i=1}^{n}\left[g_i%20f_t(x_i)+\frac{1}{2}h_i%20f_t^2(x_i)\right]+\Omega(f_t)" alt="Second order approximation" style="margin: 20px auto; display: block;">
-
-    <p>gdje su:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?g_i=\frac{\partial\ell(\hat{y}_i^{(t-1)},y_i)}{\partial\hat{y}_i^{(t-1)}},\quad%20h_i=\frac{\partial^2\ell(\hat{y}_i^{(t-1)},y_i)}{\partial(\hat{y}_i^{(t-1)})^2}" alt="Gradients" style="margin: 20px auto; display: block;">
-
-    <p><em>g<sub>i</sub></em> je prvi izvod (gradijent), a <em>h<sub>i</sub></em> drugi izvod (hesijan) loss funkcije. Ovo je ono što daje "Gradient" u imenu — svako novo stablo se uklapa na gradijente grešaka prethodnih stabala.</p>
-
-    <h3>Optimalna težina listova</h3>
-
-    <p>Za dato stablo sa strukturom <em>q</em>, optimalna težina u svakom listu <em>j</em> je:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?w_j^*=-\frac{\sum_{i\in%20I_j}g_i}{\sum_{i\in%20I_j}h_i+\lambda}" alt="Optimal leaf weight" style="margin: 20px auto; display: block;">
-
-    <p>a odgovarajuća optimalna vrijednost loss funkcije:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?\mathcal{L}^*=-\frac{1}{2}\sum_{j=1}^{T}\frac{(\sum_{i\in%20I_j}g_i)^2}{\sum_{i\in%20I_j}h_i+\lambda}+\gamma%20T" alt="Optimal loss" style="margin: 20px auto; display: block;">
-
-    <p>gdje je <em>I<sub>j</sub></em> skup podataka koji pripada listu <em>j</em>.</p>
-
-    <h3>Kako se stablo dijeli (Split Gain)</h3>
-
-    <p>Prilikom gradnje svakog stabla, XGBoost bira optimalni split evaluirajući <strong>gain</strong> za svako moguće dijeljenje:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?Gain=\frac{1}{2}\left[\frac{(\sum_{i\in%20I_L}g_i)^2}{\sum_{i\in%20I_L}h_i+\lambda}+\frac{(\sum_{i\in%20I_R}g_i)^2}{\sum_{i\in%20I_R}h_i+\lambda}-\frac{(\sum_{i\in%20I}g_i)^2}{\sum_{i\in%20I}h_i+\lambda}\right]-\gamma" alt="Split gain formula" style="margin: 20px auto; display: block;">
-
-    <p>Tri člana su: score lijevog djeteta + score desnog djeteta − score bez dijeljenja. Oduzimamo γ kao penalizaciju za dodavanje novog lista. Split se pravi samo ako je gain pozitivan.</p>
-
-    <h3>Naša konfiguracija</h3>
-
-    <p>Za korekciju vremenskih prognoza koristim sljedeće hiperparametre:</p>
-
-    <p>Hiperparametri su podešeni po grupi varijabli. Temperatura, tačka rose i pritisak koriste agresivniji ensemble (više stabala, sporije učenje), dok vjetar koristi regularizovaniji setup sa manjom dubinom. Vlažnost ima sopstvenu konfiguraciju, a oblačnost i solarna radijacija dijele posebnu grupu. Padavine imaju poseban two-stage pipeline (klasifikator + regresor) sa jačom regularizacijom.</p>
+    <p>Finalni brojevi, testirani na podacima od jula 2025. nadalje (koje model nikad nije vidio tokom treninga):</p>
 
     <table>
-        <tr><th>Parametar</th><th>Temp / Rose / Pritisak</th><th>Vlažnost</th><th>Oblačnost / Solar</th><th>Vjetar</th><th>Značenje</th></tr>
-        <tr><td><code>n_estimators</code></td><td>2500</td><td>2500</td><td>2500</td><td>2500</td><td>Maks. broj stabala (sa early stopping)</td></tr>
-        <tr><td><code>max_depth</code></td><td>6</td><td>6</td><td>6</td><td>5</td><td>Maksimalna dubina svakog stabla</td></tr>
-        <tr><td><code>learning_rate</code> (η)</td><td>0.025</td><td>0.025</td><td>0.022</td><td>0.02</td><td>Koliko jako svako novo stablo utiče</td></tr>
-        <tr><td><code>subsample</code></td><td>0.8</td><td>0.8</td><td>0.75</td><td>0.75</td><td>Procenat podataka korišten za svako stablo</td></tr>
-        <tr><td><code>colsample_bytree</code></td><td>0.6</td><td>0.55</td><td>0.5</td><td>0.5</td><td>Procenat feature-a korišten za svako stablo</td></tr>
-        <tr><td><code>reg_alpha</code> (α)</td><td>0.05</td><td>0.08</td><td>0.1</td><td>0.15</td><td>L1 regularizacija (LASSO)</td></tr>
-        <tr><td><code>reg_lambda</code> (λ)</td><td>1.0</td><td>1.2</td><td>1.3</td><td>1.8</td><td>L2 regularizacija (Ridge)</td></tr>
-        <tr><td><code>min_child_weight</code></td><td>5</td><td>6</td><td>7</td><td>8</td><td>Minimalni zbroj hesijana u listu</td></tr>
-        <tr><td><code>gamma</code> (γ)</td><td>0.02</td><td>0.03</td><td>0.04</td><td>0.08</td><td>Min. gain za novi split</td></tr>
+        <tr><th>Parametar</th><th>v2 MAE</th><th>v1 MAE</th><th>Najbolji NWP</th><th>vs NWP</th></tr>
+        <tr><td>Temperatura</td><td><strong style="color:#22863a">0.356°C</strong></td><td>0.861°C</td><td>1.282°C (ARPÈGE)</td><td style="color:#22863a">+72%</td></tr>
+        <tr><td>Tačka rose</td><td><strong style="color:#22863a">1.163°C</strong></td><td>1.028°C</td><td>1.836°C (ECMWF)</td><td style="color:#22863a">+37%</td></tr>
+        <tr><td>Vlažnost</td><td><strong style="color:#22863a">2.665%</strong></td><td>6.044%</td><td>9.027% (ECMWF)</td><td style="color:#22863a">+70%</td></tr>
+        <tr><td>Brzina vjetra</td><td><strong style="color:#22863a">0.262 m/s</strong></td><td>0.454 m/s</td><td>0.707 m/s (ECMWF)</td><td style="color:#22863a">+63%</td></tr>
+        <tr><td>Udari vjetra</td><td><strong style="color:#22863a">0.424 m/s</strong></td><td>0.608 m/s</td><td>1.837 m/s (GFS)</td><td style="color:#22863a">+77%</td></tr>
+        <tr><td>Pritisak</td><td><strong style="color:#22863a">0.121 hPa</strong></td><td>0.244 hPa</td><td>0.714 hPa (ItaliaMeteo)</td><td style="color:#22863a">+83%</td></tr>
+        <tr><td>Oblačnost</td><td><strong>9.733%</strong></td><td>9.723%</td><td>27.393% (BOM)</td><td style="color:#22863a">+64%</td></tr>
+        <tr><td>Padavine</td><td><strong>1.158 mm</strong></td><td>—</td><td>1.089 mm (ECMWF)</td><td style="color:#d73a49">−6%</td></tr>
+        <tr><td>Solar. radijacija</td><td><strong style="color:#22863a">20.571 W/m²</strong></td><td>—</td><td>34.930 W/m² (ItaliaMeteo)</td><td style="color:#22863a">+41%</td></tr>
     </table>
 
-    <h3>Huber Loss</h3>
-
-    <p>Kad treniraš XGBoost, moraš mu reći kako da mjeri svoje greške tokom učenja — to se zove loss funkcija. Dva standardna izbora su MSE i MAE, i svaki ima problem.</p>
-
-    <p>MSE kvadrira svaku grešku. Jedna velika greška od 15 stepeni doprinosi sa 225 u loss — više nego stotine normalnih grešaka od 1-2 stepena zajedno. Model onda troši kapacitet pokušavajući da "popravi" rijetke ekstreme, umjesto da se fokusira na prosječne uslove koji se dešavaju 99% vremena.</p>
-
-    <p>MAE je korektniji — sve greške se tretiraju proporcionalno. Ali MAE ima prelom u nuli (matematički: nije diferencijabilan), pa gradijenti skaču i optimizacija može biti nestabilna, pogotovo za male greške blizu nule.</p>
-
-    <p>Huber loss je kompromis između ova dva. Za male greške (ispod praga δ) ponaša se kao MSE — glatki gradijenti, stabilna optimizacija. Za velike greške (iznad δ) prelazi u MAE ponašanje — ne eksplodira na outlierima:</p>
-
-    <img src="https://latex.codecogs.com/svg.image?L_\delta(a)=\begin{cases}\frac{1}{2}a^2&\text{ako%20}|a|\leq\delta\\\delta\left(|a|-\frac{1}{2}\delta\right)&\text{ako%20}|a|>\delta\end{cases}" alt="Huber loss formula" style="margin: 20px auto; display: block;">
-
-    <p>Gdje je a razlika između predikcije i stvarne vrijednosti, a δ prag koji kontroliše prelaz. U praksi, δ je obično 1.0 — što znači da greške do 1 stepen idu kroz MSE režim, a sve iznad toga kroz MAE.</p>
-
-    <p>Uz Huber loss, koristim i rezidualni pristup — umjesto da model direktno predviđa konačnu temperaturu (recimo 23.5°C), on predviđa korekciju: koliko ansambl prosjek treba pomjeriti da odgovara mjerenju. Korekcije su uglavnom mali brojevi (±2-3 stepena), dok su temperature u rasponu od -5 do 40°C. Manji raspon ciljne varijable = lakši problem za model.</p>
-
-    <p>Kombinacija reziduala i Huber loss-a je spustila MAE temperature sa 0.96 na 0.89°C, a tačku rose sa 1.15 na 1.07°C. To je čista promjena formulacije problema i loss funkcije — nema novih podataka, nema novih feature-a, ista količina stabala. A razlika je osjetna. Kasnijim dodavanjem 3 nova modela (ECMWF IFS 9km, KNMI, DMI HARMONIE), multi-target treniranja (korigovana temperatura kao feature za tačku rose i vlažnost), recency-weighted bias feature-a (eksponencijalne pokretne sredine grešaka sa span-om 7 i 60 dana), i selektivnog sample weighting-a za ekstremne vrijednosti — temperatura je pala na 0.81°C, tačka rose na 1.01°C, a pritisak na 0.26 hPa.</p>
-
-    <p>Nije svaki parametar imao koristi od Huber-a ili sample weighting-a. Za pritisak, koji varira glatko, sample weights na ekstremima dodaju šum umjesto da pomognu — pa ih isključujem za taj parametar. Pipeline automatski bira optimalnu strategiju (direct, residual ili blend) za svaki parametar — što je prednost pristupa sa odvojenim modelima.</p>
-
-    <p>Treniram poseban model za svaki parametar (temperatura, pritisak, vlažnost, vjetar, tačka rose, udari vjetra, oblačnost, padavine, solarna radijacija), koristeći prognoze svih 11 modela kao input. Sa 5+ godina opservacija (različita dostupnost po modelu) i train/test splitom na jul 2025., rezultati su:</p>
+    <h3>v1 → v2</h3>
 
     <table>
-        <tr><th>Parametar</th><th>XGBoost MAE</th><th>Najbolji model MAE</th><th>Poboljšanje</th></tr>
-        <tr><td>Temperatura</td><td><strong>0.81°C</strong></td><td>1.28°C (ARPÈGE)</td><td style="color:#28a745">+36.5%</td></tr>
-        <tr><td>Tačka rose</td><td><strong>1.01°C</strong></td><td>1.84°C (ECMWF IFS)</td><td style="color:#28a745">+44.9%</td></tr>
-        <tr><td>Vlažnost</td><td><strong>5.53%</strong></td><td>8.96% (ECMWF IFS)</td><td style="color:#28a745">+38.3%</td></tr>
-        <tr><td>Brzina vjetra</td><td><strong>0.45 m/s</strong></td><td>0.72 m/s (ECMWF IFS)</td><td style="color:#28a745">+37.3%</td></tr>
-        <tr><td>Udari vjetra</td><td><strong>0.60 m/s</strong></td><td>1.31 m/s (GEM Global)</td><td style="color:#28a745">+53.9%</td></tr>
-        <tr><td>Pritisak</td><td><strong>0.26 hPa</strong></td><td>0.70 hPa (ItaliaMeteo)</td><td style="color:#28a745">+63.2%</td></tr>
-        <tr><td>Oblačnost</td><td><strong>9.67%</strong></td><td>29.23% (GEM Global)</td><td style="color:#28a745">+66.9%</td></tr>
-        <tr><td>Padavine</td><td><strong>1.59 mm</strong></td><td>1.45 mm (GFS)</td><td style="color:#d73a49">-9.0%</td></tr>
-        <tr><td>Solar. radijacija</td><td><strong>21.54 W/m²</strong></td><td>34.65 W/m² (ItaliaMeteo)</td><td style="color:#28a745">+37.8%</td></tr>
+        <tr><th>Parametar</th><th>Poboljšanje</th></tr>
+        <tr><td>Temperatura</td><td style="color:#22863a">−58.6%</td></tr>
+        <tr><td>Vlažnost</td><td style="color:#22863a">−55.9%</td></tr>
+        <tr><td>Pritisak</td><td style="color:#22863a">−50.4%</td></tr>
+        <tr><td>Brzina vjetra</td><td style="color:#22863a">−42.3%</td></tr>
+        <tr><td>Udari vjetra</td><td style="color:#22863a">−30.3%</td></tr>
+        <tr><td>Tačka rose</td><td style="color:#d73a49">+13.1% (regresija)</td></tr>
+        <tr><td>Oblačnost</td><td>~0%</td></tr>
     </table>
 
+    <p>Pet parametara je dramatično poboljšano. Tačka rose je jedina regresija — deficit transform u kombinaciji sa Huber lossom je pretjerano "gladio" signal. Oblačnost je ostala ista — ali i v1 je već bio 64% bolji od najboljeg NWP za oblačnost, pa tu nema puno prostora.</p>
 
-    <h2>Limitacije pristupa</h2>
+    <p>Padavine su jedini parametar gdje korigovani model nije uspio pobijediti sirovi ensemble prosjek. Očekivano — globalni modeli jednostavno nemaju rezoluciju da uhvate konvektivne ćelije iznad Budve, a ML ne može izmisliti informaciju koja ne postoji u inputu.</p>
 
-    <p>Važno je razumjeti šta ovaj sistem <strong>može</strong>, a šta <strong>ne može</strong>. XGBoost korekcija značajno poboljšava prosječnu tačnost — ali bez prisustva <em>tehnički novog vremenskog modela</em>, postoje fundamentalna ograničenja.</p>
-
-    <p><strong>Konvektivne padavine i mini pljuskovi.</strong> Kratkotrajne oluje, iznenadni pljuskovi i lokalne konvektivne ćelije su najteži problem. Ovi događaji se dešavaju na prostornoj skali od nekoliko kilometara i vremenskoj skali od 15-30 minuta. Globalni modeli koje koristimo (ARPÈGE ~10km, GFS ~25km, ICON ~13km, Météo-France ~10km) jednostavno nemaju dovoljnu rezoluciju da ih uhvate. XGBoost može naučiti da prepozna uslove koji favorizuju konvekciju, ali ne može predvidjeti tačnu lokaciju i tajming pljuska — jer ni input modeli to ne vide.</p>
-
-    <p><strong>Rezolucija za Crnu Goru.</strong> Budva leži na obali, sa planinama od 1000+ metara na samo nekoliko kilometara od mora. Ova izuzetna orografska kompleksnost zahtijeva rezoluciju od 2km ili manje da bi se adekvatno modelirali lokalni efekti. Nijedan od globalnih modela koje koristimo nema takvu rezoluciju za ovo područje. Ovo važi generalno za čitavu Crnu Goru, čija izrazito kompleksna topografija predstavlja poseban izazov za numeričke prognoze.</p>
-
-    <p><strong>Ensemble ≠ novi model.</strong> Moj pristup koristi ansambl postojećih modela — ali 11 modela koji svi griješe na sličan način neće magično dati tačan odgovor. Ansambl smanjuje slučajnu grešku, ali ne može kompenzovati sistematski nedostatak rezolucije. Dodavanje KNMI (5.5km) i DMI HARMONIE (2km) donosi višu rezoluciju, ali Budva je na rubu njihove domene. Za zaista novi kvalitet prognoze za Budvu, bio bi potreban high-resolution LAM (Limited Area Model) na ~1km gridu, poput AROME ili ICON-D2 kalibrisan za Jadransku obalu.</p>
-
-    <div class="note">
-        <strong>Ukratko:</strong> Ovaj sistem daje najbolju moguću korekciju postojećih globalnih prognoza — ali ne zamjenjuje potrebu za visoko-rezolutivnim regionalnim modelima. Najveća poboljšanja su na "glatkim" varijablama (temperatura, pritisak, vlažnost), dok padavine i lokalni vjetrovi ostaju fundamentalno limitirani ulaznom rezolucijom.
-    </div>
-
-    <h2>Ukupno rangiranje</h2>
-
-    <p>Na osnovu svih analiziranih parametara, evo ukupnog rangiranja modela za Budvu:</p>
-
+    <img src="images/09_weather_condition_comparison.png" alt="Poređenje po vremenskim uslovima">
+    <img src="images/11_radar_all_variables.png" alt="Radar grafik svih varijabli">
     <img src="images/13_overall_ranking.png" alt="Ukupno rangiranje modela">
 
-    <h2>Tehnički detalji</h2>
+    <!-- ================================================================== -->
+    <h2>Kako XGBoost funkcioniše</h2>
 
-    <p>Cijeli projekat je napisan u Pythonu. Koristim <code>pandas</code> i <code>numpy</code> za obradu podataka, <code>matplotlib</code> i <code>seaborn</code> za vizualizacije, i <code>xgboost</code> za mašinsko učenje.</p>
+    <p>XGBoost gradi stotine stabala odlučivanja sekvencijalno — svako sljedeće pokušava da ispravi greške prethodnog. Konačna predikcija je suma svih stabala, pomnožena sa learning rate-om (η), što sprečava prebrzo učenje:</p>
 
-    <p>Podatke preuzimam sa Open-Meteo API-ja, koji besplatno daje pristup istorijskim prognozama globalnih modela. Imam implementiran retry mehanizam jer postoje rate limiti.</p>
+    <img src="https://latex.codecogs.com/svg.image?\hat{y}_i^{(t)}=\hat{y}_i^{(t-1)}+\eta\cdot%20f_t(x_i)" alt="Additive training">
 
-    <div class="note">
-        <strong>Napomena:</strong> Kod projekta je dostupan na GitHubu. Uključuje kompletan proces preuzimanja podataka, analizu, vizualizaciju i pripremu za ML model. Ovo omogućava svima da repliciraju analizu, treniraju vlastite modele, ili primjene sličan pristup na druge lokacije osim Budve.
-    </div>
+    <p>Za svako moguće dijeljenje čvora, računa gain koristeći gradijente prvog i drugog reda. Split se pravi samo ako je gain dovoljno veliki — γ parametar penalizuje dodavanje novih grana i time kontroliše kompleksnost:</p>
 
-    <h2>Zašto sam zainteresovan za ovo</h2>
+    <img src="https://latex.codecogs.com/svg.image?Gain=\frac{1}{2}\left[\frac{(\sum_{i\in%20I_L}g_i)^2}{\sum_{i\in%20I_L}h_i+\lambda}+\frac{(\sum_{i\in%20I_R}g_i)^2}{\sum_{i\in%20I_R}h_i+\lambda}-\frac{(\sum_{i\in%20I}g_i)^2}{\sum_{i\in%20I}h_i+\lambda}\right]-\gamma" alt="Split gain formula">
 
-    <p>Živim u Budvi. Budem nekad isfrustriran tačnošću vremenskih prognoza. </p>
+    <p>U ovom projektu, svaki parametar ima svoja optimizovana stabla — temperatura koristi stabla dubine 5 sa learning rate-om 0.038, dok pritisak koristi pliča stabla (dubina 4) sa mnogo manjim learning rate-om (0.005). Razlika u podešavanju je velika i to je jedan od razloga zašto je automatsko pretraživanje bilo toliko važno.</p>
 
-    <p>Ali isto tako, ovo je fascinantan problem iz perspektive data science-a. Globalni modeli su nevjerovatno zanimljivi - simuliraju cijelu atmosferu koristeći fizičke jednačine. Ali oni ne mogu biti perfektni za svaku pojedinačnu lokaciju. Tu dolazi mašinsko učenje - može naučiti lokalne obrasce bez potrebe da eksplicitno modelira fiziku. A dok se ne razviju lokalni ali i pouzdani modeli, ovo je koristan pristup.</p>
+    <!-- ================================================================== -->
+    <h2>Limitacije</h2>
 
-    <h2>Tačnost XGBoost sistema</h2>
+    <p><strong>Padavine.</strong> Lokalne oluje se dešavaju na skali od par kilometara i traju 15-30 minuta. Globalni modeli to ne vide, i ML ne može da kreira informaciju koja ne postoji u inputu.</p>
 
-    <p>Na osnovu validacionog seta (jul 2025 — januar 2026), XGBoost korekcija postiže sljedeću tačnost u odnosu na mjerenja Weather Underground stanice:</p>
+    <p><strong>Rezolucija.</strong> Budva je stješnjena između planina i mora. Orografska kompleksnost bi zahtijevala model na ~1-2 km gridu. ItaliaMeteo ICON2I (2.2 km) i DMI HARMONIE (2 km) pomažu, ali su na rubu svojih domena.</p>
+
+    <p><strong>Ensemble ≠ novi model.</strong> 11 modela koji svi griješe na sličan način neće magično dati tačan odgovor. Ansambl smanjuje slučajnu grešku, ali ne može kompenzovati sistematski nedostatak rezolucije.</p>
+
+    <p><strong>Tačka rose.</strong> v2 je lošiji od v1 za ovu varijablu. Kandidat za fix u v3.</p>
+
+    <!-- ================================================================== -->
+    <h2>Tačnost u praksi</h2>
 
     <div id="liveAccuracy">
-        <p style="color:#586069;font-size:15px;">Učitavanje podataka o tačnosti...</p>
+        <p style="color:#586069;font-size:15px;">Učitavanje...</p>
     </div>
 
     <script>
@@ -608,49 +299,48 @@
         }
         if (!data || !data.training_metrics) {
             document.getElementById('liveAccuracy').innerHTML =
-                '<p style="color:#586069;font-size:14px;">Podaci o tačnosti su dostupni na <a href="forecast.html">stranici za prognozu</a>.</p>';
+                '<p style="color:#586069;font-size:14px;">Podaci o tačnosti su na <a href="forecast_b.html">stranici za prognozu</a>.</p>';
             return;
         }
         const m = data.training_metrics;
-        const keys = ['temperature_2m','dew_point_2m','relative_humidity_2m','wind_speed_10m','wind_gusts_10m','pressure_msl','cloud_cover','precipitation'];
-        const colors = {temperature_2m:'#d73a49',dew_point_2m:'#e36209',relative_humidity_2m:'#6f42c1',wind_speed_10m:'#0366d6',wind_gusts_10m:'#0366d6',pressure_msl:'#28a745',cloud_cover:'#586069',precipitation:'#0366d6'};
-        const labels = {temperature_2m:'Temperatura',dew_point_2m:'Tačka rose',relative_humidity_2m:'Vlažnost',wind_speed_10m:'Vjetar',wind_gusts_10m:'Udari vjetra',pressure_msl:'Pritisak',cloud_cover:'Oblačnost',precipitation:'Padavine'};
-
+        const keys = ['temperature_2m','dew_point_2m','relative_humidity_2m','wind_speed_10m','wind_gusts_10m','pressure_msl','cloud_cover','precipitation','shortwave_radiation'];
+        const colors = {temperature_2m:'#d73a49',dew_point_2m:'#e36209',relative_humidity_2m:'#6f42c1',wind_speed_10m:'#0366d6',wind_gusts_10m:'#0366d6',pressure_msl:'#28a745',cloud_cover:'#586069',precipitation:'#0366d6',shortwave_radiation:'#f9c513'};
+        const labels = {temperature_2m:'Temperatura',dew_point_2m:'Ta\u010Dka rose',relative_humidity_2m:'Vla\u017Enost',wind_speed_10m:'Vjetar',wind_gusts_10m:'Udari vjetra',pressure_msl:'Pritisak',cloud_cover:'Obla\u010Dnost',precipitation:'Padavine',shortwave_radiation:'Solar. radijacija'};
         let cards = '';
         keys.forEach(k => {
             if (!m[k]) return;
+            const impColor = parseFloat(m[k].improvement) >= 0 ? '#28a745' : '#d73a49';
+            const impSign = parseFloat(m[k].improvement) >= 0 ? '\u2191' : '\u2193';
             cards += '<div style="background:#f6f8fa;border:1px solid #e1e4e8;border-radius:10px;padding:16px;text-align:center">'
                 + '<div style="font-size:11px;color:#586069;text-transform:uppercase;letter-spacing:0.5px">' + labels[k] + '</div>'
                 + '<div style="font-size:24px;font-weight:700;margin:6px 0;color:' + colors[k] + '">' + m[k].mae + ' <span style="font-size:14px;font-weight:500">' + m[k].unit + '</span></div>'
-                + '<div style="font-size:12px;color:#959da5;margin-bottom:4px">prosječna greška (MAE)</div>'
-                + '<div style="font-size:12px;color:#28a745;font-weight:600">↑ ' + m[k].improvement + '% bolje od najboljeg modela</div></div>';
+                + '<div style="font-size:12px;color:' + impColor + ';font-weight:600">' + impSign + ' ' + Math.abs(parseFloat(m[k].improvement)) + '% vs najbolji NWP</div></div>';
         });
-
         document.getElementById('liveAccuracy').innerHTML =
-            '<div style="text-align:center;margin-bottom:24px">'
-            + '<div style="font-size:18px;color:#24292e;font-weight:600">Prosječna greška po parametru (MAE)</div>'
-            + '<div style="font-size:14px;color:#586069;margin-top:4px">Niža vrijednost = preciznija prognoza</div></div>'
-            + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">' + cards + '</div>'
-            + '<p style="font-size:14px;color:#586069">Generisano: ' + new Date(data.generated).toLocaleDateString('sr-Latn') + ' · ' + data.models.length + ' modela · 5+ godina opservacija (2020—2026)</p>';
+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">' + cards + '</div>'
+            + '<p style="font-size:13px;color:#586069">' + data.models.length + ' modela \u00B7 5+ godina opservacija</p>';
     })();
     </script>
 
+    <!-- ================================================================== -->
     <h2>Šta dalje</h2>
 
-    <p>Produkcijska verzija je završena. Možete posjetiti <strong><a href="forecast.html">stranicu sa živom prognozom</a></strong>.</p>
+    <p>Živa prognoza radi automatski — preuzima najnovije prognoze svih 11 modela, primijeni trenirane korekcije, i generiše korigovanu +48h prognozu. Dostupna je <a href="forecast_b.html"><strong>ovdje</strong></a>.</p>
 
-    <ol>
-        <li>Preuzima live prognoze sa Open-Meteo API za svih 11 modela (ARPÈGE, GFS, ICON, Météo-France, ECMWF IFS 0.25°, ItaliaMeteo, UKMO, ECMWF IFS 9km, KNMI HARMONIE, DMI HARMONIE, GEM Global)</li>
-        <li>Primjenjuje trenirane XGBoost modele na <strong>svih 9 parametara</strong> — uključujući oblačnost, padavine i solarnu radijaciju</li>
-        <li>Koristi tabele istorijskog biasa (po mjesecu i satu) kao dodatne feature-e za preciznije korekcije</li>
-        <li><strong>Pametna korekcija vremenskog koda</strong> — koristi XGBoost padavine i oblačnost da ispravi lažne prijave kiše</li>
-        <li>Generiše korigovanu +48h prognozu sa interaktivnim web prikazom</li>
-    </ol>
+    <p>Za v3 planiram da popravim tačku rose (vjerovatno treba preskočiti deficit transform), dodam radar podatke za padavine, i povećam broj Optuna trial-ova sa jačim hardverom.</p>
 
-    <p>Model je treniran na <strong>5+ godina opservacija</strong> (april 2020. — danas) sa 50.000+ satnih tačaka, spojenih iz dva izvora opservacija. Svaki od 11 modela ima različit period dostupnosti u Open-Meteo API-ju. Sa 11 modela u ansamblu — uključujući 3 visoko-rezolutivna LAM modela (ItaliaMeteo 2.2km, DMI HARMONIE 2km, KNMI HARMONIE 5.5km) — i pametnom korekcijom vremenskog koda, ovo je značajan korak naprijed. Svako mjesečno ažuriranje sa novim podacima donosi marginalna poboljšanja (&lt;1% MAE) s obzirom na već veliku količinu trening podataka.</p>
+    <h2>Tehničko</h2>
 
-    <p>Linkove korišćenih podataka možete vidjeti na stranici za live prognozu.</p>
+    <p>Python 3.13. XGBoost 3.2, CatBoost 1.2, LightGBM 4.6, Optuna 4.8, SHAP 0.51, scikit-learn. Pipeline je ~3.100 linija koda, treniranje traje ~12 sati na CPU. Kod je na <a href="https://github.com/matko-iv/vrijeme" target="_blank">GitHubu</a>.</p>
 
-    <p>Ako imate pitanja ili prijedloge, slobodno mi pišite na <a href="mailto:ivanovicmatija2007@gmail.com">ivanovicmatija2007@gmail.com</a>.</p>
+    <h2>Zašto</h2>
+
+    <p>Živim u Budvi i budem nekad isfrustriran tačnošću vremenskih prognoza. Istovremeno, fascinantan je problem — globalni modeli simuliraju cijelu atmosferu koristeći fizičke jednačine, ali ne mogu biti savršeni za svaku lokaciju. ML može da nauči lokalne obrasce, a dok Crna Gora ne dobije sopstveni model visoke rezolucije, ovo je koristan pristup.</p>
+
+    <p>Pitanja: <a href="mailto:ivanovicmatija2007@gmail.com">ivanovicmatija2007@gmail.com</a></p>
+
+    <img src="images/07_mae_vs_rmse.png" alt="MAE vs RMSE">
+    <img src="images/12_cloudiness_skill.png" alt="Oblačnost skill">
+    <img src="images/10_precipitation_intensity.png" alt="Intenzitet padavina">
 </body>
 </html>
