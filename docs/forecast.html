@@ -711,7 +711,16 @@ function generateNarrative(d, icon) {
                 'Sunce peče od ranog jutra, tek navečer dolazi blaži vazduh',
                 'Vedro i sparno cijelim danom, prohladno tek nakon ponoći',
                 'Vrućina raste do kasnog popodneva, uveče i dalje toplo',
-                'Sunčano od jutra do mraka, blago osvježenje tek oko ponoći'
+                'Sunčano od jutra do mraka, blago osvježenje tek oko ponoći',
+                'Sparno od ranog jutra — popodne vrhunac vrućine, navečer jedva osjetno osvježenje',
+                'Sunce prži ujutro, prepodne već nepodnošljivo, popodne pakao — tek iza 22h lakše',
+                'Vedro nebo bez ijednog oblaka cijelim danom, sunce dominira od 6 ujutro',
+                'Vruće čim izađe sunce, maksimum oko 14h, uveče i dalje zagušljivo',
+                'Tropska noć iza, vruć dan ispred — bez predaha od vrućine',
+                'Jutro sparno i mirno, vrućina raste do kasnog popodneva, uveče blago popušta',
+                'Bezoblačno nebo i visoke temperature cijelim danom — hidracija obavezna',
+                'Rekordna vrućina — sunce peče od izlaska, temperatura ne pada ni navečer',
+                'Sunčano, suvo i izuzetno vruće — izbjegavajte napor od 11 do 16h'
             );
         } else if (warm) {
             pool.push(
@@ -730,7 +739,16 @@ function generateNarrative(d, icon) {
                 'Ujutro friško, ali brzo se zagrije — popodne toplo i sunčano',
                 'Vedro od jutra, temperatura raste do popodneva, uveče ugodno',
                 'Sunčano cijelim danom, navečer blago osvježenje',
-                'Prepodne se zagrije, popodne idealno za plažu, uveče lagana svježina'
+                'Prepodne se zagrije, popodne idealno za plažu, uveče lagana svježina',
+                'Jutro prijatno i vedro, prepodne se zagrije, popodne savršeno za kupanje',
+                'Sunce grije od 8 ujutro, toplota raste do 14h — uveče lagano osvježenje',
+                'Vedro bez oblaka, ugodna toplota cijelim danom, navečer blaga svježina',
+                'Prelijep dan — sunce od jutra, toplo prepodne, prijatno uveče uz morski povjetarac',
+                'Jutro mirno i sunčano, popodne toplo ali podnošljivo, uveče idealno za šetnju',
+                'Lijep vedar dan — temperatura raste do ranog popodneva, potom lagani pad',
+                'Od jutra vedro i suvo, maksimum temperature oko podne, uveče osvježava',
+                'Sunčano jutro bez vjetra, toplo popodne, ugodna večer uz blag povjetarac',
+                'Idealan dan za plažu — sunce od jutra do kasnog popodneva, uveče prijatno'
             );
         } else if (mild) {
             pool.push(
@@ -748,7 +766,15 @@ function generateNarrative(d, icon) {
                 'Ujutro svježe, ali sunce brzo grije — popodne blago i vedro',
                 'Sunčano od jutra, temperatura raste do popodneva, uveče prohladno',
                 'Vedro i mirno cijelim danom, navečer friško',
-                'Prijatno preko dana, uveče ponijeti laganu jaknu'
+                'Prijatno preko dana, uveče ponijeti laganu jaknu',
+                'Sunce grije od ujutro, prepodne ugodno, popodne idealno — uveče se rashladi',
+                'Friško jutro oko 7h, do 10h se zagrije, popodne prijatno, navečer ponijeti jaknu',
+                'Vedro i stabilno — jutro svježe, prepodne se otopli, uveče opet prohladno',
+                'Sunčano bez oblaka cijelim danom, blage temperature, navečer osvježi',
+                'Lijep proljetni dan — svježe ujutro, sunčano prepodne, ugodno popodne, friško uveče',
+                'Idealan dan za šetnju — od jutra vedro, popodne prijatno, navečer lagana svježina',
+                'Prijatno od jutra do mraka, temperatura umjerena, uveče tek malo svježije',
+                'Vedar dan sa umjerenom toplotom, sunce grije ali ne peče — uveče prohladno'
             );
         } else if (cool) {
             pool.push(
@@ -763,7 +789,14 @@ function generateNarrative(d, icon) {
                 'Hladna jutra i vedro nebo — oko podne ugodnije, uveče opet prohladno',
                 'Ujutro friško, prepodne se grije, ali popodne i dalje svježe',
                 'Sunce grije oko podne, ali jutro i uveče osjetno hladno',
-                'Vedro, ali prohladno od jutra do mraka — jakna cijeli dan'
+                'Vedro, ali prohladno od jutra do mraka — jakna cijeli dan',
+                'Hladno ujutro, sunce zagrije tek oko 11h, popodne svježe, uveče hladno',
+                'Vedro nebo ali nizak osjećaj temperature — vjetar pojačava hladnoću',
+                'Jutro oko 5-6°C, grije se do podne, ali popodne jedva 15°C — uveče hladno',
+                'Sunčano i vedro, ali vazduh svježi cijelim danom — ne zavaravajte se suncem',
+                'Friško od jutra, sunce pomaže oko podne, ali navečer brzo zahladi',
+                'Vedro nebo sa hladnim vazduhom — jakna od jutra do mraka obavezna',
+                'Sunce sija ali ne grije dovoljno — prohladno ujutro, svježe popodne, hladno uveče'
             );
         } else if (cold) {
             pool.push(
@@ -777,7 +810,12 @@ function generateNarrative(d, icon) {
                 'Mraz ujutro, potom vedro do kraja dana',
                 'Oštar mraz do prepodne, sunce ne zagrije ni oko podne',
                 'Jutro ledeno, prepodne se blago otopli, ali uveče ponovo mraz',
-                'Vedro cijelim danom, hladno ujutro i navečer, oko podne tek malo toplije'
+                'Vedro cijelim danom, hladno ujutro i navečer, oko podne tek malo toplije',
+                'Mraz do 9h, sunce zagrije na kratko oko podne, nakon 16h ponovo mrzlo',
+                'Vedar zimski dan — jutro oštro, prepodne sunce ali hladno, uveče mraz',
+                'Hladno od jutra, sunce sija ali vazduh ledeni — uveče temperatura pada ispod nule',
+                'Vedro i suvo, ali zimske temperature — sunce daje svjetlo ali ne toplotu',
+                'Jutarnji mraz, sunce se pojavi oko 8h ali ne zagrije — hladno cijelim danom'
             );
         } else {
             pool.push(
@@ -788,7 +826,10 @@ function generateNarrative(d, icon) {
                 'Arktička hladnoća uz vedro nebo',
                 'Ekstreman mraz ujutro, sunce ne zagrije',
                 'Ledeno od jutra do mraka, ni sunce ne pomaže',
-                'Mraz cijelim danom, ujutro najoštije, uveče ponovo ledeno'
+                'Mraz cijelim danom, ujutro najoštije, uveče ponovo ledeno',
+                'Vedro nebo ali arktički vazduh — temperatura ne prelazi nulu ni oko podne',
+                'Sunce sija na vedrinom nebu, ali mraz je nemilosrdan cijelim danom',
+                'Ledeno ujutro, ledeno popodne, ledeno uveče — samo sunce daje utjehu'
             );
         }
     }
@@ -806,7 +847,14 @@ function generateNarrative(d, icon) {
                 'Ujutro sunčano, popodne oblaci ali vruće',
                 'Oblaci prolaze ujutro, sunce dominira od prepodneva — vruće',
                 'Ujutro vedro i vruće, oko podne prolazni oblaci, popodne ponovo sunce',
-                'Poneki oblak kasno popodne, ali vrućina ne popušta ni uveče'
+                'Poneki oblak kasno popodne, ali vrućina ne popušta ni uveče',
+                'Oblaci ujutro kratkotrajno, sunce preuzima od 9h — vruće do mraka',
+                'Sparno jutro, kratki oblaci oko podne, popodne ponovo sunce i vrućina',
+                'Prolazni oblaci prepodne donose lažnu nadu — popodne ponovo prženje',
+                'Ujutro oblačno i sparno, oko podne sunce izbija — kasno popodne vruće',
+                'Vrućina ne popušta ni uz oblake — sparno od jutra do mraka',
+                'Oblačni intervali kasno popodne, temperatura ostaje visoka i uveče',
+                'Kratki oblaci ujutro, potom vedro i vruće do kasne večeri'
             );
         } else if (warm) {
             pool.push(
@@ -825,7 +873,14 @@ function generateNarrative(d, icon) {
                 'Vedro ujutro, naoblačenje oko podne, razvedravanje uveče',
                 'Toplo prepodne, kratki oblaci popodne, prijatno uveče',
                 'Ujutro friško i oblačno, prepodne se razvedrava — popodne toplo i sunčano',
-                'Kasno popodne prolazni oblaci, ali uveče vedro i ugodno'
+                'Kasno popodne prolazni oblaci, ali uveče vedro i ugodno',
+                'Sunce ujutro, oblaci od 10h, razvedravanje oko 14h — toplo popodne',
+                'Oblačno rano ujutro, vedro od prepodneva, toplo i sunčano do mraka',
+                'Jutro sa oblacima, sunce se probija oko 11h, popodne toplo i ugodno',
+                'Promjenljivo prepodne, stabilno i sunčano popodne, prijatno navečer',
+                'Oblaci dolaze ujutro i oko podne, ali između sunčani periodi — toplo',
+                'Ujutro oblačno, prepodne se razbistrava, popodne vedro — uveče lagana svježina',
+                'Kratkotrajno naoblačenje oko podne, sunce se vraća popodne, uveče ugodno'
             );
         } else if (mild) {
             pool.push(
@@ -844,7 +899,14 @@ function generateNarrative(d, icon) {
                 'Sunce ujutro, oblaci oko podne, ponovo vedro kasno popodne',
                 'Prijatno prepodne, prolazni oblaci popodne, prohladno uveče',
                 'Friško jutro, oblaci se smjenjuju sa suncem, navečer se rashladi',
-                'Oko podne sunčano, kasno popodne oblaci, uveče prohladno'
+                'Oko podne sunčano, kasno popodne oblaci, uveče prohladno',
+                'Oblačno od 7h, sunce probija oko 10h, oblaci ponovo kasno popodne',
+                'Jutarnja oblačnost se razilazi do prepodneva, sunčano popodne, friško uveče',
+                'Promjenljivo cijelim danom — ugodno kad sunce izađe, prohladno kad oblaci dođu',
+                'Sunčani intervali ujutro, oblačnije prepodne, razvedravanje poslijepodne',
+                'Oblaci ujutro, vedro oko podne, ponovo oblačno kasno popodne — prohladno navečer',
+                'Prijatno kad sunce grije, ali oblaci donose svježinu — uveče jakna poželjna',
+                'Smjenjuju se sunce i oblaci cijelim danom, temperatura ugodna ali uveče pada'
             );
         } else if (cool) {
             pool.push(
@@ -857,7 +919,12 @@ function generateNarrative(d, icon) {
                 'Promjenljivo i prohladno, jakna poželjna',
                 'Friško ujutro, oblaci se razilaze oko podne, ali i dalje svježe',
                 'Oblačno prepodne, sunce popodne, ali prohladno i uveče',
-                'Ujutro hladno i oblačno, oko podne sunce izlazi, uveče ponovo frka'
+                'Ujutro hladno i oblačno, oko podne sunce izlazi, uveče ponovo frka',
+                'Hladno jutro sa oblacima, sunce oko podne ali ne zagrije, uveče mrzlo',
+                'Oblačno ujutro, kratki sunčani interval prepodne, ponovo oblačno i svježe popodne',
+                'Svježe cijelim danom i pored sunčanih perioda — navečer dodatno zahladi',
+                'Prolazni oblaci ujutro, sunce oko 11h, oblaci ponovo od 15h — prohladno uveče',
+                'Friško i promjenljivo, jakna obavezna od jutra do mraka'
             );
         } else if (cold) {
             pool.push(
@@ -868,7 +935,10 @@ function generateNarrative(d, icon) {
                 'Poneko sunce, ali hladan vazduh dominira',
                 'Rijetki sunčani intervali uz zimsku hladnoću',
                 'Oblaci ujutro, sunce probije oko podne, ali hladno cijelim danom',
-                'Jutarnji mraz, poneko sunce prepodne, uveče ponovo mrzlo'
+                'Jutarnji mraz, poneko sunce prepodne, uveče ponovo mrzlo',
+                'Sunce se pojavi kratko oko podne, ostalo oblačno i hladno',
+                'Mraz ujutro, kratki sunčani intervali prepodne, navečer ponovo ispod nule',
+                'Hladno i promjenljivo — sunce ne uspijeva zagrijati ni oko podne'
             );
         } else {
             pool.push(
@@ -876,7 +946,9 @@ function generateNarrative(d, icon) {
                 'Promjenljivo, temperature ispod nule',
                 'Poneko sunce, ali ledeno',
                 'Kratki sunčani periodi, ali ostaje ledeno',
-                'Poneki sunčani interval ujutro, ali ledeno cijelim danom i noću'
+                'Poneki sunčani interval ujutro, ali ledeno cijelim danom i noću',
+                'Sunce se pojavi nakratko ali mraz je neumoljiv — ledeno od jutra do mraka',
+                'Kratki vedri periodi ne donose toplotu — temperature stalno ispod nule'
             );
         }
     }
@@ -894,7 +966,13 @@ function generateNarrative(d, icon) {
                 'Tmuran dan bez padavina, ali sparno',
                 'Oblačno ujutro i prepodne, vrućina ne popušta ni popodne',
                 'Oblaci cijelim danom, sparno — uveče se blago rashladi',
-                'Tmurno od jutra, blago razvedravanje kasno popodne, ali i dalje vruće'
+                'Tmurno od jutra, blago razvedravanje kasno popodne, ali i dalje vruće',
+                'Zagušljivo od jutra — oblaci drže toplotu, uveče tek malo lakše',
+                'Gusti oblaci od ranog jutra do kasnog popodneva, sparno bez prestanka',
+                'Oblačno i sparno cijelim danom — tek iza ponoći blaže',
+                'Tmurno ujutro, oblaci ne puštaju ni popodne, vruće i bez sunca',
+                'Oblačno bez padavina ali vrućina ne popušta — zagušljiv dan',
+                'Sivo nebo ujutro, sparno prepodne, oblačno popodne — uveče blago lakše'
             );
         } else if (warm) {
             pool.push(
@@ -909,7 +987,12 @@ function generateNarrative(d, icon) {
                 'Oblačno prepodne, sunce se probija oko podne, toplo popodne',
                 'Ujutro sivo, ali oblaci se povlače poslijepodne — uveče vedro',
                 'Oblačno cijelim danom, toplo ali bez sunca — uveče se rashladi',
-                'Sivo ujutro, razvedravanje kasno popodne, prijatno uveče'
+                'Sivo ujutro, razvedravanje kasno popodne, prijatno uveče',
+                'Oblačno od jutra, sunce probija tek oko 14h — toplo popodne',
+                'Sivo prepodne, toplo ali bez sunca, poslijepodne se razbistrava',
+                'Ujutro i prepodne oblačno, oko podne sunce na kratko, popodne ponovo sivo',
+                'Oblačno i suvo cijelim danom, temperatura ugodna, navečer malo svježije',
+                'Tmurno ujutro ali suvo, oblaci se stanjuju popodne — uveče se otvara nebo'
             );
         } else if (mild) {
             pool.push(
@@ -928,7 +1011,13 @@ function generateNarrative(d, icon) {
                 'Oblaci ne puštaju sunce cijelim danom, navečer dodatno zahladi',
                 'Sivo od jutra do mraka — bez promjena, prohladno uveče',
                 'Oblačno prepodne, blago razbistrava oko podne, ali ponovo oblačno popodne',
-                'Friško i oblačno ujutro, preko dana ostaje sivo, prohladno navečer'
+                'Friško i oblačno ujutro, preko dana ostaje sivo, prohladno navečer',
+                'Sivo i mirno — ugodan dan bez sunca ali i bez kiše, uveče rashladnjenje',
+                'Oblačno jutro, oblačno popodne, oblačno uveče — monoton ali suh dan',
+                'Tmurno ali stabilno cijelim danom, prohladno tek navečer',
+                'Nijedno sunce cijelim danom, ali baremetar stabilan — ugodne temperature',
+                'Oblačno od 7h do mraka — ni kiša ni sunce, uveče svježije',
+                'Sivo nebo ali suvo — prijatno za šetnju, navečer ponijeti sloj više'
             );
         } else if (cool) {
             pool.push(
@@ -941,7 +1030,12 @@ function generateNarrative(d, icon) {
                 'Sivo nebo — razvedravanje tek uveče',
                 'Oblačno i hladno ujutro, isto i popodne — navečer prohladno',
                 'Sivo i friško cijelim danom, uveče se dodatno rashladi',
-                'Oblačno prepodne, bez promjene popodne, navečer hladno'
+                'Oblačno prepodne, bez promjene popodne, navečer hladno',
+                'Tmurno od jutra, oblaci ne puštaju cijelim danom — hladno uveče',
+                'Oblačno i prohladno bez prestanka — topla odjeća preporučena cijelim danom',
+                'Sivo nebo i svježi vazduh od ujutro do mraka, friško navečer',
+                'Oblačno ujutro sa hladnoćom, ne popravlja se ni popodne — navečer još hladnije',
+                'Prohladno cijelim danom pod gustim oblacima — tek sutra moguće poboljšanje'
             );
         } else if (cold) {
             pool.push(
@@ -952,7 +1046,10 @@ function generateNarrative(d, icon) {
                 'Oblačno i ledeno, bez naznaka sunca',
                 'Tmurno, hladno i bez promjena',
                 'Sivo ujutro, sivo popodne, hladno uveče — bez promjena',
-                'Oblačno cijelim danom, hladno od jutra do noći'
+                'Oblačno cijelim danom, hladno od jutra do noći',
+                'Zimski oblačan dan — mraz ujutro, hladno popodne, ledeno uveče',
+                'Gusti oblaci drže temperaturu niskom cijelim danom, navečer još oštije',
+                'Tmurno i mrzlo — oblaci ne puštaju ni trunku sunca, uveče mraz'
             );
         } else {
             pool.push(
@@ -960,7 +1057,9 @@ function generateNarrative(d, icon) {
                 'Tmurno uz oštar mraz',
                 'Gusti oblaci, ekstremno hladno',
                 'Sivo i ledeno, temperature duboko ispod nule',
-                'Ledeno cijeli dan, oblaci ne puštaju — bez sunca i toplote'
+                'Ledeno cijeli dan, oblaci ne puštaju — bez sunca i toplote',
+                'Tmurno i arktički hladno — oblaci pojačavaju osjećaj hladnoće',
+                'Gusti oblaci i jak mraz cijelim danom — oprez vani'
             );
         }
     }
@@ -982,7 +1081,13 @@ function generateNarrative(d, icon) {
                 'Ujutro kratka kiša, poslijepodne vedro i toplo',
                 'Pljusak oko podne, poslije sunce — uveče prijatno i suvo',
                 'Kiša kasno popodne, ali brzo prolazi — uveče vedro',
-                'Ujutro suvo i toplo, kratki pljusak popodne, razvedravanje uveče'
+                'Ujutro suvo i toplo, kratki pljusak popodne, razvedravanje uveče',
+                'Kratka kiša ujutro, sunce od 10h, toplo i vedro do mraka',
+                'Pljusak oko 11h traje pola sata, potom sunce i toplota do kasno uveče',
+                'Ujutro nestabilno sa sitnom kišom, popodne se smiri — toplo i suvo uveče',
+                'Dinamično jutro — kiša pa sunce naizmjenično, stabilno i toplo od podne',
+                'Kratki pljusak kasno popodne, ne kvari dan — uveče suvo i prijatno',
+                'Toplo i vlažno ujutro, kratka kiša prepodne, sunčano i suvo od podne'
             );
         } else if (mild) {
             pool.push(
@@ -1003,7 +1108,14 @@ function generateNarrative(d, icon) {
                 'Padavine prepodne, razvedravanje oko podne, oblačno i friško uveče',
                 'Ujutro suvo, kiša počinje popodne, kasno popodne prestaje',
                 'Kiša do kasnog prepodneva, poslije oblačno — prohladno navečer',
-                'Sitna kiša ujutro, sunce se probija kasno popodne, friško uveče'
+                'Sitna kiša ujutro, sunce se probija kasno popodne, friško uveče',
+                'Kišobran ujutro obavezan, prepodne prestaje — oblačno ostatak dana',
+                'Sitna kiša od 7h do 11h, prelazi u oblačno, prohladno uveče',
+                'Suvo do podne, sitna kiša popodne, prestaje oko 18h — friško navečer',
+                'Kratki kišni period ujutro, suvo prepodne i popodne, oblačno uveče',
+                'Kiša na momente cijelim danom — uvijek imati kišobran pri ruci',
+                'Sitna kiša sa pauzama, najviše ujutro i oko podne, uveče suvo ali prohladno',
+                'Jutarnja sitna kiša, suvo od prepodneva do popodneva, navečer ponovo vlažno'
             );
         } else if (cool) {
             pool.push(
@@ -1016,7 +1128,11 @@ function generateNarrative(d, icon) {
                 'Hladna sitna kiša, krajem dana prestaje',
                 'Kiša ujutro i prepodne, oblačno i svježe popodne, friško uveče',
                 'Hladno i kišovito ujutro, kiša prestaje oko podne — prohladno do mraka',
-                'Sitna kiša do kasnog prepodneva, potom sivo i svježe cijelim danom'
+                'Sitna kiša do kasnog prepodneva, potom sivo i svježe cijelim danom',
+                'Hladna kiša od jutra, slabi oko 13h, oblačno i prohladno do mraka',
+                'Svježe i vlažno ujutro, kiša prestaje prepodne — ali hladno ostaje cijelim danom',
+                'Kišovito jutro, oblačno i prohladno popodne, navečer friško i suvo',
+                'Sitna kiša ujutro i oko podne, popodne suvo ali svježe — uveče hladno'
             );
         } else {
             pool.push(
@@ -1027,7 +1143,10 @@ function generateNarrative(d, icon) {
                 'Ledena sitna kiša, oprez na klizavim putevima',
                 'Hladna kiša koja ne prestaje cijelim danom',
                 'Sitna kiša ujutro uz mraz, hladno cijelim danom',
-                'Ledena kiša od jutra do podne, popodne prestaje ali ostaje mrzlo'
+                'Ledena kiša od jutra do podne, popodne prestaje ali ostaje mrzlo',
+                'Hladna sitna kiša od jutra, tek uveče prestaje — mrzlo i vlažno',
+                'Sitna ledena kiša ujutro, prelazi u suvo popodne — ali mraz ostaje',
+                'Kiša i mraz cijelim danom — oprez za pješake i vozače'
             );
         }
     }
@@ -1046,7 +1165,12 @@ function generateNarrative(d, icon) {
                 'Dan počinje kišom, završava suncem',
                 'Kiša prepodne, sunce oko podne, toplo i vedro popodne',
                 'Ujutro jača kiša, slabi oko podne, poslijepodne suvo i toplo',
-                'Kiša od jutra do kasnog prepodneva, potom razvedravanje — uveče prijatno'
+                'Kiša od jutra do kasnog prepodneva, potom razvedravanje — uveče prijatno',
+                'Topla kiša ujutro, smiruje se oko 11h, sunčano od podne — prijatno uveče',
+                'Kiša cijelim jutrom, prestaje prepodne — toplo i vlažno popodne',
+                'Kišovito do podne, potom suvo — uveče toplo i prijatno za šetnju',
+                'Ujutro kiša, popodne sunce probija, kasno popodne vedro i toplo',
+                'Kiša u prvom dijelu dana, razvedravanje popodne — ugodna topla večer'
             );
         } else if (mild) {
             pool.push(
@@ -1064,7 +1188,13 @@ function generateNarrative(d, icon) {
                 'Padavine oko podne, slabe kasno popodne, navečer prohladno i suvo',
                 'Kiša ujutro, pauza oko podne, ponovo kiša popodne — uveče prestaje',
                 'Jača kiša prepodne, slabi oko podne, popodne oblačno i friško',
-                'Kiša većim dijelom dana, prestaje kasno popodne — prohladno navečer'
+                'Kiša većim dijelom dana, prestaje kasno popodne — prohladno navečer',
+                'Kiša od 7h do otprilike 14h, potom oblačno — navečer suvo i prohladno',
+                'Kišovito ujutro i prepodne, suvo od podne, oblačno popodne, friško uveče',
+                'Kiša sa prekidima cijelim danom — kišobran obavezan, prohladno navečer',
+                'Jaka kiša ujutro, slabija prepodne, oblačno popodne, suvo i prohladno uveče',
+                'Kiša dolazi u talasima — jače ujutro, slabije oko podne, ponovo popodne',
+                'Kišovit dan sa kratkim pauzama — oblačno i prohladno do mraka'
             );
         } else if (cool) {
             pool.push(
@@ -1077,7 +1207,11 @@ function generateNarrative(d, icon) {
                 'Kiša i vjetar — neprijatno napolju',
                 'Kiša ujutro, hladno i oblačno popodne, prohladno uveče',
                 'Padavine prepodne, oblačno i hladno popodne, navečer friško',
-                'Kiša od jutra, prestaje kasno popodne — hladan i vlažan vazduh uveče'
+                'Kiša od jutra, prestaje kasno popodne — hladan i vlažan vazduh uveče',
+                'Hladna kiša ujutro i prepodne, oblačno od podne — navečer mrzlo i suvo',
+                'Kišovito i prohladno cijelim danom, tek uveče prestaje ali hladno ostaje',
+                'Kiša i vjetar ujutro, popodne slabi kiša ali vjetar ostaje — hladno uveče',
+                'Hladno i kišovito od jutra do kasnog popodneva, navečer suvo ali friško'
             );
         } else {
             pool.push(
@@ -1088,7 +1222,10 @@ function generateNarrative(d, icon) {
                 'Zimska kiša, temperature jedva iznad nule',
                 'Kiša prelazi u susnježicu ka kraju dana',
                 'Ledena kiša ujutro, popodne susnježica, navečer mraz',
-                'Kiša od jutra, hladnija poslijepodne — uveče moguć mraz'
+                'Kiša od jutra, hladnija poslijepodne — uveče moguć mraz',
+                'Hladna kiša cijelim danom — temperature oko nule, oprez na putevima',
+                'Ledena kiša ujutro, slabi oko podne ali ne prestaje — mrzlo do mraka',
+                'Zimska kiša sa prelazom u susnježicu poslijepodne, navečer mraz'
             );
         }
     }
@@ -1107,7 +1244,13 @@ function generateNarrative(d, icon) {
                 'Olujni pljuskovi ujutro, popodne se smiruje',
                 'Jaka kiša prepodne, razvedravanje oko podne — popodne sunčano i toplo',
                 'Pljuskovi ujutro, smiruje se kasno prepodne, uveče suvo i prijatno',
-                'Nagla jaka kiša popodne, brzo prođe — uveče vedro'
+                'Nagla jaka kiša popodne, brzo prođe — uveče vedro',
+                'Jak pljusak ujutro oko 8h, potom sunce od prepodneva — toplo i suvo',
+                'Obilna kiša prepodne, razvedravanje oko 13h — popodne toplo, uveče prijatno',
+                'Jaki pljuskovi ujutro sa grmljavinom, smiruje se oko podne — toplo popodne',
+                'Intenzivna kiša od jutra, prestaje naglo oko 11h — ostatak dana topao i vedar',
+                'Jak prolom oblaka kasno popodne, kratkotrajan — uveče suvo i toplo',
+                'Ujutro obilna kiša, popodne dramatično razvedravanje — kao dva različita dana'
             );
         } else if (mild) {
             pool.push(
@@ -1119,7 +1262,12 @@ function generateNarrative(d, icon) {
                 'Kiša ne prestaje — intenzivne padavine cijelim danom',
                 'Jaka kiša ujutro, slabi tokom popodneva',
                 'Obilne padavine ujutro i prepodne, popodne slabi — oblačno uveče',
-                'Jaka kiša od jutra do podne, potom slabije padavine — prohladno navečer'
+                'Jaka kiša od jutra do podne, potom slabije padavine — prohladno navečer',
+                'Intenzivne padavine ujutro, slabe prepodne, oblačno i suvo popodne',
+                'Jaka kiša od jutra, prestaje oko 15h — oblačno i prohladno uveče',
+                'Obilna kiša sa prekidima cijelim danom, suvo tek navečer — friško',
+                'Jake padavine prepodne, umjerene popodne, prestaje kasno popodne',
+                'Kiša ne prestaje do kasnog popodneva — prohladno i vlažno uveče'
             );
         } else {
             pool.push(
@@ -1129,7 +1277,10 @@ function generateNarrative(d, icon) {
                 'Jaka kiša i niske temperature',
                 'Obilne padavine, hladno — moguća susnježica',
                 'Jake padavine uz zimsku hladnoću',
-                'Jaka hladna kiša ujutro, popodne slabi ali ostaje mrzlo'
+                'Jaka hladna kiša ujutro, popodne slabi ali ostaje mrzlo',
+                'Obilna kiša od jutra, prelazi u susnježicu popodne, navečer mraz',
+                'Jake hladne padavine cijelim danom — oprez na putevima, mraz uveče',
+                'Intenzivna zimska kiša, ne prestaje do mraka — mrzlo i mokro'
             );
         }
     }
@@ -1151,7 +1302,13 @@ function generateNarrative(d, icon) {
                 'Snijeg ujutro i prepodne, popodne oblačno — navečer mraz',
                 'Snijeg pada od jutra, slabi oko podne, uveče ledeno',
                 'Jak snijeg prepodne, smiruje se kasno popodne — noću mraz',
-                'Snijeg cijelim danom, tek uveče prestaje — hladno i tiho'
+                'Snijeg cijelim danom, tek uveče prestaje — hladno i tiho',
+                'Snijeg počinje ujutro oko 7h, najjači prepodne, popodne slabi',
+                'Snježne padavine ujutro, pauza oko podne, ponovo snijeg popodne',
+                'Jak snijeg od jutra do kasnog prepodneva, oblačno popodne — mraz uveče',
+                'Snijeg pada cijelim danom bez prestanka, navečer se smiruje — ledena noć',
+                'Ujutro počinje sa sitnim snijegom, jača prepodne, najjači oko podne',
+                'Snijeg ujutro, prelazi u oblačno popodne — navečer mraz i gololedica'
             );
         } else {
             pool.push(
@@ -1163,7 +1320,10 @@ function generateNarrative(d, icon) {
                 'Mokri snijeg, temperatura oko nule',
                 'Snijeg se topi, ali putevi klizavi',
                 'Mokri snijeg ujutro, kiša oko podne, oblačno uveče',
-                'Susnježica prepodne, prelazi u kišu popodne — mokro cijelim danom'
+                'Susnježica prepodne, prelazi u kišu popodne — mokro cijelim danom',
+                'Ujutro mokri snijeg, od prepodneva kiša, popodne oblačno i vlažno',
+                'Susnježica od jutra do podne, potom hladna kiša — klizavi putevi cijelim danom',
+                'Mokri snijeg ujutro, oko 10h prelazi u kišu, kasno popodne prestaje'
             );
         }
     }
@@ -1184,7 +1344,12 @@ function generateNarrative(d, icon) {
             'Grmljavina ujutro, oblačno prepodne, razvedravanje popodne',
             'Oluja oko podne, smiruje se kasno popodne — uveče vedro',
             'Grmljavina kasno popodne, brzo prođe — navečer mirno',
-            'Nestabilno popodne sa grmljavinom, uveče se potpuno smiri'
+            'Nestabilno popodne sa grmljavinom, uveče se potpuno smiri',
+            'Grmljavinski pljusak ujutro, oblačno do podne, potom razvedravanje',
+            'Oluja prolazi prepodne, od podne suvo — uveče mirno i tiho',
+            'Nagla grmljavina oko podne, kratkotrajna — popodne se smiruje',
+            'Nestabilno od jutra, grmljavina prepodne, oblačno popodne, suvo uveče',
+            'Oluja i pljusak ujutro, iz oblačnog u vedro tokom popodneva'
         );
         if (hot || warm) {
             pool.push(
@@ -1195,7 +1360,20 @@ function generateNarrative(d, icon) {
                 'Sunčano pa oluja — brze promjene',
                 'Sunčano i vruće ujutro, grmljavina oko podne, razvedrava se kasno popodne',
                 'Toplo i vedro prepodne, nagla oluja popodne, uveče se smiri i ostaje toplo',
-                'Ujutro sparno, grmljavina poslijepodne, navečer osvježenje'
+                'Ujutro sparno, grmljavina poslijepodne, navečer osvježenje',
+                'Vrelo jutro, oblaci se gomilaju prepodne, oluja oko 14h — uveče svježe i vedro',
+                'Sunčano do podne, nagla oluja poslijepodne, brzo prođe — topla večer',
+                'Vruće i sparno ujutro, grmljavina oko 13h, smiruje se do 16h — uveče prijatno',
+                'Ljetna dinamika — sunce ujutro, oblaci prepodne, oluja popodne, vedro uveče',
+                'Toplo ujutro bez naznaka, grmljavina iznenada popodne, brzo razvedravanje'
+            );
+        } else if (cool || cold) {
+            pool.push(
+                'Hladan frontalni prolaz sa grmljavinom',
+                'Grmljavina uz hladniji vazduh — neočekivano ali kratko',
+                'Grmljavinski pljusak ujutro, potom hladno i oblačno cijelim danom',
+                'Oluja donosi zahlađenje — poslijepodne osjetno hladnije',
+                'Grmljavina ujutro, temperatura pada tokom dana — hladno uveče'
             );
         }
     }
@@ -1211,7 +1389,11 @@ function generateNarrative(d, icon) {
             'Magla se diže ka podnedvu, prolazi u oblačno',
             'Gusta magla do kasnog prepodneva, oko podne se razbistrava',
             'Magla ujutro i prepodne, popodne oblačno, uveče prohladno',
-            'Jutarnja magla, sunce probija oko podne, popodne vedro'
+            'Jutarnja magla, sunce probija oko podne, popodne vedro',
+            'Gusta magla od ranog jutra, vidljivost ispod 200m — oprez do 10h',
+            'Magla se razilazi oko 11h, oblačno poslijepodne, svježe uveče',
+            'Jutarnja magla u priobalju, diže se prepodne — popodne oblačno',
+            'Magla ujutro, sunce probija oko 10h, popodne vedro i prijatno'
         );
         if (cold || freezing) {
             pool.push(
@@ -1220,7 +1402,10 @@ function generateNarrative(d, icon) {
                 'Jutarnja ledena magla, potom hladno i oblačno',
                 'Mraz i magla ujutro, slab vjetar',
                 'Ledena magla do prepodneva, hladno cijelim danom',
-                'Gusta magla uz mraz ujutro, diže se kasno prepodne — ostaje hladno'
+                'Gusta magla uz mraz ujutro, diže se kasno prepodne — ostaje hladno',
+                'Ledena magla od 6h do 11h, potom oblačno i hladno — navečer mraz',
+                'Magla i poledica ujutro — oprez do kasnog prepodneva, hladno cijelim danom',
+                'Gusta ledena magla, diže se tek oko podne, oblačno popodne, mraz uveče'
             );
         } else {
             pool.push(
@@ -1229,7 +1414,20 @@ function generateNarrative(d, icon) {
                 'Magla prolazi, popodne sunčani intervali',
                 'Magla se topi — razvedravanje tokom dana',
                 'Magla ujutro, sunce izbija oko podne, popodne prijatno',
-                'Gusta magla do prepodneva, potom oblačno — uveče prohladno'
+                'Gusta magla do prepodneva, potom oblačno — uveče prohladno',
+                'Magla do 10h, sunce od prepodneva, vedro i ugodno popodne',
+                'Jutarnja magla, razbistrava se prepodne, sunčano od podne — uveče friško',
+                'Magla ujutro, oblačno prepodne, sunce probija kasno prepodne — prijatno popodne
+            pool.push(
+                'Magla ujutro, popodne oblačno',
+                'Jutarnja magla se razbistrava do podneva',
+                'Magla prolazi, popodne sunčani intervali',
+                'Magla se topi — razvedravanje tokom dana',
+                'Magla ujutro, sunce izbija oko podne, popodne prijatno',
+                'Gusta magla do prepodneva, potom oblačno — uveče prohladno',
+                'Magla do 10h, sunce od prepodneva, vedro i ugodno popodne',
+                'Jutarnja magla, razbistrava se prepodne, sunčano od podne — uveče friško',
+                'Magla ujutro, oblačno prepodne, sunce probija kasno prepodne — prijatno popodne'
             );
         }
     }
@@ -1246,7 +1444,12 @@ function generateNarrative(d, icon) {
             'Ujutro suvo, oblaci se gomilaju prepodne, moguć kratki pljusak oko podne',
             'Suvo ujutro, kiša moguća popodne, uveče se smiruje',
             'Dinamično — oblaci ujutro, pauza oko podne, ponovo nestabilno kasno popodne',
-            'Oblačno prepodne sa šansom za kiša, popodne se razbistrava'
+            'Oblačno prepodne sa šansom za kiša, popodne se razbistrava',
+            'Nestabilno od prepodneva — moguć pljusak oko podne, potom suvo',
+            'Ujutro mirno, nestabilnost raste prepodne — popodne moguća kratka kiša',
+            'Suvo ujutro, oblaci oko podne, kratki pljusak moguć kasno popodne',
+            'Nestabilno popodne, ali uveče se smiruje — suvo navečer',
+            'Promjenljivo cijelim danom — teško predvidjeti tačan sat kiše'
         );
     }
     if (bigSwing && !['rain','heavy_rain','snow','thunderstorm'].includes(icon)) {
@@ -1257,7 +1460,11 @@ function generateNarrative(d, icon) {
             'Jutarnja svježina, popodne značajno toplije',
             'Friško ujutro, ali sunce zagrije do prepodneva — popodne osjetno toplije',
             'Jutro hladno, oko podne se zagrije, popodne ugodno — uveče ponovo svježe',
-            'Velika razlika ujutro i popodne — oblačite se u slojevima'
+            'Velika razlika ujutro i popodne — oblačite se u slojevima',
+            'Razlika od preko 12°C — hladno ujutro, toplo popodne, opet hladno uveče',
+            'Oštro jutro, ali sunce brzo radi posao — do podne potpuno drugačije',
+            'Izuzetna temperaturna amplituda — ujutro jakna, popodne majica, uveče ponovo jakna',
+            'Friško do 9h, toplo od 11h do 16h, rashladnjenje od kasnog popodneva'
         );
     }
     if (pp <= 10 && ['partly_cloudy','cloudy'].includes(icon)) {
@@ -1269,7 +1476,10 @@ function generateNarrative(d, icon) {
             'Sivo ujutro, oblaci se razilaze oko podne, popodne sunčano',
             'Oblačno prepodne, razvedravanje kasno popodne, vedro uveče',
             'Oblačno ujutro i prepodne, oko podne se razbistrava — popodne ugodno',
-            'Jutarnji oblaci, razvedravanje do kasnog prepodneva, prijatno popodne'
+            'Jutarnji oblaci, razvedravanje do kasnog prepodneva, prijatno popodne',
+            'Oblačno od jutra, sunce se pojavljuje oko 11h, popodne pretežno vedro',
+            'Sivo do prepodneva, sunce oko podne, razvedravanje traje do mraka',
+            'Oblačno rano ujutro, postepeno razbistrava — od popodneva vedro i prijatno'
         );
     }
     if (pp > 50 && ['partly_cloudy','cloudy'].includes(icon)) {
@@ -1280,7 +1490,10 @@ function generateNarrative(d, icon) {
             'Pogoršanje — iz oblačnog u kišovito',
             'Oblačno ujutro, kiša počinje oko podne, popodne mokro',
             'Naoblačenje prepodne, kiša popodne, uveče prestaje',
-            'Suvo ujutro, ali oblaci donose kišu od prepodneva — prohladno uveče'
+            'Suvo ujutro, ali oblaci donose kišu od prepodneva — prohladno uveče',
+            'Oblačno ujutro, kiša očekivana od podne, mokro do kasnog popodneva',
+            'Suvo i oblačno prepodne, kiša počinje oko 13h, uveče prestaje',
+            'Naoblačenje od jutra, kiša vrlo vjerovatna popodne — uveče oblačno i suvo'
         );
     }
 
@@ -1290,14 +1503,26 @@ function generateNarrative(d, icon) {
             'Preko dana ugodno, ali navečer osjetno prohladno',
             'Prijatno popodne, uveče ponijeti jaknu',
             'Toplo preko dana, ali uveče friško — ponijeti sloj više',
-            'Prijatno do kasnog popodneva, navečer se rashladi'
+            'Prijatno do kasnog popodneva, navečer se rashladi',
+            'Danju ugodno, ali čim sunce zađe osjetno prohladi',
+            'Toplo od jutra do kasnog popodneva, uveče naglo rashladnjenje',
+            'Ugodno cijelim danom, ali navečer temperatura brzo pada — jakna obavezna'
         );
     }
     if (cool && tMin < 6) {
         pool.push(
             'Friško cijelim danom, uveče hladno — utoplite se',
             'Svježe ujutro, prohladno popodne, hladno navečer',
-            'Hladno ujutro i uveče, preko dana tek malo toplije'
+            'Hladno ujutro i uveče, preko dana tek malo toplije',
+            'Ujutro ispod 6°C, preko dana svježe, navečer ponovo hladno',
+            'Prohladno cijelim danom — uveče se dodatno rashladi, topla odjeća obavezna'
+        );
+    }
+    if ((mild || cool) && tMin < 10 && (t - tMin) >= 8 && !['rain','heavy_rain','snow','thunderstorm'].includes(icon)) {
+        pool.push(
+            'Svježe jutro, ugodnije prepodne, prohladno ponovo od kasnog popodneva',
+            'Jutro hladno, ali popodne prijatnije — uveče ponijeti jaknu',
+            'Temperatura raste od svježeg jutra, ali uveče opet pada — slojevi preporučeni'
         );
     }
 
