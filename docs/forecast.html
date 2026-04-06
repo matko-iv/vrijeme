@@ -197,12 +197,6 @@
             border-radius: 16px;
             padding: 24px;
             box-shadow: 0 2px 12px rgba(0,0,0,0.05);
-            transition: transform 0.15s ease, box-shadow 0.15s ease;
-        }
-
-        .day-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 28px rgba(0,0,0,0.09);
         }
 
         .day-card .day-header {
@@ -327,10 +321,7 @@
             border-right: 1px solid #eef0f3;
             font-size: 13px;
             border-radius: 10px;
-            transition: background 0.15s;
         }
-
-        .hourly-cell:hover { background: #f0f4ff; }
         .hourly-cell:last-child { border-right: none; }
         .hourly-cell .h-time { color: #586069; margin-bottom: 8px; font-weight: 600; font-size: 14px; }
         .hourly-cell .h-icon { margin-bottom: 6px; }
@@ -356,12 +347,6 @@
             padding: 18px 14px;
             text-align: center;
             box-shadow: 0 1px 6px rgba(0,0,0,0.04);
-            transition: transform 0.15s ease, box-shadow 0.15s ease;
-        }
-
-        .lr-card:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 16px rgba(0,0,0,0.07);
         }
 
         .lr-day {
@@ -430,12 +415,6 @@
             cursor: pointer;
             font-size: 13px;
             font-weight: 500;
-            transition: all 0.2s;
-        }
-
-        .chart-tab:hover {
-            border-color: #0366d6;
-            color: #24292e;
         }
 
         .chart-tab.active {
@@ -706,67 +685,486 @@ function fixLRIcon(icon, precipProb) {
 
 function generateNarrative(d, icon) {
     const t = d.temp_max != null ? d.temp_max : 20;
+    const tMin = d.temp_min != null ? d.temp_min : t - 8;
     const w = d.wind_max || 0;
+    const pp = d.precip_probability != null ? d.precip_probability : 0;
+    const pt = d.precip_total != null ? d.precip_total : 0;
     const hot = t >= 30, warm = t >= 25 && t < 30, mild = t >= 18 && t < 25;
     const cool = t >= 10 && t < 18, cold = t >= 0 && t < 10, freezing = t < 0;
+    const bigSwing = (t - tMin) >= 12;
     const pool = [];
 
+    // --- VEDRO / PRETEŽNO VEDRO ---
     if (['clear','mostly_clear'].includes(icon)) {
-        if (hot) { pool.push('Sunčano i vruće, bez oblaka na vidiku','Vreo sunčan dan — zaštitite se od sunca','Vedro nebo, temperature preko 30°C','Sunčano i vruće, idealno za more','Bez oblaka, intenzivno sunce cijelim danom','Pravi ljetni dan, vrućina od ranog jutra'); }
-        else if (warm) { pool.push('Sunčano i toplo, bez padavina','Vedro nebo, ugodne temperature','Lijep sunčan dan','Pretežno sunčano, prijatne temperature','Sunčano od jutra do mraka','Vedar dan, toplo i suvo','Savršen dan za aktivnosti na otvorenom'); }
-        else if (mild) { pool.push('Sunčano i ugodno','Vedro, blage temperature','Sunčan dan, ni previše toplo ni hladno','Pretežno vedro sa umjerenim temperaturama','Idealan dan za šetnju — sunčano i ugodno','Prijatno toplo uz vedro nebo'); }
-        else if (cool) { pool.push('Vedro ali svježe, ponijeti jaknu','Sunčano uz hladniji vazduh','Svježe jutro, ali sunčan dan','Vedro nebo, temperature ispod prosjeka','Sunčano, ali osjetno svježije'); }
-        else if (cold) { pool.push('Vedro ali hladno','Sunčano, no vazduh leden','Zimski sunčan dan','Hladan ali vedar dan','Vedro nebo uz oštar mraz ujutro'); }
-        else { pool.push('Vedro i ledeno, topla odjeća obavezna','Mraz ujutro, sunčano ali ekstremno hladno','Temperature duboko ispod nule, ali vedro','Sunčano, ali ledeno — obavezno se utoplite'); }
-    } else if (icon === 'partly_cloudy') {
-        if (hot) { pool.push('Smjena sunca i oblaka uz vrućinu','Djelimično oblačno, temperature visoke','Oblaci ne ublažavaju toplotu','Vruće i pored povremenih oblaka'); }
-        else if (warm) { pool.push('Smjena sunca i oblaka, toplo','Djelimično oblačno, prijatno','Oblaci dolaze i prolaze, ugodno','Promjenljivo oblačno sa sunčanim periodima','Sunce i oblaci, topao dan','Ugodno toplo, povremeno se naoblači'); }
-        else if (mild) { pool.push('Djelimično oblačno, umjerene temperature','Promjenljivo — sunce i oblaci','Povremeno sunce kroz oblake','Smjena sunca i oblaka, ugodno','Ni sunčano ni oblačno, negdje između','Oblaci i sunce naizmjenično tokom dana'); }
-        else if (cool) { pool.push('Djelimično oblačno i svježe','Oblaci i sunce, prohladno','Promjenljivo, temperature ispod prosjeka','Svježe uz smjenu sunca i oblaka'); }
-        else if (cold) { pool.push('Djelimično oblačno i hladno','Promjenljivo uz niske temperature','Hladan dan sa povremenim suncem','Oblaci i sunce, ali zimski hladno'); }
-        else { pool.push('Djelimično oblačno uz mraz','Promjenljivo, temperature ispod nule','Poneko sunce, ali ledeno'); }
-    } else if (icon === 'cloudy') {
-        if (hot) { pool.push('Oblačno i sparno','Gusti oblaci, ali vrućina ostaje','Tmurno i zagušljivo','Oblačno, ali temperature i dalje visoke'); }
-        else if (warm) { pool.push('Oblačno bez padavina, toplo','Sivo nebo, ali suvo i toplo','Gusti oblaci, temperature ugodne','Oblačno, ali prijatne temperature'); }
-        else if (mild) { pool.push('Oblačno, suvo','Tmurno ali bez kiše','Sivo nebo cijelim danom','Gusti oblaci, umjerene temperature','Oblačno i mirno','Preovladava oblačnost, padavine nisu očekivane'); }
-        else if (cool) { pool.push('Oblačno i svježe','Tmurno, hladan vazduh','Sivo i prohladno','Oblačno, temperature ispod prosjeka'); }
-        else if (cold) { pool.push('Oblačno i hladno','Tmurno, zimska hladnoća','Gusti oblaci, temperature oko nule','Sivo nebo uz zimske temperature'); }
-        else { pool.push('Oblačno i ledeno','Tmurno uz oštar mraz','Gusti oblaci, ekstremno hladno'); }
-    } else if (['light_rain','shower'].includes(icon)) {
-        if (warm||hot) { pool.push('Povremena kiša, ali i dalje toplo','Slabe padavine, temperatura ugodna','Kratki pljusci, zatim sunce','Poneki pljusak, ali pretežno toplo'); }
-        else if (mild) { pool.push('Slaba kiša tokom dana','Povremene padavine, ponijeti kišobran','Kiša dolazi i prolazi','Povremena slaba kiša','Moguća sitna kiša, temperature ugodne'); }
-        else if (cool) { pool.push('Sitna kiša i svježe','Kišovito i prohladno','Slaba kiša cijelim danom, hladno','Povremene padavine uz hladniji vazduh'); }
-        else { pool.push('Hladna sitna kiša','Kišovito uz niske temperature','Slaba kiša, zimski hladno','Sitna kiša uz mraz — moguća poledica'); }
-    } else if (icon === 'rain') {
-        if (warm||hot) { pool.push('Kiša tokom dana, toplo','Umjerene padavine, temperature ugodne','Kišovit ali topao dan','Kiša ne donosi zahladnjenje'); }
-        else if (mild) { pool.push('Kišovito','Kiša većim dijelom dana','Padavine tokom cijelog dana','Oblačno sa kišom, ponijeti kišobran','Kiša od jutra, sa pauzama tokom dana'); }
-        else if (cool) { pool.push('Kiša i hladan vazduh','Kišovito i prohladno','Hladna kiša, ponijeti toplu odjeću','Padavine uz sjeverni vazduh'); }
-        else { pool.push('Hladna kiša','Kiša uz zimske temperature','Neprijatan kišni dan','Ledena kiša, moguća poledica'); }
-    } else if (icon === 'heavy_rain') {
-        if (warm||hot) { pool.push('Obilne padavine, moguće lokalne poplave','Jaka kiša, sparno','Obilni pljuskovi uz toplotu','Jaki pljuskovi tokom dana'); }
-        else if (mild) { pool.push('Jaka kiša cijelim danom','Obilne padavine — ponijeti kišobran','Jake padavine tokom dana','Intenzivna kiša, izbjegavajte otvorene prostore'); }
-        else { pool.push('Obilna hladna kiša','Jake padavine uz hladnoću','Neprijatan kišni dan sa jakim padavinama','Jaka kiša i niske temperature'); }
-    } else if (['snow','heavy_snow'].includes(icon)) {
-        if (cold||freezing) { pool.push('Snijeg tokom dana','Padavine u obliku snijega','Snježni dan, temperature ispod nule','Snijeg, moguće otežan saobraćaj','Snijeg pada veći dio dana'); }
-        else { pool.push('Mokri snijeg','Padavine u obliku snijega koji se topi','Vlažan snijeg, klizavi putevi','Snijeg koji se topi čim padne'); }
-    } else if (icon === 'thunderstorm') {
-        pool.push('Grmljavinski pljuskovi — izbjegavajte otvorene prostore','Nestabilno, oluje sa grmljavinom','Grmljavina i jaki pljuskovi','Olujno nevrijeme tokom dana','Mogući jaki udari vjetra uz grmljavinu');
-        if (hot||warm) pool.push('Konvektivne oluje tokom popodneva','Popodnevne oluje sa grmljavinom i kišom');
-    } else if (icon === 'fog') {
-        pool.push('Jutarnja magla, smanjena vidljivost','Magla, kasnije se razbistrava','Gusta magla ujutro, oprez u saobraćaju');
-        if (cold||freezing) pool.push('Ledena magla — oprez na putevima','Gusta magla uz mraz');
-        else pool.push('Magla ujutro, popodne oblačno','Jutarnja magla se razbistrava do podneva');
+        if (hot) {
+            pool.push(
+                'Sunčano i vruće, bez oblaka na vidiku',
+                'Vreo sunčan dan — zaštitite se od sunca',
+                'Vedro nebo, temperature preko 30°C',
+                'Sunčano i vruće, idealno za more',
+                'Bez oblaka, intenzivno sunce cijelim danom',
+                'Pravi ljetni dan, vrućina od ranog jutra',
+                'Pakleno vruće — obilno se hidrirajte',
+                'Čisto nebo i tropske temperature',
+                'Vrelina bez predaha, sunce od izlaska do zalaska',
+                'Sunčano, UV indeks veoma visok — zaštitite kožu'
+            );
+        } else if (warm) {
+            pool.push(
+                'Sunčano i toplo, bez padavina',
+                'Vedro nebo, ugodne temperature',
+                'Lijep sunčan dan',
+                'Pretežno sunčano, prijatne temperature',
+                'Sunčano od jutra do mraka',
+                'Vedar dan, toplo i suvo',
+                'Savršen dan za aktivnosti na otvorenom',
+                'Topao, vedar dan — uživajte napolju',
+                'Sunce dominira, temperature oko 25°C',
+                'Bezoblačno i toplo, idealan dan za plažu',
+                'Sunčano, suvo i ugodno cijelim danom'
+            );
+        } else if (mild) {
+            pool.push(
+                'Sunčano i ugodno',
+                'Vedro, blage temperature',
+                'Sunčan dan, ni previše toplo ni hladno',
+                'Pretežno vedro sa umjerenim temperaturama',
+                'Idealan dan za šetnju — sunčano i ugodno',
+                'Prijatno toplo uz vedro nebo',
+                'Vedro i blago, prijatan dan za boravak napolju',
+                'Sunčano jutro i popodne, umjerene temperature',
+                'Stabilno i sunčano, pravo proljetno vrijeme',
+                'Vedar dan bez oblaka ili padavina'
+            );
+        } else if (cool) {
+            pool.push(
+                'Vedro ali svježe, ponijeti jaknu',
+                'Sunčano uz hladniji vazduh',
+                'Svježe jutro, ali sunčan dan',
+                'Vedro nebo, temperature ispod prosjeka',
+                'Sunčano, ali osjetno svježije',
+                'Jutarnja svježina, tokom dana sunce grije',
+                'Vedro i prohladno — laganija jakna preporučena',
+                'Sunčani periodi, ali vazduh svježi'
+            );
+        } else if (cold) {
+            pool.push(
+                'Vedro ali hladno',
+                'Sunčano, no vazduh leden',
+                'Zimski sunčan dan',
+                'Hladan ali vedar dan',
+                'Vedro nebo uz oštar mraz ujutro',
+                'Sunce grije, ali temperature ostaju niske',
+                'Vedar zimski dan — obavezno se utoplite',
+                'Mraz ujutro, potom vedro do kraja dana'
+            );
+        } else {
+            pool.push(
+                'Vedro i ledeno, topla odjeća obavezna',
+                'Mraz ujutro, sunčano ali ekstremno hladno',
+                'Temperature duboko ispod nule, ali vedro',
+                'Sunčano, ali ledeno — obavezno se utoplite',
+                'Arktička hladnoća uz vedro nebo',
+                'Ekstreman mraz ujutro, sunce ne zagrije'
+            );
+        }
+    }
+
+    // --- DJELIMIČNO OBLAČNO ---
+    else if (icon === 'partly_cloudy') {
+        if (hot) {
+            pool.push(
+                'Smjena sunca i oblaka uz vrućinu',
+                'Djelimično oblačno, temperature visoke',
+                'Oblaci ne ublažavaju toplotu',
+                'Vruće i pored povremenih oblaka',
+                'Poneki oblak, ali vrućina ne popušta',
+                'Oblačni intervali, temperatura i dalje visoka',
+                'Ujutro sunčano, popodne oblaci ali vruće'
+            );
+        } else if (warm) {
+            pool.push(
+                'Smjena sunca i oblaka, toplo',
+                'Djelimično oblačno, prijatno',
+                'Oblaci dolaze i prolaze, ugodno',
+                'Promjenljivo oblačno sa sunčanim periodima',
+                'Sunce i oblaci, topao dan',
+                'Ugodno toplo, povremeno se naoblači',
+                'Oblačno ujutro, razvedravanje poslijepodne',
+                'Sunce probija kroz oblake, temperature ugodne',
+                'Naoblačenje ujutro, ali se razvedrava tokom dana',
+                'Promjenljivo — sunčani periodi i kratka naoblačenja'
+            );
+        } else if (mild) {
+            pool.push(
+                'Djelimično oblačno, umjerene temperature',
+                'Promjenljivo — sunce i oblaci',
+                'Povremeno sunce kroz oblake',
+                'Smjena sunca i oblaka, ugodno',
+                'Ni sunčano ni oblačno, negdje između',
+                'Oblaci i sunce naizmjenično tokom dana',
+                'Jutro oblačno, popodne se razvedrava',
+                'Sunčani intervali sa prolaznim oblacima',
+                'Naizmjenično sunce i oblaci — prijatno',
+                'Ujutro vedro, popodne naoblačenje'
+            );
+        } else if (cool) {
+            pool.push(
+                'Djelimično oblačno i svježe',
+                'Oblaci i sunce, prohladno',
+                'Promjenljivo, temperature ispod prosjeka',
+                'Svježe uz smjenu sunca i oblaka',
+                'Prolazni oblaci, temperatura ostaje niska',
+                'Jutarnji oblaci se povlače, ali vazduh ostaje svježi',
+                'Promjenljivo i prohladno, jakna poželjna'
+            );
+        } else if (cold) {
+            pool.push(
+                'Djelimično oblačno i hladno',
+                'Promjenljivo uz niske temperature',
+                'Hladan dan sa povremenim suncem',
+                'Oblaci i sunce, ali zimski hladno',
+                'Poneko sunce, ali hladan vazduh dominira',
+                'Rijetki sunčani intervali uz zimsku hladnoću'
+            );
+        } else {
+            pool.push(
+                'Djelimično oblačno uz mraz',
+                'Promjenljivo, temperature ispod nule',
+                'Poneko sunce, ali ledeno',
+                'Kratki sunčani periodi, ali ostaje ledeno'
+            );
+        }
+    }
+
+    // --- OBLAČNO ---
+    else if (icon === 'cloudy') {
+        if (hot) {
+            pool.push(
+                'Oblačno i sparno',
+                'Gusti oblaci, ali vrućina ostaje',
+                'Tmurno i zagušljivo',
+                'Oblačno, ali temperature i dalje visoke',
+                'Gusti oblaci ne donose olakšanje od vrućine',
+                'Sparno i oblačno — moguće razvedravanje ka večeri',
+                'Tmuran dan bez padavina, ali sparno'
+            );
+        } else if (warm) {
+            pool.push(
+                'Oblačno bez padavina, toplo',
+                'Sivo nebo, ali suvo i toplo',
+                'Gusti oblaci, temperature ugodne',
+                'Oblačno, ali prijatne temperature',
+                'Oblačno ujutro, moguće razvedravanje poslijepodne',
+                'Pretežno oblačno, ali suvo i toplo',
+                'Tmurno ujutro, povremeno sunce popodne',
+                'Oblačno sa tendencijom razvedravanja'
+            );
+        } else if (mild) {
+            pool.push(
+                'Oblačno, suvo',
+                'Tmurno ali bez kiše',
+                'Sivo nebo cijelim danom',
+                'Gusti oblaci, umjerene temperature',
+                'Oblačno i mirno',
+                'Preovladava oblačnost, padavine nisu očekivane',
+                'Sivo i tiho, bez promjena do kraja dana',
+                'Oblačno cijelim danom, bez padavina',
+                'Oblačno ujutro, neznatno se razbistrava popodne',
+                'Tmurno, ali suvo — temperature ugodne',
+                'Oblačno bez razvoja — miran dan'
+            );
+        } else if (cool) {
+            pool.push(
+                'Oblačno i svježe',
+                'Tmurno, hladan vazduh',
+                'Sivo i prohladno',
+                'Oblačno, temperature ispod prosjeka',
+                'Oblačno i vjetrovito, svježi vazduh',
+                'Tmurno cijelim danom, prohladno',
+                'Sivo nebo — razvedravanje tek uveče'
+            );
+        } else if (cold) {
+            pool.push(
+                'Oblačno i hladno',
+                'Tmurno, zimska hladnoća',
+                'Gusti oblaci, temperature oko nule',
+                'Sivo nebo uz zimske temperature',
+                'Oblačno i ledeno, bez naznaka sunca',
+                'Tmurno, hladno i bez promjena'
+            );
+        } else {
+            pool.push(
+                'Oblačno i ledeno',
+                'Tmurno uz oštar mraz',
+                'Gusti oblaci, ekstremno hladno',
+                'Sivo i ledeno, temperature duboko ispod nule'
+            );
+        }
+    }
+
+    // --- SLABA KIŠA / PLJUSCI ---
+    else if (['light_rain','shower'].includes(icon)) {
+        if (warm || hot) {
+            pool.push(
+                'Povremena kiša, ali i dalje toplo',
+                'Slabe padavine, temperatura ugodna',
+                'Kratki pljusci, zatim sunce',
+                'Poneki pljusak, ali pretežno toplo',
+                'Topao dan sa povremenim kratkim pljuskovima',
+                'Kiša ujutro, razvedravanje i sunce popodne',
+                'Kratki pljusci smjenjuju sunčane periode',
+                'Nestabilno — nagle smjene kiše i sunca',
+                'Pljusak pa sunce, pa ponovo pljusak — dinamičan dan'
+            );
+        } else if (mild) {
+            pool.push(
+                'Slaba kiša tokom dana',
+                'Povremene padavine, ponijeti kišobran',
+                'Kiša dolazi i prolazi',
+                'Povremena slaba kiša',
+                'Moguća sitna kiša, temperature ugodne',
+                'Kišobran poželjan — povremene slabe padavine',
+                'Jutarnja kiša, popodne suvo i oblačno',
+                'Sitna kiša ujutro, poslijepodne se razvedrava',
+                'Naizmjenično kiša i suvi periodi',
+                'Slaba kiša sa prekidima — ponijeti kišobran za svaki slučaj',
+                'Kiša prestaje tokom popodneva, oblačno do kraja dana'
+            );
+        } else if (cool) {
+            pool.push(
+                'Sitna kiša i svježe',
+                'Kišovito i prohladno',
+                'Slaba kiša cijelim danom, hladno',
+                'Povremene padavine uz hladniji vazduh',
+                'Prohladno sa sitnom kišom — neprijatno napolju',
+                'Kiša ujutro, oblačno i svježe ostatak dana',
+                'Hladna sitna kiša, krajem dana prestaje'
+            );
+        } else {
+            pool.push(
+                'Hladna sitna kiša',
+                'Kišovito uz niske temperature',
+                'Slaba kiša, zimski hladno',
+                'Sitna kiša uz mraz — moguća poledica',
+                'Ledena sitna kiša, oprez na klizavim putevima',
+                'Hladna kiša koja ne prestaje cijelim danom'
+            );
+        }
+    }
+
+    // --- KIŠA ---
+    else if (icon === 'rain') {
+        if (warm || hot) {
+            pool.push(
+                'Kiša tokom dana, toplo',
+                'Umjerene padavine, temperature ugodne',
+                'Kišovit ali topao dan',
+                'Kiša ne donosi zahladnjenje',
+                'Topla kiša — ugodno ali mokro',
+                'Kiša ujutro, razvedravanje i sunce poslijepodne',
+                'Kišovito jutro, ali popodne se razbistrava',
+                'Dan počinje kišom, završava suncem'
+            );
+        } else if (mild) {
+            pool.push(
+                'Kišovito',
+                'Kiša većim dijelom dana',
+                'Padavine tokom cijelog dana',
+                'Oblačno sa kišom, ponijeti kišobran',
+                'Kiša od jutra, sa pauzama tokom dana',
+                'Kiša ujutro, oblačno poslijepodne, moguće razvedravanje uveče',
+                'Kišovit dan, ali padavine slabe ka večeri',
+                'Padavine sa prekidima — ponijeti kišobran',
+                'Kiša i oblaci dominiraju, suvi intervali kratki',
+                'Dan pod kišom, mada se smiruje navečer'
+            );
+        } else if (cool) {
+            pool.push(
+                'Kiša i hladan vazduh',
+                'Kišovito i prohladno',
+                'Hladna kiša, ponijeti toplu odjeću',
+                'Padavine uz sjeverni vazduh',
+                'Hladna kiša cijelim danom, bez poboljšanja',
+                'Kišovito i sjeverac donosi dodatno zahlađenje',
+                'Kiša i vjetar — neprijatno napolju'
+            );
+        } else {
+            pool.push(
+                'Hladna kiša',
+                'Kiša uz zimske temperature',
+                'Neprijatan kišni dan',
+                'Ledena kiša, moguća poledica',
+                'Zimska kiša, temperature jedva iznad nule',
+                'Kiša prelazi u susnježicu ka kraju dana'
+            );
+        }
+    }
+
+    // --- JAKA KIŠA ---
+    else if (icon === 'heavy_rain') {
+        if (warm || hot) {
+            pool.push(
+                'Obilne padavine, moguće lokalne poplave',
+                'Jaka kiša, sparno',
+                'Obilni pljuskovi uz toplotu',
+                'Jaki pljuskovi tokom dana',
+                'Intenzivna kiša, ali brzo prolazi — sunce ka večeri',
+                'Kratkotrajna ali jaka kiša sa mogućim razvedravanjem',
+                'Jaki tropski pljuskovi, potom razvedravanje',
+                'Olujni pljuskovi ujutro, popodne se smiruje'
+            );
+        } else if (mild) {
+            pool.push(
+                'Jaka kiša cijelim danom',
+                'Obilne padavine — ponijeti kišobran',
+                'Jake padavine tokom dana',
+                'Intenzivna kiša, izbjegavajte otvorene prostore',
+                'Obilna kiša, slab krajem dana — ali ne prestaje sasvim',
+                'Kiša ne prestaje — intenzivne padavine cijelim danom',
+                'Jaka kiša ujutro, slabi tokom popodneva'
+            );
+        } else {
+            pool.push(
+                'Obilna hladna kiša',
+                'Jake padavine uz hladnoću',
+                'Neprijatan kišni dan sa jakim padavinama',
+                'Jaka kiša i niske temperature',
+                'Obilne padavine, hladno — moguća susnježica',
+                'Jake padavine uz zimsku hladnoću'
+            );
+        }
+    }
+
+    // --- SNIJEG ---
+    else if (['snow','heavy_snow'].includes(icon)) {
+        if (cold || freezing) {
+            pool.push(
+                'Snijeg tokom dana',
+                'Padavine u obliku snijega',
+                'Snježni dan, temperature ispod nule',
+                'Snijeg, moguće otežan saobraćaj',
+                'Snijeg pada veći dio dana',
+                'Snijeg ujutro, oblačno poslijepodne',
+                'Snježne padavine sa prekidima',
+                'Jak snijeg ujutro, slabi ka popodnevu',
+                'Snijeg i mraz — oprez na putevima',
+                'Snježni pokrivač se deblja cijelim danom'
+            );
+        } else {
+            pool.push(
+                'Mokri snijeg',
+                'Padavine u obliku snijega koji se topi',
+                'Vlažan snijeg, klizavi putevi',
+                'Snijeg koji se topi čim padne',
+                'Susnježica ujutro, prelazi u kišu popodne',
+                'Mokri snijeg, temperatura oko nule',
+                'Snijeg se topi, ali putevi klizavi'
+            );
+        }
+    }
+
+    // --- GRMLJAVINA ---
+    else if (icon === 'thunderstorm') {
+        pool.push(
+            'Grmljavinski pljuskovi — izbjegavajte otvorene prostore',
+            'Nestabilno, oluje sa grmljavinom',
+            'Grmljavina i jaki pljuskovi',
+            'Olujno nevrijeme tokom dana',
+            'Mogući jaki udari vjetra uz grmljavinu',
+            'Grmljavina ujutro, smiruje se ka popodnevu',
+            'Oluja prolazi brzo — nakon toga razvedravanje',
+            'Grmljavinski pljuskovi sa naglim razvedravanjem',
+            'Nestabilna atmosfera — nagle promjene tokom dana',
+            'Jaki pljuskovi sa grmljavinom, potom oblačno'
+        );
+        if (hot || warm) {
+            pool.push(
+                'Konvektivne oluje tokom popodneva',
+                'Popodnevne oluje sa grmljavinom i kišom',
+                'Jutro sunčano, popodne nagle oluje sa grmljavinom',
+                'Toplo jutro pa popodnevna grmljavina — klasična ljetna dinamika',
+                'Sunčano pa oluja — brze promjene'
+            );
+        }
+    }
+
+    // --- MAGLA ---
+    else if (icon === 'fog') {
+        pool.push(
+            'Jutarnja magla, smanjena vidljivost',
+            'Magla, kasnije se razbistrava',
+            'Gusta magla ujutro, oprez u saobraćaju',
+            'Magla ujutro, razvedravanje tokom prepodneva',
+            'Jutarnja magla, potom oblačno do kraja dana',
+            'Magla se diže ka podnedvu, prolazi u oblačno'
+        );
+        if (cold || freezing) {
+            pool.push(
+                'Ledena magla — oprez na putevima',
+                'Gusta magla uz mraz',
+                'Jutarnja ledena magla, potom hladno i oblačno',
+                'Mraz i magla ujutro, slab vjetar'
+            );
+        } else {
+            pool.push(
+                'Magla ujutro, popodne oblačno',
+                'Jutarnja magla se razbistrava do podneva',
+                'Magla prolazi, popodne sunčani intervali',
+                'Magla se topi — razvedravanje tokom dana'
+            );
+        }
+    }
+
+    // --- TRANZICIJE: oblačno→vedro, vedro→oblačno, kiša→sunce, itd. ---
+    // Koristi precip_probability i razliku temp kao signal za nestabilnost
+    if (pp > 20 && pp <= 45 && !['rain','heavy_rain','snow','heavy_snow','thunderstorm'].includes(icon)) {
+        pool.push(
+            'Nestabilno — moguć nagao pljusak pa razvedravanje',
+            'Promjenljivo sa malom šansom za kratku kišu',
+            'Oblaci gomilaju, ali kiša nije sigurna',
+            'Dinamično vrijeme — nagle smjene oblačnog i vedrog',
+            'Postoji šansa za kratku kišu, ali pretežno suvo',
+            'Oblačno sa mogućim kratkim pljuskom popodne'
+        );
+    }
+    if (bigSwing && !['rain','heavy_rain','snow','thunderstorm'].includes(icon)) {
+        pool.push(
+            'Veliko kolebanje temperature tokom dana',
+            'Hladno jutro, ali značajno toplije popodne',
+            'Temperature rastu od svježeg jutra do toplog popodneva',
+            'Jutarnja svježina, popodne značajno toplije'
+        );
+    }
+    if (pp <= 10 && ['partly_cloudy','cloudy'].includes(icon)) {
+        pool.push(
+            'Oblačno ujutro, razvedravanje poslijepodne',
+            'Oblaci se povlače, ka kraju dana vedro',
+            'Počinje oblačno, ali dan se razbistrava',
+            'Naoblačenje prolazi — sunce se probija popodne'
+        );
+    }
+    if (pp > 50 && ['partly_cloudy','cloudy'].includes(icon)) {
+        pool.push(
+            'Oblačno sa velikom šansom za kišu',
+            'Naoblačenje — kiša očekivana tokom dana',
+            'Oblaci donose kišu, slabi ka večeri',
+            'Pogoršanje — iz oblačnog u kišovito'
+        );
     }
 
     if (pool.length === 0) return d.day_narrative || '';
     const hash = (d.date||'').split('').reduce((a,c) => a + c.charCodeAt(0), 0);
     let text = pool[hash % pool.length];
 
-    if (w >= 8) {
-        const wn = ['. Jak vjetar','. Vjetrovito cijelim danom','. Pojačan vjetar, mogući udari'];
+    if (w >= 14) {
+        const wn = ['. Olujni vjetar','. Izuzetno vjetrovito, mogući šteta od udara','. Jak i opasan vjetar cijelim danom'];
+        text += wn[hash % wn.length];
+    } else if (w >= 8) {
+        const wn = ['. Jak vjetar','. Vjetrovito cijelim danom','. Pojačan vjetar, mogući udari','. Vjetar pojačava tokom dana'];
         text += wn[hash % wn.length];
     } else if (w >= 4 && ['clear','mostly_clear','partly_cloudy'].includes(icon)) {
-        const mw = [', uz umjeren vjetar',', blagi vjetar sa mora'];
+        const mw = [', uz umjeren vjetar',', blagi vjetar sa mora',', lagani povjetarac'];
         text += mw[hash % mw.length];
     }
 
