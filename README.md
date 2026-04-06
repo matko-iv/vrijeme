@@ -1,293 +1,96 @@
-# Unaprijeđeni vremenski model — XGBoost korekcija vremenske prognoze
+# Korekcija vremenske prognoze za Budvu
 
-Sistem koji koristi **XGBoost** za korekciju grešaka iz **11 NWP modela** na osnovu 6 godina istorijskih podataka, tabela biasa i revizija prognoza (Previous Runs). Trenira poseban model za svaki meteorološki parametar koristeći 1,300+ feature-a, sa Huber loss i rezidualnim pristupom za temperature i tačku rose.
+XGBoost model koji koriguje prognoze iz 11 vremenskih modela koristeći istorijske podatke sa lokalne meteorološke stanice. Treniran na ~6 godina satnih podataka za Budvu (stanica ibudva5 na Weather Underground).
 
-Trenutno radi za **Budvu, Crna Gora** (stanica ibudva5) — ali se lako prilagođava za bilo koju lokaciju sa Weather Underground ličnom meteorološkom stanicom.
+Može se prilagoditi za bilo koju lokaciju koja ima WU stanicu.
 
-**[Live prognoza →](https://matko-iv.github.io/vrijeme/forecast.html)** · **[Analiza i metodologija →](https://matko-iv.github.io/vrijeme/)**
-
----
-
-## Rezultati (test period: jul 2025 — feb 2026)
-
-| Parametar | XGBoost MAE | Najbolji model | Poboljšanje |
-|-----------|-------------|----------------|:-----------:|
-| **Temperatura** | **0.86°C** | 1.28°C (ARPÈGE) | **+32.5%** |
-| Tačka rose | 1.05°C | 1.84°C (ECMWF IFS) | +42.7% |
-| Vlažnost | 6.10% | 9.03% (ECMWF IFS) | +32.5% |
-| **Brzina vjetra** | **0.46 m/s** | 0.72 m/s (ECMWF IFS) | **+36.3%** |
-| Udari vjetra | 0.61 m/s | 1.80 m/s (GFS) | +66.3% |
-| **Pritisak** | **0.25 hPa** | 0.70 hPa (ItaliaMeteo) | **+64.4%** |
-| Oblačnost | 9.69% | 27.39% (BOM) | +64.6% |
-| Padavine | 1.52 mm | 1.52 mm (GFS) | −0.4% |
-| Solar. radijacija | 21.52 W/m² | 35.17 W/m² (ItaliaMeteo) | +38.8% |
-
-> Temperatura ispod **0.87°C MAE** zahvaljujući Huber loss + rezidualnom pristupu + 11 modela. Pritisak poboljšan za **64%** — ECMWF IFS 9km donosi značajno bolju rezoluciju za pritisak. Jedino padavine ostaju na nivou najboljeg modela — precipitacija je inherentno najteža varijabla.
+**[Live prognoza](https://matko-iv.github.io/vrijeme/forecast.html)** · **[Kako radi](https://matko-iv.github.io/vrijeme/)**
 
 ---
 
-## Kako radi
+## Rezultati
 
-```
-WU Stanica          11 NWP Modela             Previous Runs API
-(opservacije)       (Open-Meteo)              (Day1/Day2 revizije)
-     │                   │                          │
-     ▼                   ▼                          ▼
-  Feature Engineering (1,300+ feature-a)               
-  • Ensemble stats (mean, std, range, median)         
-  • Tabele istorijskog biasa (mjesec × sat)           
-  • Forecast revision (Day0−Day1, Day1−Day2)          
-  • Cross-parameter interakcije                       
-  • Ciklični vremenski feature-i                      
-  • Lokalni signali (bura, jugo, maestral, more)      
-                        │
-                        ▼
-              XGBoost (9 modela)
-              po jedan za svaki parametar
-                        │
-                        ▼
-              Korigovana prognoza
-              + pametna korekcija vremenskog koda
-              + JSON/CSV output za frontend
-```
+Test period: jul 2025 – feb 2026. Poređenje sa najboljim pojedinačnim modelom:
 
-### Pipeline koraci
+| Parametar | Korigovano | Najbolji model | Poboljšanje |
+|-----------|------------|----------------|:-----------:|
+| Temperatura | 0.86°C | 1.28°C (ARPÈGE) | +32% |
+| Tačka rose | 1.05°C | 1.84°C (ECMWF) | +43% |
+| Vlažnost | 6.1% | 9.0% (ECMWF) | +32% |
+| Vjetar | 0.46 m/s | 0.72 m/s (ECMWF) | +36% |
+| Udari vjetra | 0.61 m/s | 1.80 m/s (GFS) | +66% |
+| Pritisak | 0.25 hPa | 0.70 hPa (ItaliaMeteo) | +64% |
+| Oblačnost | 9.7% | 27.4% (BOM) | +65% |
+| Padavine | 1.52 mm | 1.52 mm (GFS) | ~0% |
+| Solarna rad. | 21.5 W/m² | 35.2 W/m² (ItaliaMeteo) | +39% |
 
-1. **Scrape opservacije** — satni podaci sa Weather Underground stanice (temperatura, vlažnost, vjetar, pritisak, padavine, solarna radijacija). 6 godina, ~50,000 sati.
-2. **Preuzmi istorijske prognoze** — iz 11 modela preko [Open-Meteo Historical Forecast API](https://open-meteo.com/en/docs/historical-forecast-api)
-3. **Preuzmi Previous Runs** — Day1/Day2 revizije prognoza iz [Previous Runs API](https://previous-runs-api.open-meteo.com) (od jan 2024)
-4. **Feature engineering** — 1,300+ feature-a: ensemble statistike, bias tabele, forecast revizije, meteorološki signali
-5. **Treniraj XGBoost** — 9 modela, dvoprolazno treniranje (5% val → retrain na svim podacima), Huber loss za rezidualne modele, ensemble blending, train/test split na jul 2025
-6. **Generiši prognozu** — live prognoze + Previous Runs → korekcija → pametni vremenski kodovi → JSON za frontend
-
-Pipeline se pokreće automatski preko GitHub Actions i objavljuje na GitHub Pages.
+Padavine su jedino što ostaje na nivou najboljeg modela — to je najteža varijabla za korekciju.
 
 ---
 
-## Korišćeni modeli
+## Ukratko kako radi
 
-| Model | Open-Meteo ID | Rezolucija | Pokrivenost |
-|-------|--------------|:----------:|-------------|
-| Météo-France Seamless | `meteofrance_seamless` | ~10 km | Evropa |
-| ARPÈGE Europe | `arpege_europe` | ~10 km | Evropa |
-| ItaliaMeteo ICON 2I | `italia_meteo_arpae_icon_2i` | ~2.2 km | Jadran/Italija |
-| DMI HARMONIE AROME | `dmi_seamless` | ~2 km | Centralna/Sjeverna Evropa |
-| KNMI HARMONIE AROME | `knmi_seamless` | ~5.5 km | Centralna/Sjeverna Evropa |
-| UKMO Seamless | `ukmo_seamless` | ~10 km | Globalna |
-| GFS Seamless | `gfs_seamless` | ~25 km | Globalna |
-| BOM ACCESS Global | `bom_access_global` | ~25 km | Globalna |
-| ECMWF IFS 0.25° | `ecmwf_ifs025` | ~25 km | Globalna |
-| ECMWF IFS HRES | `ecmwf_ifs` | ~9 km | Globalna |
-| ICON Seamless | `icon_seamless` | ~13 km | Globalna |
+1. Scrapujem satne opservacije sa WU stanice (~50k sati)
+2. Preuzmem istorijske prognoze iz 11 modela preko [Open-Meteo](https://open-meteo.com/en/docs/historical-forecast-api)
+3. Za svaki model računam bias tabele (mjesec × sat), ensemble statistike, i revizije prognoza (koliko se model koriguje iz dana u dan)
+4. Od svega toga napravim ~1300 feature-a i treniram po jedan XGBoost model za svaki parametar
+5. Za temperaturu i tačku rose koristim rezidualni pristup (model predviđa korekciju, ne apsolutnu vrijednost) sa Huber loss-om
+6. Za padavine — dvostepenski pristup: prvo klasifikator (pada/ne pada), pa regressor za količinu
+7. Sve to se vrti automatski preko GitHub Actions i rezultat ide na GitHub Pages
 
-Sortirano po MAE za temperaturu (niži = bolji). Météo-France i ARPÈGE su najprecizniji za Budvu. ECMWF IFS 9km, KNMI i DMI HARMONIE dodani u v11 — donose višu rezoluciju i nezavisni HARMONIE model sistem.
+## Modeli
 
-> ⚠️ **ItaliaMeteo ICON 2I** pokriva samo Italiju i neposrednu okolinu (jadransku obalu, Sloveniju, Hrvatsku). Ako je vaša lokacija van tog područja, uklonite ga iz `MODELS`.
+Météo-France, ARPÈGE, ItaliaMeteo ICON 2I, DMI HARMONIE, KNMI HARMONIE, UKMO, GFS, BOM ACCESS, ECMWF IFS 0.25°, ECMWF IFS 9km, ICON Seamless — svi preko Open-Meteo API-ja.
+
+Za Budvu su Météo-France i ARPÈGE najprecizniji za temperaturu. ECMWF IFS 9km je odličan za pritisak.
+
+> ItaliaMeteo ICON 2I pokriva samo Italiju i bliže jadransko primorje. Van tog područja treba ga izbaciti.
 
 ---
 
-## Forecast Revision Features
-
-Korišcenje [Previous Runs API](https://previous-runs-api.open-meteo.com) donosi ~100 novih feature-a:
-
-- **Day1/Day2 prognoze** za svaki od 9 modela × 8 varijabli
-- **Revision (Day0 − Day1)** — koliko se model korigirao u zadnja 24h
-- **Day1-to-Day2 revision** — trend korekcija
-- **Ensemble revision stats** — prosjek, std, abs_mean revizija svih modela
-- **Day0 vs Day1 ensemble spread**
-
-Degradacija po forecast horizontu (prosjek svih modela, jan 2024 – feb 2026):
-
-| Varijabla | Day0 MAE | Day1 MAE | Day2 MAE | Degradacija |
-|-----------|----------|----------|----------|:-----------:|
-| Temperatura | 1.685°C | 1.769°C | 1.812°C | +7.5% |
-| Tačka rose | 2.122°C | 2.113°C | 2.181°C | +2.8% |
-| Pritisak | 1.045 hPa | 1.027 hPa | 1.029 hPa | −1.6% |
-| Padavine | 2.622 mm | 2.505 mm | 2.589 mm | −1.3% |
-
----
-
-## Pametna korekcija vremenskog koda
-
-Modeli često prijavljuju kišu (WC ≥ 51) tokom zimske oblačnosti kad zapravo ne pada. Funkcija `correct_weather_code_row()` koristi XGBoost predikcije padavina i oblačnosti da ispravi ovo:
-
-- Ako XGBoost kaže precip < 0.1mm a kod je kiša → downgrade na oblačnost
-- Ako XGBoost kaže precip > 0.5mm a kod je vedro → upgrade na kišu
-- Koristi XGBoost cloud cover za određivanje vedro/djelimično/oblačno
-
----
-
-## Prilagođavanje za drugu lokaciju
-
-### 1. Nađite Weather Underground stanicu
-
-Na [wunderground.com/wundermap](https://www.wunderground.com/wundermap) pronađite PWS blizu vaše lokacije. Treba vam station ID (npr. `IBUDVA5`, `KLAX23`, `IMILANO42`).
-
-Dobre stanice imaju:
-- Barem 1–2 godine kontinuiranih podataka (više = bolje, 3+ idealno)
-- Sve uobičajene senzore (temp, vlažnost, vjetar, pritisak, kiša, solar)
-- Konzistentan uptime — praznine su OK ali velike rupe škode
-
-### 2. Scrapujte istorijske opservacije
-
-```python
-# wu_scraper.py — promijenite:
-STATION_ID = "VAS_STATION_ID"
-YEARS_BACK = 3  # koliko godina unazad
-```
-
-```bash
-python wu_scraper.py
-```
-
-Kreira CSV u `wu_data/` sa satnim kolonama: `temp_c`, `humidity_pct`, `wind_ms`, `pressure_hpa`, `solar_wm2`, `precip_rate_mm`, itd.
-
-### 3. Preuzmite istorijske prognoze modela
-
-Editujte `advanced_model_analysis.py`:
-
-```python
-LAT, LON = 42.32, 18.92  # vaša lokacija
-OBS_CSV = "wu_data/vasa_stanica_hourly.csv"
-START_DATE = "2023-01-01"  # početak vaših opservacija
-```
-
-```bash
-python advanced_model_analysis.py
-```
-
-Kreira `budva_{MODEL}_detailed.csv` per model i `budva_detailed_error_analysis.json` sa metrikama.
-
-> **Napomena:** Open-Meteo historical forecast API je besplatan ali ima rate limit. Skripta automatski retryuje na 429 sa 60s pauzom. Preuzimanje 6 godina za 11 modela traje ~15–25 minuta.
-
-### 4. Preuzmite Previous Runs podatke (opciono ali preporučeno)
-
-```bash
-python forecast_horizon_analysis.py
-```
-
-Kreira `previous_runs_data/{MODEL}_previous_runs.csv` za 9 modela (od jan 2024). Dodaje ~140 feature-a za trening.
-
-### 5. Trenirajte i pokrenite forecast pipeline
-
-Editujte `forecast_48h_v2.py`:
-
-```python
-LAT, LON = 42.32, 18.92
-
-MODELS = ["ARPEGE_EUROPE", "GFS_SEAMLESS", "ICON_SEAMLESS",
-          "METEOFRANCE", "ECMWF_IFS025", "ITALIAMETEO_ICON2I",
-          "UKMO_SEAMLESS", "BOM_ACCESS",
-          "ECMWF_IFS", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
-
-MODEL_IDS = {
-    "ARPEGE_EUROPE": "arpege_europe",
-    "GFS_SEAMLESS": "gfs_seamless",
-    "ICON_SEAMLESS": "icon_seamless",
-    "METEOFRANCE": "meteofrance_seamless",
-    "ECMWF_IFS025": "ecmwf_ifs025",
-    "ITALIAMETEO_ICON2I": "italia_meteo_arpae_icon_2i",
-    "UKMO_SEAMLESS": "ukmo_seamless",
-    "BOM_ACCESS": "bom_access_global",
-    "ECMWF_IFS": "ecmwf_ifs",
-    "KNMI_SEAMLESS": "knmi_seamless",
-    "DMI_SEAMLESS": "dmi_seamless",
-}
-```
-
-Ažurirajte `"Budva, Crna Gora"` i ime stanice u output sekciji.
-
-```bash
-python forecast_48h_v2.py
-```
-
-Output: `forecast_output/forecast_48h.json` + `forecast_output/forecast_48h.csv`
-
-### 6. GitHub Pages (opciono)
-
-`docs/` folder sadrži frontend:
-- `index.html` — analiza i metodologija (sa interaktivnom kartom grešaka)
-- `forecast.html` — prikaz live prognoze (responsive, mobilni-friendly)
-- `forecast_data/forecast_48h.json` — automatski ažuriran
-
-## Struktura projekta
-
-```
-├── forecast_48h_v2.py              # Glavni pipeline: trening + prognoza + output (v3)
-├── forecast_horizon_analysis.py    # Previous Runs analiza degradacije
-├── advanced_model_analysis.py      # Istorijska analiza grešaka po modelu
-├── complete_analysis.py            # Cloud cover + weather code verifikacija
-├── recompute_mae.py                # Svjež MAE proračun za svih 11 modela
-├── wu_scraper.py                   # WU scraper (satni podaci)
-├── requirements.txt
-│
-├── docs/                           # GitHub Pages frontend
-│   ├── index.html                  # Analiza i metodologija
-│   ├── forecast.html               # Live prognoza
-│   ├── forecast_data/
-│   │   └── forecast_48h.json
-│   └── images/                     # Generisani plotovi za sajt
-│
-├── wu_data/                        # Opservacije sa WU stanice
-│   ├── merged_observations.csv     # 49,964 redova (2020–2026)
-│   ├── all_data.csv
-│   └── ibudva5_hourly_*.csv
-│
-├── previous_runs_data/             # Day1/Day2 revizije (9 modela, jan 2024+)
-│   ├── METEOFRANCE_previous_runs.csv
-│   ├── ARPEGE_EUROPE_previous_runs.csv
-│   ├── ECMWF_IFS025_previous_runs.csv
-│   ├── GFS_SEAMLESS_previous_runs.csv
-│   ├── ICON_SEAMLESS_previous_runs.csv
-│   ├── UKMO_SEAMLESS_previous_runs.csv
-│   └── BOM_ACCESS_previous_runs.csv
-│
-├── trained_models_v2/              # XGBoost modeli + metadata
-│   ├── xgb_temperature_2m.json
-│   ├── xgb_*.json                  # 9 modela ukupno
-│   ├── feature_lists.json
-│   ├── training_results.json
-│   └── bias_tables.json
-│
-├── forecast_output/                # Output pipeline-a
-│   ├── forecast_48h.json
-│   └── forecast_48h.csv
-│
-├── budva_*_detailed.csv            # Istorijske prognoze po modelu (8 fajlova)
-└── plots/ plots_extended/          # Generisani grafikoni
-```
-
-## Zavisnosti
+## Pokretanje
 
 ```bash
 pip install -r requirements.txt
+
+# puno treniranje + prognoza
+python forecast_48h_v2.py
+
+# samo nova prognoza (koristi spremljene modele)
+python forecast_48h_v2.py --skip-training
 ```
 
-- `pandas` + `numpy` 
-- `xgboost` 
-- `scikit-learn` 
-- `requests`
-- `matplotlib` — vizualizacija (opciono)
+Output ide u `forecast_output/forecast_48h.json` i `.csv`.
 
-Python 3.10+
+## Prilagođavanje za drugu lokaciju
 
-## Huber Loss i rezidualni pristup
+1. Nađite WU stanicu na [wunderground.com/wundermap](https://www.wunderground.com/wundermap) — treba barem 2-3 godine podataka
+2. U `wu_scraper.py` promijenite `STATION_ID` i pokrenite scraping
+3. U `advanced_model_analysis.py` stavite svoje koordinate i pokrenite da preuzmete istorijske prognoze
+4. U `forecast_48h_v2.py` ažurirajte `LAT`, `LON` i listu modela
+5. Pokrenite `python forecast_48h_v2.py` — trenira i generiše prognozu
 
-Umjesto standardnog squared error-a, za temperaturu i tačku rose koristimo rezidualni pristup sa Huber loss funkcijom (`reg:pseudohubererror`).
+Opciono `forecast_horizon_analysis.py` za Previous Runs podatke (revizije prognoza, dostupno od jan 2024).
 
-Rezidualni pristup znači da model ne predviđa direktno konačnu vrijednost (npr. 23.5°C), nego korekciju — razliku između ensemble prosjeka i stvarnog mjerenja. Korekcije su mali brojevi (±2-3°C), što olakšava posao modelu.
+## Struktura
 
-Huber loss je kompromis između MSE i MAE. Za male greške (ispod praga δ) ponaša se kao MSE — glatki gradijenti, stabilna optimizacija. Za velike greške prelazi u MAE — ne eksplodira na outlierima. Kombinacija reziduala i Huber-a je spustila MAE temperature sa 0.96 na 0.89°C, a dodavanje 3 nova modela (ECMWF IFS 9km, KNMI, DMI HARMONIE) dalje na 0.86°C.
-
-Za svaki parametar, pipeline automatski trenira tri varijante (direktni model, rezidualni Huber, ensemble blend) i bira onu sa najnižim MAE na test setu. Padavine koriste dvostepenski pristup — klasifikator (pada/ne pada) + regressor na sqrt(amount).
+```
+forecast_48h_v2.py          # glavni pipeline
+wu_scraper.py               # scraping sa WU
+advanced_model_analysis.py  # preuzimanje istorijskih prognoza
+docs/                       # GitHub Pages frontend
+wu_data/                    # opservacije
+previous_runs_data/         # revizije prognoza (Day1/Day2)
+trained_models_v2/          # spremljeni XGBoost modeli
+forecast_output/            # output JSON/CSV
+```
 
 ## Napomene
 
-- **Train/test split** je na `2025-07-01` (`SPLIT_DATE`). Podesite tako da imate barem 6–12 mjeseci za trening prije tog datuma.
-- **Oblačnost** se izvodi iz mjerenja solarne radijacije (nije direktna opservacija). Ako vaša stanica nema solarni senzor, korekcija oblačnosti će biti ograničena.
-- **Padavine** koriste `precip_rate_mm` sa WU. Neke stanice ovo prijavljuju loše — provjerite kvalitet podataka.
-- **Previous Runs** su dostupni od jan 2024. Stariji podaci nemaju ove feature-e (XGBoost korektno tretira NaN).
-- Sistem najbolje radi na lokacijama sa **konzistentnim podacima stanice** i gdje NWP modeli imaju poznate biase (priobalna područja, planinske doline, urbana toplija ostrva).
+- Oblačnost se računa iz solarne radijacije — bez solarnog senzora nema korekcije oblačnosti
+- Padavine zavise od kvaliteta kišomjera na stanici
+- Train/test split je na `2025-07-01`, može se promijeniti u kodu
+- Python 3.10+, XGBoost, pandas, scikit-learn, requests
 
 ## Autor
 

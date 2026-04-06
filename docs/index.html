@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tačnije Vremenske Prognoze za Budvu – Matija Ivanović</title>
+    <title>Vrijeme – Matija Ivanović</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -70,7 +70,7 @@
     <div class="site-header">
         <a href="/" class="site-name">Matija Ivanović</a>
         <nav>
-            <a href="forecast_b.html" style="color:#0366d6;font-weight:600;">Live Prognoza</a>
+            <a href="forecast.html" style="color:#0366d6;font-weight:600;">Live Prognoza</a>
             <a href="https://matko-iv.github.io/blog/">Blog</a>
             <a href="https://github.com/matko-iv/vrijeme" target="_blank">GitHub</a>
             <a href="mailto:ivanovicmatija2007@gmail.com">Kontakt</a>
@@ -81,7 +81,7 @@
     <h1>Tačnije Vremenske Prognoze za Budvu</h1>
 
     <div class="note" style="background:#e8f4fd;border-left-color:#0366d6;margin-bottom:30px;">
-        Korigovana prognoza za narednih 48 sati dostupna je na <a href="forecast_b.html"><strong>stranici za live prognozu</strong></a>.
+        Korigovana prognoza za narednih 48 sati dostupna je na <a href="forecast.html"><strong>stranici za live prognozu</strong></a>.
     </div>
 
     <p>Budva ima taj srećan spoj mora i planina koji turizmu daje život, a meteorolozima — glavobolje. Globalni vremenski modeli (ECMWF, GFS, ICON...) pokrivaju cijelu planetu, ali za jednu primorsku tačku između Lovćena i Jadrana — nisu baš blistavi.</p>
@@ -299,7 +299,7 @@
         }
         if (!data || !data.training_metrics) {
             document.getElementById('liveAccuracy').innerHTML =
-                '<p style="color:#586069;font-size:14px;">Podaci o tačnosti su na <a href="forecast_b.html">stranici za prognozu</a>.</p>';
+                '<p style="color:#586069;font-size:14px;">Podaci o tačnosti su na <a href="forecast.html">stranici za prognozu</a>.</p>';
             return;
         }
         const m = data.training_metrics;
@@ -325,7 +325,7 @@
     <!-- ================================================================== -->
     <h2>Šta dalje</h2>
 
-    <p>Živa prognoza radi automatski — preuzima najnovije prognoze svih 11 modela, primijeni trenirane korekcije, i generiše korigovanu +48h prognozu. Dostupna je <a href="forecast_b.html"><strong>ovdje</strong></a>.</p>
+    <p>Živa prognoza radi automatski — preuzima najnovije prognoze svih 11 modela, primijeni trenirane korekcije, i generiše korigovanu +48h prognozu. Dostupna je <a href="forecast.html"><strong>ovdje</strong></a>.</p>
 
     <p>Za v3 planiram da popravim tačku rose (vjerovatno treba preskočiti deficit transform), dodam radar podatke za padavine, i povećam broj Optuna trial-ova sa jačim hardverom.</p>
 
