@@ -1,7 +1,7 @@
-# XGBoost weather correction study model
+# XGBoost, Catboost weather correction study model
 
-PLEASE NOTE!
-This README has been removed as the new version (v2 published in early April 2026) has significant changes in how it works. A new readme will be live soon. In the meantime, please read the study in the ```index.html``` file. Thanks.
+NOTE!
+This README is currently being reconstructed, as the v2 April have significant code changes. In the meantime, please read the study in ```index.html```. Thanks.
 
 ## Autor
 
