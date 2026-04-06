@@ -684,7 +684,7 @@ function fixLRIcon(icon, precipProb, precipTotal, cloudCover) {
     const pp = precipProb != null ? precipProb : 50;
     // If rain icon but negligible probability/amount, use cloud cover to pick icon
     if (['light_rain','rain','heavy_rain','shower','thunderstorm'].includes(icon)) {
-        if (pp <= 15 || pt < 1) {
+        if (pp < 30 || pt < 1) {
             if (cloudCover != null) {
                 if (cloudCover < 30) return 'clear';
                 if (cloudCover < 50) return 'mostly_clear';
@@ -1630,7 +1630,6 @@ function render(data) {
             <div style="text-align:center;margin:8px 0">
                 <div style="width:80px;height:80px;margin:0 auto">${icon}</div>
                 <div class="weather-desc">${d.weather_desc}</div>
-                ${d.day_narrative && d.day_narrative !== d.weather_desc ? '<div class="day-narrative">' + d.day_narrative + '</div>' : ''}
             </div>
             <div class="temp-range">
                 <span class="temp-low">${d.temp_min.toFixed(1)}°</span>
@@ -1748,8 +1747,8 @@ function render(data) {
                 </div>
                 <div class="lr-details">
                     ${windTxt ? '<span>' + windTxt + '</span>' : ''}
-                    ${pp > 15 ? '<span>Kiša: ' + pp + '%</span>' : ''}
-                    ${d.precip_total > 0.1 ? '<span>' + d.precip_total + ' mm</span>' : ''}
+                    ${pp >= 30 && !['clear','mostly_clear'].includes(fixedIc) ? '<span>Šansa za padavine: ' + pp + '%</span>' : ''}
+                    ${d.precip_total > 0.5 && !['clear','mostly_clear'].includes(fixedIc) ? '<span>' + d.precip_total + ' mm</span>' : ''}
                 </div>
             </div>`;
         });
