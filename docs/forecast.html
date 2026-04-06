@@ -679,10 +679,11 @@ function iconToDesc(icon) {
     return m[icon] || 'Promjenljivo';
 }
 
-function fixLRIcon(icon, precipProb) {
-    if (precipProb != null && precipProb <= 15) {
-        if (['light_rain','rain','heavy_rain','shower','thunderstorm'].includes(icon)) {
-            return precipProb <= 5 ? 'partly_cloudy' : 'cloudy';
+function fixLRIcon(icon, precipProb, precipTotal) {
+    const pt = precipTotal != null ? precipTotal : 999;
+    if (['light_rain','rain','heavy_rain','shower','thunderstorm'].includes(icon)) {
+        if ((precipProb != null && precipProb <= 15) || pt < 1) {
+            return pt < 0.1 ? 'partly_cloudy' : 'cloudy';
         }
     }
     return icon;
@@ -697,9 +698,9 @@ function precipLabel(pp, icon) {
         if (cloudy) return 'Suvo, bez kiše';
         return 'Padavine malo vjerovatne';
     }
-    if (pp <= 20) return 'Uglavnom suvo';
-    if (pp <= 35) return 'Moguća kratka kiša';
-    if (pp <= 50) return 'Umjerena šansa za kišu';
+    if (pp <= 25) return 'Vjerovatno suvo';
+    if (pp <= 40) return 'Moguća kratka kiša';
+    if (pp <= 55) return 'Umjerena šansa za kišu';
     if (pp <= 70) return 'Kiša vjerovatna';
     if (pp <= 85) return 'Velika šansa za kišu';
     return 'Kiša gotovo sigurna';
@@ -1617,6 +1618,24 @@ function render(data) {
                 d.weather_desc = wmoDescription(dom);
             }
         }
+        // Sync icon to narrative — narrative is more accurate (period-based analysis)
+        if (d.day_narrative) {
+            const nl = d.day_narrative.toLowerCase();
+            const hasCloud = /obla[čc]|sivo|naobla/.test(nl);
+            const hasSun = /sun[čc]|vedro|vedrije/.test(nl);
+            const hasRain = /ki[šs][aeu]|pljus|padavin/.test(nl);
+            const hasThunder = /grmljavin|oluj/.test(nl);
+            const hasSnow = /snijeg|snje[žz]|susnj/.test(nl);
+            const hasFog = /magl/.test(nl);
+            if (hasThunder) d.weather_icon = 'thunderstorm';
+            else if (hasSnow) d.weather_icon = 'snow';
+            else if (hasRain && hasCloud) d.weather_icon = 'rain';
+            else if (hasRain) d.weather_icon = 'light_rain';
+            else if (hasFog) d.weather_icon = 'fog';
+            else if (hasCloud && hasSun) d.weather_icon = 'partly_cloudy';
+            else if (hasCloud && !hasSun) d.weather_icon = 'cloudy';
+            // if only sun/vedro → keep original icon (clear/mostly_clear)
+        }
         const dayName = DAY_NAMES_SR[d.day_name] || d.day_name;
         const iconKey = dailyIconKey(d.weather_icon);
         const icon = weatherIcon(iconKey, 80);
@@ -1727,7 +1746,7 @@ function render(data) {
         html += '<div class="long-range-grid">';
         data.long_range.forEach(d => {
             const dayName = DAY_NAMES_SR[d.day_name] || d.day_name;
-            const fixedIc = fixLRIcon(d.weather_icon || 'partly_cloudy', d.precip_probability);
+            const fixedIc = fixLRIcon(d.weather_icon || 'partly_cloudy', d.precip_probability, d.precip_total);
             const iconKey = dailyIconKey(fixedIc);
             const icon = weatherIcon(iconKey, 48);
             const windTxt = d.wind_dir_avg != null && d.wind_max != null
