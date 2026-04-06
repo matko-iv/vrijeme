@@ -679,10 +679,18 @@ function iconToDesc(icon) {
     return m[icon] || 'Promjenljivo';
 }
 
-function fixLRIcon(icon, precipProb, precipTotal) {
+function fixLRIcon(icon, precipProb, precipTotal, cloudCover) {
     const pt = precipTotal != null ? precipTotal : 999;
+    const pp = precipProb != null ? precipProb : 50;
+    // If rain icon but negligible probability/amount, use cloud cover to pick icon
     if (['light_rain','rain','heavy_rain','shower','thunderstorm'].includes(icon)) {
-        if ((precipProb != null && precipProb <= 15) || pt < 1) {
+        if (pp <= 15 || pt < 1) {
+            if (cloudCover != null) {
+                if (cloudCover < 30) return 'clear';
+                if (cloudCover < 50) return 'mostly_clear';
+                if (cloudCover < 70) return 'partly_cloudy';
+                return 'cloudy';
+            }
             return pt < 0.1 ? 'partly_cloudy' : 'cloudy';
         }
     }
@@ -691,10 +699,10 @@ function fixLRIcon(icon, precipProb, precipTotal) {
 
 function precipLabel(pp, icon) {
     if (pp == null) return '';
-    if (pp <= 15) return '';
-    if (pp <= 40) return 'Neizvjesno — ne možemo potvrditi padavine';
-    if (pp <= 60) return 'Neizvjesno — moguće padavine, ali bez garancije';
-    if (pp <= 80) return 'Padavine vjerovatne, ali ne garantovane';
+    if (pp <= 30) return '';
+    if (pp <= 50) return 'Neizvjesno — ne možemo potvrditi padavine';
+    if (pp <= 70) return 'Padavine moguće, ali ne garantovane';
+    if (pp <= 85) return 'Padavine vjerovatne';
     return 'Kiša gotovo sigurna';
 }
 
@@ -1591,15 +1599,12 @@ function render(data) {
     let html = '';
 
     html += '<div class="daily-grid">';
-    const _now = new Date();
-    const todayStr = _now.getFullYear() + '-' + String(_now.getMonth()+1).padStart(2,'0') + '-' + String(_now.getDate()).padStart(2,'0');
     data.daily_summary.forEach(d => {
-        // For today, use only daytime hours (7-19) for icon/desc so evening doesn't override
-        // But ONLY if no day_narrative from Python (which is more accurate)
-        if (d.date === todayStr && data.hourly_forecast && !d.day_narrative) {
+        // Compute icon+desc from actual hourly data so they always match
+        if (data.hourly_forecast) {
             const dh = data.hourly_forecast.filter(h => {
                 const hd = h.datetime ? h.datetime.slice(0,10) : '';
-                return hd === todayStr && h.hour >= 7 && h.hour <= 19;
+                return hd === d.date && h.hour >= 7 && h.hour <= 19;
             });
             if (dh.length >= 4) {
                 const cc = {};
@@ -1624,10 +1629,8 @@ function render(data) {
             </div>
             <div style="text-align:center;margin:8px 0">
                 <div style="width:80px;height:80px;margin:0 auto">${icon}</div>
-                ${d.day_narrative
-                    ? '<div class="day-narrative">' + d.day_narrative + '</div>'
-                    : '<div class="weather-desc">' + d.weather_desc + '</div>'
-                }
+                <div class="weather-desc">${d.weather_desc}</div>
+                ${d.day_narrative && d.day_narrative !== d.weather_desc ? '<div class="day-narrative">' + d.day_narrative + '</div>' : ''}
             </div>
             <div class="temp-range">
                 <span class="temp-low">${d.temp_min.toFixed(1)}°</span>
@@ -1720,7 +1723,7 @@ function render(data) {
         html += '<div class="long-range-grid">';
         data.long_range.forEach(d => {
             const dayName = DAY_NAMES_SR[d.day_name] || d.day_name;
-            const fixedIc = fixLRIcon(d.weather_icon || 'partly_cloudy', d.precip_probability, d.precip_total);
+            const fixedIc = fixLRIcon(d.weather_icon || 'partly_cloudy', d.precip_probability, d.precip_total, d.cloud_cover_day);
             const iconKey = dailyIconKey(fixedIc);
             const icon = weatherIcon(iconKey, 48);
             const windTxt = d.wind_dir_avg != null && d.wind_max != null
