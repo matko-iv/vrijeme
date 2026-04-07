@@ -534,6 +534,10 @@
 
     <h1>Matkov model v2</h1>
 
+    <div class="note" style="background:#e8f4fd;border-left-color:#ffbf00;margin-bottom:30px;">
+        Poštovani posjetioci, Open-Meteo API je trenutno kvaran. Zbog toga nijesmo u prilici da ažuriramo vremensku prognozu. Ne posjedujem informacije o razlogu pada njihovog sistema. Nadam se da će usluga uskoro ponovo biti dostupna.
+    </div>
+
     <div class="generated-time" id="genTime"></div>
 
     <div id="app">
@@ -1730,7 +1734,7 @@ function render(data) {
                 : (d.wind_max != null ? windIntensity(d.wind_max) : '');
             const pp = d.precip_probability != null ? d.precip_probability : 0;
             const desc = fixedIc !== (d.weather_icon || 'partly_cloudy') ? iconToDesc(fixedIc) : (d.weather_desc || '');
-            const narrative = generateNarrative(d, fixedIc);
+            const narrative = d.day_narrative || generateNarrative(d, fixedIc);
             const pLabel = precipLabel(pp, fixedIc);
             html += `
             <div class="lr-card">
