@@ -2933,23 +2933,21 @@ def _gemini_narrative(date_str, hourly_rows):
         return None
     lines = []
     for h in hourly_rows:
-        hour = h.get('hour', '?')
-        cloud = h.get('cloud_cover', '?')
+        hour = h.get('hour', 0)
         temp = h.get('temperature_2m', h.get('temperature_2m_ensemble', '?'))
-        precip = h.get('precipitation', h.get('precipitation_ensemble', 0))
+        hum = h.get('relative_humidity_2m', h.get('relative_humidity_2m_ensemble', '?'))
         wind = h.get('wind_speed_10m', h.get('wind_speed_10m_ensemble', '?'))
-        wc = h.get('weather_code', '?')
-        lines.append(f"h{hour}: oblačnost {cloud}%, temp {temp}°C, padavine {precip}mm, vjetar {wind}m/s, WMO kod {wc}")
+        press = h.get('surface_pressure', h.get('pressure_msl', '?'))
+        cloud = h.get('cloud_cover', '?')
+        precip = h.get('precipitation', h.get('precipitation_ensemble', 0))
+        lines.append(f"  {date_str} {hour:02d}:00   {temp}°   {hum}%   {wind}   {press}   {cloud}%   {precip}")
     hourly_text = "\n".join(lines)
 
     prompt = (
-        f"Satni podaci za Budvu, {date_str}:\n{hourly_text}\n\n"
-        "Napiši JEDNU kratku rečenicu opisa vremena za taj dan (max 12 riječi). "
-        "Crnogorski jezik. Bez emotikona. Samo opiši vremenske uslove — bez savjeta, preporuka ili komentara.\n"
-        "Primjeri:\n"
-        "- Sunčano i toplo uz večernji pad temperature.\n"
-        "- Oblačno jutro, razvedravanje od podneva uz umjeren vjetar.\n"
-        "- Kiša do podneva, poslijepodne suvo i svježije.\n"
+        f"Satni podaci za Budvu, {date_str} (datum sat  temp  vlažnost  vjetar_m/s  pritisak_hPa  oblačnost  padavine_mm):\n"
+        f"{hourly_text}\n\n"
+        "Napiši JEDNU kratku rečenicu opisa vremena za taj dan. MAKSIMALNO 8 riječi.\n"
+        "Crnogorski jezik. Bez emotikona. Samo opiši vremenske uslove — bez savjeta, preporuka ili komentara. Ali preciziraj koliko mozes u tih 8 riječi.\n"
         "Samo rečenicu, ništa drugo."
     )
 
@@ -2991,9 +2989,9 @@ def _gemini_narrative_daily(date_str, ds):
                f"padavine {precip}mm (šansa {pp}%), vjetar do {wind}m/s.")
     prompt = (
         f"{summary}\n\n"
-        "Napiši JEDNU kratku rečenicu opisa vremena (max 10 riječi). "
-        "Crnogorski jezik. Bez emotikona. Samo opiši vremenske uslove — bez savjeta, preporuka ili komentara.\n"
-        "Primjeri: 'Mild day with mostly sunny skies after early clouds.' (Ovo ali na crnogorskom.)\n"
+        "Napiši JEDNU kratku rečenicu opisa vremena. MAKSIMALNO 8 riječi.\n"
+        "Crnogorski jezik. Bez emotikona. Samo opiši vremenske uslove — bez savjeta, preporuka ili komentara. Ali preciziraj koliko mozes u tih 8 riječi.\n"
+        "Primjeri: Vedro i toplo, slab vjetar. / Oblačno sa slabom kišom.\n"
         "Samo rečenicu:"
     )
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
@@ -3027,10 +3025,11 @@ def _enrich_narratives_with_ai(daily_list, hourly_data):
         print("  [Gemini] API ključ nije postavljen, preskačem AI opise.")
         return
 
-    # --- Cache logic ---
+    # --- Cache logic (only on CI/GitHub Actions to save API quota) ---
+    use_cache = os.environ.get('GITHUB_ACTIONS') == 'true'
     cache_path = os.path.join(OUTPUT_DIR, "gemini_narrative_cache.json")
     cache = {}
-    if os.path.exists(cache_path):
+    if use_cache and os.path.exists(cache_path):
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
                 cache = json.load(f)
@@ -3070,15 +3069,15 @@ def _enrich_narratives_with_ai(daily_list, hourly_data):
         if api_calls < len(daily_list):
             time.sleep(12)
 
-    # Clean old dates from cache (keep only future/today)
-    today_str = pd.Timestamp.now().strftime('%Y-%m-%d')
-    cache = {k: v for k, v in cache.items() if k >= today_str}
-
-    try:
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(cache, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    # Save cache only on CI
+    if use_cache:
+        today_str = pd.Timestamp.now().strftime('%Y-%m-%d')
+        cache = {k: v for k, v in cache.items() if k >= today_str}
+        try:
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     print(f"  [Gemini] Generisano {count}/{len(daily_list)} AI opisa ({api_calls} API poziva, {count - api_calls} iz keša).")
 

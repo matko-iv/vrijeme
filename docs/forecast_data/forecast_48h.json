@@ -1,5 +1,5 @@
 {
-  "generated": "2026-04-07T17:24:56.846396",
+  "generated": "2026-04-07T17:38:43.757650",
   "location": {
     "name": "Budva, Crna Gora",
     "lat": 42.29,
@@ -180,7 +180,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Vedro i mirno veče uz postepen pad temperature i slab vjetar.",
+      "day_narrative": "Vedro i tiho veče uz postepen pad temperature.",
       "precip_probability": 0
     },
     {
@@ -199,7 +199,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Pretežno sunčano i toplo uz postepeno razvedravanje i slab vjetar.",
+      "day_narrative": "Sunčano i toplo uz slab vjetar i vlažnost.",
       "precip_probability": 0
     },
     {
@@ -218,7 +218,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Pretežno sunčano i ugodno toplo uz postepeno razvedravanje i slab do umjeren vjetar.",
+      "day_narrative": "Sunčano i vjetrovito uz umjerenu temperaturu bez padavina.",
       "precip_probability": 0
     }
   ],
@@ -1969,7 +1969,7 @@
       "weather_desc": "Sitna kisa",
       "weather_icon": "light_rain",
       "weather_emoji": "🌦️",
-      "day_narrative": "Pretežno sunčano i prijatno uz postepeno razvedravanje tokom dana i slab vjetar.",
+      "day_narrative": "Sunčano i ugodno uz slab vjetar bez padavina.",
       "precip_probability": 0
     },
     {
@@ -1988,7 +1988,7 @@
       "weather_desc": "Slaba kisa",
       "weather_icon": "light_rain",
       "weather_emoji": "🌦️",
-      "day_narrative": "Promjenljivo oblačno uz slabu jutarnju kišu i sunčano, toplije popodne.",
+      "day_narrative": "Promjenljivo oblačno, povremena slaba kiša i blagi porast temperature.",
       "precip_probability": 18
     },
     {
@@ -2007,7 +2007,7 @@
       "weather_desc": "Sitna kisa",
       "weather_icon": "light_rain",
       "weather_emoji": "🌦️",
-      "day_narrative": "Pretežno sunčano i ugodno uz postepeno razvedravanje i slab vjetar.",
+      "day_narrative": "Promjenljivo oblačno, toplo i vjetrovito uz oskudne padavine.",
       "precip_probability": 0
     },
     {
@@ -2026,7 +2026,7 @@
       "weather_desc": "Slaba kisa",
       "weather_icon": "light_rain",
       "weather_emoji": "🌦️",
-      "day_narrative": "Pretežno sunčano i toplo, uz postepeno naoblačenje i slabu kišu krajem dana.",
+      "day_narrative": "Sunčano uz postepeni porast vlažnosti i slabe padavine.",
       "precip_probability": 9
     },
     {
@@ -2045,7 +2045,7 @@
       "weather_desc": "Umjerena kisa",
       "weather_icon": "rain",
       "weather_emoji": "🌧️",
-      "day_narrative": "Promjenljivo oblačno sa slabom kišom prijepodne, dok će poslijepodne biti suvo.",
+      "day_narrative": "Promjenljivo oblačno, toplo, povremeno sa kišom sredinom dana.",
       "precip_probability": 18
     },
     {
@@ -2064,7 +2064,7 @@
       "weather_desc": "Umjerena kisa",
       "weather_icon": "rain",
       "weather_emoji": "🌧️",
-      "day_narrative": "Pretežno oblačno sa povremenom slabom kišom i blagim porastom dnevne temperature.",
+      "day_narrative": "Promjenljivo oblačno, toplo i povremeno sa slabom kišom.",
       "precip_probability": 9
     },
     {
@@ -2083,7 +2083,7 @@
       "weather_desc": "Slaba kisa",
       "weather_icon": "light_rain",
       "weather_emoji": "🌦️",
-      "day_narrative": "Promjenljivo oblačno i toplo sa sunčanim intervalima i rijetkom, slabom kišom.",
+      "day_narrative": "Umjereno toplo, pretežno oblačno uz povremenu slabu kišu.",
       "precip_probability": 9
     }
   ]
