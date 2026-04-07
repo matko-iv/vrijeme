@@ -2922,6 +2922,133 @@ def _build_daily_summary(date_str, day_name, grp_df, fc_raw=None):
     return ds
 
 
+# ---------------------------------------------------------------------------
+# Gemini AI narrative generation
+# ---------------------------------------------------------------------------
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+
+def _gemini_narrative(date_str, hourly_rows):
+    """Call Gemini to generate a short weather narrative from hourly data."""
+    if not GEMINI_API_KEY or not hourly_rows:
+        return None
+    lines = []
+    for h in hourly_rows:
+        hour = h.get('hour', '?')
+        cloud = h.get('cloud_cover', '?')
+        temp = h.get('temperature_2m', h.get('temperature_2m_ensemble', '?'))
+        precip = h.get('precipitation', h.get('precipitation_ensemble', 0))
+        wind = h.get('wind_speed_10m', h.get('wind_speed_10m_ensemble', '?'))
+        wc = h.get('weather_code', '?')
+        lines.append(f"h{hour}: oblačnost {cloud}%, temp {temp}°C, padavine {precip}mm, vjetar {wind}m/s, WMO kod {wc}")
+    hourly_text = "\n".join(lines)
+
+    prompt = (
+        f"Satni podaci za Budvu, {date_str}:\n{hourly_text}\n\n"
+        "Napiši JEDNU kratku rečenicu opisa vremena za taj dan (max 12 riječi). "
+        "Srpski/crnogorski jezik. Bez emotikona. Pomeni najbitnije promjene tokom dana ako ih ima.\n"
+        "Primjeri dobrog stila:\n"
+        "- Sunčano i toplo uz večernji pad temperature i rast vlage.\n"
+        "- Oblačno jutro, razvedravanje od podneva uz umjeren vjetar.\n"
+        "- Kiša do podneva, poslijepodne suvo i svježije.\n"
+        "Samo rečenicu, ništa drugo."
+    )
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}],
+               "generationConfig": {"temperature": 0.3, "maxOutputTokens": 150,
+                                    "thinkingConfig": {"thinkingBudget": 0}}}
+    for attempt in range(4):
+        try:
+            resp = requests.post(url, json=payload, timeout=15)
+            if resp.status_code == 429:
+                wait = 2 ** attempt * 5  # 5, 10, 20, 40 sec
+                print(f"  [Gemini] Rate limit za {date_str}, čekam {wait}s...")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            text = data['candidates'][0]['content']['parts'][0]['text'].strip()
+            if text.startswith('"') and text.endswith('"'):
+                text = text[1:-1]
+            return text
+        except Exception as e:
+            print(f"  [Gemini] Greška za {date_str}: {e}")
+            return None
+    return None
+
+
+def _gemini_narrative_daily(date_str, ds):
+    """Call Gemini for long-range days that lack hourly data."""
+    if not GEMINI_API_KEY:
+        return None
+    tmin = ds.get('temp_min', '?')
+    tmax = ds.get('temp_max', '?')
+    cloud = ds.get('cloud_cover_day', ds.get('cloud_cover_avg', '?'))
+    precip = ds.get('precip_total', 0)
+    wind = ds.get('wind_max', '?')
+    pp = ds.get('precip_probability', 0)
+    summary = (f"Budva {date_str}: temp {tmin}-{tmax}°C, oblačnost {cloud}%, "
+               f"padavine {precip}mm (šansa {pp}%), vjetar do {wind}m/s.")
+    prompt = (
+        f"{summary}\n\n"
+        "Napiši JEDNU kratku rečenicu opisa vremena (max 12 riječi). "
+        "Srpski/crnogorski jezik. Bez emotikona.\n"
+        "Primjeri: Sunčano i toplo. / Oblačno sa povremenom kišom. / Pretežno vedro uz slab vjetar.\n"
+        "Samo rečenicu:"
+    )
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}],
+               "generationConfig": {"temperature": 0.3, "maxOutputTokens": 80,
+                                    "thinkingConfig": {"thinkingBudget": 0}}}
+    for attempt in range(3):
+        try:
+            resp = requests.post(url, json=payload, timeout=15)
+            if resp.status_code == 429:
+                wait = 2 ** attempt * 5
+                print(f"  [Gemini] Rate limit za {date_str}, čekam {wait}s...")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            text = data['candidates'][0]['content']['parts'][0]['text'].strip()
+            if text.startswith('"') and text.endswith('"'):
+                text = text[1:-1]
+            return text
+        except Exception as e:
+            print(f"  [Gemini] Greška za {date_str}: {e}")
+            return None
+    return None
+
+
+def _enrich_narratives_with_ai(daily_list, hourly_data):
+    """Replace day_narrative with AI-generated text where possible."""
+    if not GEMINI_API_KEY:
+        print("  [Gemini] API ključ nije postavljen, preskačem AI opise.")
+        return
+    print("  [Gemini] Generišem AI opise vremena...")
+    hourly_by_date = {}
+    for h in hourly_data:
+        d = h.get('date', h.get('_date', ''))
+        if d not in hourly_by_date:
+            hourly_by_date[d] = []
+        hourly_by_date[d].append(h)
+
+    count = 0
+    for ds in daily_list:
+        date_str = ds.get('date', '')
+        rows = hourly_by_date.get(date_str, [])
+        day_rows = [r for r in rows if 7 <= r.get('hour', 0) <= 21]
+        if len(day_rows) >= 4:
+            narrative = _gemini_narrative(date_str, day_rows)
+        else:
+            narrative = _gemini_narrative_daily(date_str, ds)
+        if narrative:
+            ds['day_narrative'] = narrative
+            count += 1
+        time.sleep(12)
+    print(f"  [Gemini] Generisano {count}/{len(daily_list)} AI opisa.")
+
+
 def generate_output(corrected, trained, results, fc_raw=None):
     print("\n[6/6] Generisanje izlaza...")
     now_str = pd.Timestamp.now().isoformat()
@@ -3023,6 +3150,11 @@ def generate_output(corrected, trained, results, fc_raw=None):
 
     if long_range:
         print(f"  Long range: {len(long_range)} dana")
+
+    # Enrich narratives with Gemini AI (daily + long_range, uses ALL hourly data)
+    all_days_for_ai = daily + long_range
+    all_hourly = all_data.to_dict('records')
+    _enrich_narratives_with_ai(all_days_for_ai, all_hourly)
 
     output = {
         "generated": now_str,
