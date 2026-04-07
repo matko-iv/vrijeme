@@ -2945,17 +2945,17 @@ def _gemini_narrative(date_str, hourly_rows):
     prompt = (
         f"Satni podaci za Budvu, {date_str}:\n{hourly_text}\n\n"
         "Napiši JEDNU kratku rečenicu opisa vremena za taj dan (max 12 riječi). "
-        "Srpski/crnogorski jezik. Bez emotikona. Pomeni najbitnije promjene tokom dana ako ih ima.\n"
-        "Primjeri dobrog stila:\n"
-        "- Sunčano i toplo uz večernji pad temperature i rast vlage.\n"
+        "Crnogorski jezik. Bez emotikona. Samo opiši vremenske uslove — bez savjeta, preporuka ili komentara.\n"
+        "Primjeri:\n"
+        "- Sunčano i toplo uz večernji pad temperature.\n"
         "- Oblačno jutro, razvedravanje od podneva uz umjeren vjetar.\n"
         "- Kiša do podneva, poslijepodne suvo i svježije.\n"
         "Samo rečenicu, ništa drugo."
     )
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}],
-               "generationConfig": {"temperature": 0.3, "maxOutputTokens": 150,
+               "generationConfig": {"temperature": 0.3, "maxOutputTokens": 200,
                                     "thinkingConfig": {"thinkingBudget": 0}}}
     for attempt in range(4):
         try:
@@ -2991,14 +2991,14 @@ def _gemini_narrative_daily(date_str, ds):
                f"padavine {precip}mm (šansa {pp}%), vjetar do {wind}m/s.")
     prompt = (
         f"{summary}\n\n"
-        "Napiši JEDNU kratku rečenicu opisa vremena (max 12 riječi). "
-        "Srpski/crnogorski jezik. Bez emotikona.\n"
-        "Primjeri: Sunčano i toplo. / Oblačno sa povremenom kišom. / Pretežno vedro uz slab vjetar.\n"
+        "Napiši JEDNU kratku rečenicu opisa vremena (max 10 riječi). "
+        "Crnogorski jezik. Bez emotikona. Samo opiši vremenske uslove — bez savjeta, preporuka ili komentara.\n"
+        "Primjeri: 'Mild day with mostly sunny skies after early clouds.' (Ovo ali na crnogorskom.)\n"
         "Samo rečenicu:"
     )
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}],
-               "generationConfig": {"temperature": 0.3, "maxOutputTokens": 80,
+               "generationConfig": {"temperature": 0.3, "maxOutputTokens": 200,
                                     "thinkingConfig": {"thinkingBudget": 0}}}
     for attempt in range(3):
         try:
