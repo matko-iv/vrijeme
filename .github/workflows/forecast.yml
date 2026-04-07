@@ -12,7 +12,7 @@ permissions:
 jobs:
   forecast:
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 11
 
     steps:
       - name: Checkout repository
@@ -28,6 +28,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run forecast pipeline (skip training)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python forecast_48h_v2.py --skip-training
 
       - name: Copy forecast JSON to docs
@@ -38,6 +40,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/forecast_data/forecast_48h.json
+          git add forecast_output/gemini_narrative_cache.json
           git diff --staged --quiet || git commit -m "🌤️ Update forecast $(date -u +'%Y-%m-%d %H:%M UTC')"
           git pull --rebase
           git push

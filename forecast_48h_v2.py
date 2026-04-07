@@ -3021,10 +3021,22 @@ def _gemini_narrative_daily(date_str, ds):
 
 
 def _enrich_narratives_with_ai(daily_list, hourly_data):
-    """Replace day_narrative with AI-generated text where possible."""
+    """Replace day_narrative with AI-generated text where possible.
+    Uses a date-keyed cache to avoid redundant Gemini calls."""
     if not GEMINI_API_KEY:
         print("  [Gemini] API ključ nije postavljen, preskačem AI opise.")
         return
+
+    # --- Cache logic ---
+    cache_path = os.path.join(OUTPUT_DIR, "gemini_narrative_cache.json")
+    cache = {}
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache = json.load(f)
+        except Exception:
+            cache = {}
+
     print("  [Gemini] Generišem AI opise vremena...")
     hourly_by_date = {}
     for h in hourly_data:
@@ -3034,19 +3046,41 @@ def _enrich_narratives_with_ai(daily_list, hourly_data):
         hourly_by_date[d].append(h)
 
     count = 0
+    api_calls = 0
     for ds in daily_list:
         date_str = ds.get('date', '')
+
+        # Use cache if we already have a narrative for this date
+        if date_str in cache:
+            ds['day_narrative'] = cache[date_str]
+            count += 1
+            continue
+
         rows = hourly_by_date.get(date_str, [])
         day_rows = [r for r in rows if 7 <= r.get('hour', 0) <= 21]
         if len(day_rows) >= 4:
             narrative = _gemini_narrative(date_str, day_rows)
         else:
             narrative = _gemini_narrative_daily(date_str, ds)
+        api_calls += 1
         if narrative:
             ds['day_narrative'] = narrative
+            cache[date_str] = narrative
             count += 1
-        time.sleep(12)
-    print(f"  [Gemini] Generisano {count}/{len(daily_list)} AI opisa.")
+        if api_calls < len(daily_list):
+            time.sleep(12)
+
+    # Clean old dates from cache (keep only future/today)
+    today_str = pd.Timestamp.now().strftime('%Y-%m-%d')
+    cache = {k: v for k, v in cache.items() if k >= today_str}
+
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+    print(f"  [Gemini] Generisano {count}/{len(daily_list)} AI opisa ({api_calls} API poziva, {count - api_calls} iz keša).")
 
 
 def generate_output(corrected, trained, results, fc_raw=None):
