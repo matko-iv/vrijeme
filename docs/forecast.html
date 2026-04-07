@@ -534,9 +534,9 @@
 
     <h1>Matkov model v2</h1>
 
-    <div class="note" style="background:#fff4ca;border-left-color:#ffbf00;margin-bottom:30px;">
+    <!-- <div class="note" style="background:#fff4ca;border-left-color:#ffbf00;margin-bottom:30px;">
         Poštovani posjetioci, Open-Meteo API je trenutno kvaran. Zbog toga nijesmo u prilici da ažuriramo vremensku prognozu. Ne posjedujem informacije o razlogu pada njihovog sistema. Nadam se da će usluga uskoro ponovo biti dostupna.
-    </div>
+    </div> -->
 
     <div class="generated-time" id="genTime"></div>
 
@@ -1634,6 +1634,7 @@ function render(data) {
             <div style="text-align:center;margin:8px 0">
                 <div style="width:80px;height:80px;margin:0 auto">${icon}</div>
                 <div class="weather-desc">${d.weather_desc}</div>
+                <div class="day-narrative">${d.day_narrative || generateNarrative(d, d.weather_icon)}</div>
             </div>
             <div class="temp-range">
                 <span class="temp-low">${d.temp_min.toFixed(1)}°</span>
