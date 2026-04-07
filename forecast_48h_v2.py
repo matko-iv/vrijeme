@@ -3056,9 +3056,10 @@ def _enrich_narratives_with_ai(daily_list, hourly_data):
             continue
 
         rows = hourly_by_date.get(date_str, [])
-        day_rows = [r for r in rows if 7 <= r.get('hour', 0) <= 21]
-        if len(day_rows) >= 4:
-            narrative = _gemini_narrative(date_str, day_rows)
+        # Sort by hour to ensure chronological order
+        rows.sort(key=lambda r: r.get('hour', 0))
+        if len(rows) >= 8:
+            narrative = _gemini_narrative(date_str, rows)
         else:
             narrative = _gemini_narrative_daily(date_str, ds)
         api_calls += 1
