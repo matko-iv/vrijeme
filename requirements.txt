@@ -3,3 +3,6 @@ numpy
 xgboost
 scikit-learn
 requests
+optuna
+catboost
+lightgbm
