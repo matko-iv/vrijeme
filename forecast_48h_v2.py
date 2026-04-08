@@ -2940,15 +2940,18 @@ def _gemini_narrative(date_str, hourly_rows):
         press = h.get('surface_pressure', h.get('pressure_msl', '?'))
         cloud = h.get('cloud_cover', '?')
         precip = h.get('precipitation', h.get('precipitation_ensemble', 0))
-        lines.append(f"  {date_str} {hour:02d}:00   {temp}°   {hum}%   {wind}   {press}   {cloud}%   {precip}")
+        wc = int(h.get('weather_code', h.get('weather_code_raw', 0)) or 0)
+        icon = WMO_CODES.get(wc, {}).get('icon', 'unknown')
+        emoji = h.get('weather_emoji', '')
+        lines.append(
+            f"  {date_str} {hour:02d}:00 {icon} {emoji}  {temp}°   {hum}%   {wind}   {press}   {cloud}%   {precip}"
+        )
     hourly_text = "\n".join(lines)
 
     prompt = (
-        f"Satni podaci za Budvu, {date_str} (datum sat  temp  vlažnost  vjetar_m/s  pritisak_hPa  oblačnost  padavine_mm):\n"
+        f"Satni podaci za Budvu, {date_str} (sat  ikonica  temp  vlažnost  vjetar_m/s  pritisak_hPa  oblačnost  padavine_mm):\n"
         f"{hourly_text}\n\n"
-        "Napiši JEDNU kratku rečenicu opisa vremena za taj dan. MAKSIMALNO 8 riječi.\n"
-        "Crnogorski jezik. Bez emotikona. Samo opiši vremenske uslove — bez savjeta, preporuka ili komentara. Ali preciziraj koliko mozes u tih 8 riječi.\n"
-        "Samo rečenicu, ništa drugo."
+        "Na osnovu ovih satnih podataka za Budvu, napiši kratak izvještaj.\n\nPravila:\n1. Maksimalno 8 riječi.\n2. Fokusiraj se na glavnu promjenu vremena (npr. prelaz iz oblačnog u sunčano).\n3. Navedi doba dana kada se promjena dešava.\n4.Ako nema kiše ili vjetra, ne spominji ih."
     )
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
@@ -2989,9 +2992,10 @@ def _gemini_narrative_daily(date_str, ds):
                f"padavine {precip}mm (šansa {pp}%), vjetar do {wind}m/s.")
     prompt = (
         f"{summary}\n\n"
-        "Napiši JEDNU kratku rečenicu opisa vremena. MAKSIMALNO 8 riječi.\n"
-        "Crnogorski jezik. Bez emotikona. Samo opiši vremenske uslove — bez savjeta, preporuka ili komentara. Ali preciziraj koliko mozes u tih 8 riječi.\n"
-        "Primjeri: Vedro i toplo, slab vjetar. / Oblačno sa slabom kišom.\n"
+        "Napiši JEDNU rečenicu (max 10 riječi) koja opisuje vremenske uslove.\n"
+        "Crnogorski jezik. Bez emotikona. Bez savjeta.\n"
+        "Ako oblačnost > 50%, pomeni oblake. Ako padavine > 0.5mm, pomeni kišu.\n"
+        "Primjeri: Djelimično oblačno, moguća slaba kiša. / Pretežno vedro uz umjeren vjetar.\n"
         "Samo rečenicu:"
     )
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"

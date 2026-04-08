@@ -1,7 +1,8 @@
 .venv/
 __pycache__/
 *.pyc
-forecast_output/
+forecast_output/*
+!forecast_output/gemini_narrative_cache.json
 .idea/
 .vscode/
 *.egg-info/
