@@ -589,7 +589,7 @@ function getWeatherSvg(code, hour) {
     return SVG_ICONS[key] || SVG_ICONS.clear_day;
 }
 
-const ICON_CDN = 'https://bmcdn.nl/assets/weather-icons/v3.0/fill/svg/';
+const ICON_CDN = 'https://cdn.meteocons.com/3.0.0-next.5/svg/fill/';
 const ICON_MAP = {
     clear_day: 'clear-day.svg', clear_night: 'clear-night.svg',
     partly_cloudy_day: 'partly-cloudy-day.svg', partly_cloudy_night: 'partly-cloudy-night.svg',
@@ -705,7 +705,7 @@ function precipLabel(pp, icon) {
     if (pp == null) return '';
     if (pp <= 30) return '';
     if (pp <= 50) return 'Neizvjesno — ne možemo potvrditi padavine';
-    if (pp <= 70) return 'Padavine moguće, ali ne garantovane';
+    if (pp <= 70) return 'Padavine moguće';
     if (pp <= 85) return 'Padavine vjerovatne';
     return 'Kiša gotovo sigurna';
 }
