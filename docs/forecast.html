@@ -178,13 +178,13 @@
 
     <h2>Šta se desilo</h2>
 
-    <p>Pravio sam grešku tokom treniranja modela. Neki feature-i koje sam dao modelu da uči — konkretno oni koji prate koliko je model grešio u prethodnim satima — bili su loše napisani. Umjesto da gledaju samo prošlost, slučajno su uključivali i sadašnjost. To znači da je model tokom učenja praktično "vidio" tačan odgovor za svaki sat. Lakomislen bug, ali mi je zbog njega metrika izgledala spektakularno: training greška od 0.36°C, što sam trebao odmah da prepoznam kao previše dobro da bi bilo istina (realno ide oko 1°C). Nisam, i pustio sam to u produkciju.</p>
+    <p>Pravio sam grešku tokom treniranja modela. Neki feature-i koje sam dao modelu da uči — konkretno oni koji prate koliko je model griješio u prethodnim satima — bili su loše napisani. Umjesto da gledaju samo prošlost, slučajno su uključivali i sadašnjost. To znači da je model tokom učenja praktično "vidio" tačan odgovor za svaki sat. Ybog njega metrika izgledala spektakularno: training greška od 0.36°C, što sam trebao odmah da prepoznam kao previše dobro da bi bilo istina (realno ide oko 0.8-1°C). Nisam, i puštio sam tako da radi.</p>
 
     <p>U produkciji ti isti feature-i ne mogu da se izračunaju — jer u tom trenutku ne znam stvarnu temperaturu za buduće sate, to je upravo ono što pokušavam da predvidim. Pa je model, naviknut da se oslanja na te informacije, ostao bez svog glavnog oslonca i počeo da pogađa. Ispostavilo se da kad pogađa, pogađa otprilike +3.5°C iznad ensemble prosjeka, što je upravo to što ste vidjeli na sajtu.</p>
 
     <h2>Šta sad radim</h2>
 
-    <p>Popravio sam tri konkretne stvari u kodu — sad ti feature-i gledaju samo prošlost, kako i treba, i sve što zavisi od trenutne observacije sam izbacio iz treninga jer u produkciji ionako ne postoji. Usput sam pokušao i da poboljšam prognozu padavina, koja je dosad bila lošija od običnog prosjeka modela, što je bilo neprihvatljivo.</p>
+    <p>Popravio sam tri konkretne stvari u kodu — sad ti feature-i gledaju samo prošlost, kako i treba, i sve što zavisi od trenutne opservacije sam izbacio iz treninga jer u produkciji ionako ne postoji. Usput sam pokušao i da poboljšam prognozu padavina, koja je dosad bila lošija od običnog prosjeka modela, što je bilo neprihvatljivo.</p>
 
     <p>Sad puštam model da se istrenira ispočetka. Trening traje možda jedan dan. Kad završi, nova metrika će biti gora na papiru — ali realnija, i model će konačno raditi kako treba kad ga koristim.
     <h2>Status</h2>
