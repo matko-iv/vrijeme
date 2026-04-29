@@ -389,6 +389,21 @@ def engineer_features(df):
         out['rain_model_count'] = (rain_vals > 0.1).sum(axis=1)
         out['rain_agreement'] = out['rain_model_count'] / max(len(rain_mcols), 1)
 
+        # Precipitation quantile features — tails matter more than mean for intermittent precip
+        if len(rain_mcols) >= 4:
+            out['precip_ens_p10'] = rain_vals.quantile(0.1, axis=1)
+            out['precip_ens_p25'] = rain_vals.quantile(0.25, axis=1)
+            out['precip_ens_p75'] = rain_vals.quantile(0.75, axis=1)
+            out['precip_ens_p90'] = rain_vals.quantile(0.9, axis=1)
+            # Conditional ensemble mean: mean only of models predicting rain (avoids dilution by zeros)
+            rain_only = rain_vals.where(rain_vals > 0.1)
+            out['precip_ens_mean_rainy'] = rain_only.mean(axis=1).fillna(0)
+
+        # Ensemble dry consensus: all models predict < 0.1mm = strong dry signal
+        out['ens_all_dry'] = (rain_vals.max(axis=1) < 0.1).astype(float)
+        # Max model precipitation — captures extreme predictions the mean smooths out
+        out['precip_ens_max_single'] = rain_vals.max(axis=1)
+
     wc_feat_cols = [f"{m}_weather_code_model" for m in MODELS if f"{m}_weather_code_model" in out.columns]
     if wc_feat_cols:
         wc_vals = out[wc_feat_cols].apply(pd.to_numeric, errors='coerce')
@@ -897,9 +912,9 @@ def engineer_features(df):
             error_series = obs_vals - ens_vals
             for lag in [1, 3, 6, 24]:
                 out[f'{param}_error_lag{lag}'] = error_series.shift(lag)
-            # Running mean of recent errors
-            out[f'{param}_error_ma6'] = error_series.rolling(6, min_periods=1).mean()
-            out[f'{param}_error_ma24'] = error_series.rolling(24, min_periods=1).mean()
+            # Running mean of PAST errors (shift(1) excludes current timestep to prevent target leakage)
+            out[f'{param}_error_ma6'] = error_series.shift(1).rolling(6, min_periods=1).mean()
+            out[f'{param}_error_ma24'] = error_series.shift(1).rolling(24, min_periods=1).mean()
 
     # ===== SST-DERIVED FEATURES (PDF1 §10) =====
     # SST moderates coastal Budva temps; land-sea gradient drives sea breeze / onshore flow.
@@ -934,12 +949,12 @@ def engineer_features(df):
         P = 1.0  # initial covariance
         kalman_bias = np.full(len(out), np.nan)
         for i in range(len(innovation)):
+            kalman_bias[i] = x  # store PRIOR (before absorbing obs[i]) to prevent target leakage
             if not np.isnan(innovation[i]):
                 P_pred = P + Q
                 K = P_pred / (P_pred + R)
                 x = x + K * (innovation[i] - x)
                 P = (1 - K) * P_pred
-            kalman_bias[i] = x
         out[f'{param}_kalman_bias'] = kalman_bias
 
     return out
@@ -959,12 +974,20 @@ def get_feature_columns(df):
         'date_str', 'time_str', '_h',
     ])
     obs_suffix = '_obs'
+    # Exclude features that require station observations — these are unavailable at
+    # inference time because fetch_live_forecasts() only returns model forecasts.
+    # Without this exclusion, the model trains on features that are always NaN in
+    # production, causing systematic bias (train/serve skew).
+    obs_dependent_suffixes = ('_error_lag1', '_error_lag3', '_error_lag6', '_error_lag24',
+                              '_error_ma6', '_error_ma24', '_kalman_bias')
 
     features = []
     for col in df.columns:
         if col in exclude:
             continue
         if col.endswith(obs_suffix):
+            continue
+        if any(col.endswith(s) for s in obs_dependent_suffixes):
             continue
         if not pd.api.types.is_numeric_dtype(df[col]):
             continue
@@ -1554,20 +1577,21 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val, feature_
     # --- Tweedie model (PDF1 §3): unified zero-inflation + continuous positive density ---
     # Tweedie with p∈(1,2) handles point mass at zero naturally via log-link.
     # Replaces classifier+regressor with a single model, eliminating threshold sensitivity.
+    # Tighter search space: shallower trees + stronger regularization to reduce false alarms.
     tscv_tw = TimeSeriesSplit(n_splits=3)
     def tweedie_objective(trial):
         tw_hp = {
             'n_estimators': 1000,
-            'max_depth': trial.suggest_int('max_depth', 3, 7),
-            'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.1, log=True),
-            'subsample': trial.suggest_float('subsample', 0.5, 0.9),
-            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.3, 0.7),
-            'reg_alpha': trial.suggest_float('reg_alpha', 1e-3, 5.0, log=True),
-            'reg_lambda': trial.suggest_float('reg_lambda', 0.1, 10.0, log=True),
-            'min_child_weight': trial.suggest_int('min_child_weight', 5, 25),
-            'gamma': trial.suggest_float('gamma', 0.0, 0.5),
+            'max_depth': trial.suggest_int('max_depth', 3, 5),
+            'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.06, log=True),
+            'subsample': trial.suggest_float('subsample', 0.5, 0.85),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.3, 0.6),
+            'reg_alpha': trial.suggest_float('reg_alpha', 0.1, 10.0, log=True),
+            'reg_lambda': trial.suggest_float('reg_lambda', 1.0, 20.0, log=True),
+            'min_child_weight': trial.suggest_int('min_child_weight', 10, 40),
+            'gamma': trial.suggest_float('gamma', 0.1, 1.0),
             'objective': 'reg:tweedie',
-            'tweedie_variance_power': trial.suggest_float('tweedie_variance_power', 1.1, 1.9),
+            'tweedie_variance_power': trial.suggest_float('tweedie_variance_power', 1.3, 1.8),
             'tree_method': 'hist',
             'random_state': 42, 'n_jobs': -1, 'early_stopping_rounds': 30,
         }
@@ -1580,12 +1604,13 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val, feature_
             m = xgb.XGBRegressor(**tw_hp)
             m.fit(X_t, y_t, eval_set=[(X_v, y_v)], verbose=False)
             p = np.clip(m.predict(X_v), 0, None)
+            p[p < 0.1] = 0.0  # evaluate with clamping to match production behavior
             scores.append(mean_absolute_error(y_v, p))
         return np.mean(scores)
 
     study_tw = optuna.create_study(direction='minimize',
                                    sampler=optuna.samplers.TPESampler(seed=42, multivariate=True, warn_independent_sampling=False))
-    study_tw.optimize(tweedie_objective, n_trials=10, show_progress_bar=False)
+    study_tw.optimize(tweedie_objective, n_trials=20, show_progress_bar=False)
     tw_hp = study_tw.best_params
     tw_hp['objective'] = 'reg:tweedie'
     tw_hp['tree_method'] = 'hist'
@@ -1609,6 +1634,17 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val, feature_
     print(f"    Tweedie: p={tw_hp.get('tweedie_variance_power', 1.5):.2f}, "
           f"MAE={mean_absolute_error(y_te, tweedie_pred):.4f}")
 
+    # --- False-alarm clamping: suppress small predictions that are noise ---
+    # Tweedie's exp-link never produces exact 0; clamp sub-threshold values.
+    # Also: when ensemble unanimously says dry, trust it over the XGB.
+    def _clamp_precip(pred, X_data):
+        pred = pred.copy()
+        pred[pred < 0.1] = 0.0
+        if 'ens_all_dry' in X_data.columns:
+            dry_mask = X_data['ens_all_dry'].values > 0.5
+            pred[dry_mask] = 0.0
+        return pred
+
     methods = {
         'single': (np.clip(single_pred, 0, None), single_model),
         'hard': (np.clip(hard_pred, 0, None), None),
@@ -1618,9 +1654,18 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val, feature_
         'tweedie': (np.clip(tweedie_pred, 0, None), tweedie_model),
     }
 
+    # Evaluate both raw and clamped versions of each method
     method_maes = {}
     for name, (pred, _) in methods.items():
-        method_maes[name] = mean_absolute_error(y_te, pred)
+        clamped = _clamp_precip(pred, X_te)
+        mae_raw = mean_absolute_error(y_te, pred)
+        mae_clamped = mean_absolute_error(y_te, clamped)
+        # Use clamped if it improves MAE
+        if mae_clamped <= mae_raw:
+            methods[name] = (clamped, methods[name][1])
+            method_maes[name] = mae_clamped
+        else:
+            method_maes[name] = mae_raw
 
     best_method = min(method_maes, key=method_maes.get)
     best_pred = methods[best_method][0]
@@ -1768,6 +1813,12 @@ def train_all_models(df):
                 else:
                     xgb_pred = single_pred_te
                 xgb_pred = np.clip(xgb_pred, 0, None)
+
+                # Apply same clamping as production (suppress noise + ensemble dry consensus)
+                xgb_pred[xgb_pred < RAIN_THRESH] = 0.0
+                if 'ens_all_dry' in X_te.columns:
+                    dry_mask = X_te['ens_all_dry'].values > 0.5
+                    xgb_pred[dry_mask] = 0.0
 
                 b_alpha, b_mae, _ = _find_optimal_blend(xgb_pred, y_te.values, ens_te_vals)
                 if b_mae < mae:
@@ -2447,6 +2498,12 @@ def apply_correction(fc_df, trained, bias_tables):
                 ens_vals_p = pd.to_numeric(fc[ens_col_p], errors='coerce').fillna(0).values if ens_col_p in fc.columns else np.zeros(len(X))
                 pred = p_blend_alpha * pred + (1 - p_blend_alpha) * ens_vals_p
                 pred = np.clip(pred, 0, 50)
+
+            # False-alarm clamping: suppress noise and trust ensemble dry consensus
+            pred[pred < 0.1] = 0.0
+            if 'ens_all_dry' in fc.columns:
+                dry_mask = fc['ens_all_dry'].values > 0.5
+                pred[dry_mask] = 0.0
 
             corrected[f'{param}_xgb'] = pred
             method_lbl = method + (f'+blend({p_blend_alpha:.2f})' if p_blend_alpha < 1.0 else '')
