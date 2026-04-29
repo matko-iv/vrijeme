@@ -19,9 +19,9 @@
         body {
             font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
             font-weight: 400;
-            font-size: 17px;
-            line-height: 1.55;
-            color: #1a1f24;
+            font-size: 18px;
+            line-height: 1.6;
+            color: #24292e;
             background: #ffffff;
             max-width: 680px;
             margin: 0 auto;
@@ -29,35 +29,30 @@
         }
 
         h1 {
-            font-size: 34px;
+            font-size: 36px;
             font-weight: 600;
             margin-bottom: 12px;
-            line-height: 1.2;
-            letter-spacing: -0.01em;
-            color: #1a1f24;
+            line-height: 1.25;
+            color: #24292e;
         }
 
         h2 {
-            font-size: 22px;
+            font-size: 24px;
             font-weight: 600;
             margin-top: 48px;
             margin-bottom: 16px;
             line-height: 1.25;
-            letter-spacing: 0.02em;
-            text-transform: uppercase;
-            color: #1a1f24;
+            color: #24292e;
             padding-bottom: 8px;
-            border-bottom: 1px solid #1a1f24;
+            border-bottom: 1px solid #d0d7de;
         }
 
         h3 {
-            font-size: 14px;
+            font-size: 18px;
             font-weight: 600;
             margin-top: 32px;
             margin-bottom: 14px;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: #1a1f24;
+            color: #24292e;
         }
 
         p {
@@ -66,14 +61,12 @@
         }
 
         a {
-            color: #1a1f24;
-            text-decoration: underline;
-            text-decoration-thickness: 1px;
-            text-underline-offset: 2px;
+            color: #0366d6;
+            text-decoration: none;
         }
 
         a:hover {
-            color: #4a5258;
+            text-decoration: underline;
         }
 
         .site-header {
@@ -106,39 +99,33 @@
 
         .generated-time {
             text-align: left;
-            color: #4a5258;
-            font-size: 12px;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
+            color: #586069;
+            font-size: 13px;
             margin-bottom: 28px;
             padding: 8px 0;
-            border-top: 1px solid #d8dde1;
-            border-bottom: 1px solid #d8dde1;
+            border-top: 1px solid #e1e4e8;
+            border-bottom: 1px solid #e1e4e8;
         }
 
         .method-badge {
             display: inline-block;
             margin-top: 8px;
-            padding: 3px 10px;
+            padding: 4px 12px;
             border-radius: 0;
-            background: #1a1f24;
-            border: 1px solid #1a1f24;
-            color: #ffffff;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
+            color: #24292e;
+            font-size: 13px;
+            font-weight: 500;
         }
 
         .note {
-            background: #f4f5f7;
-            border: 1px solid #d8dde1;
-            border-left: 4px solid #1a1f24;
+            background: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-left: 3px solid #586069;
             padding: 14px 18px;
             margin: 28px 0;
-            font-size: 15px;
+            font-size: 16px;
         }
 
         .daily-grid {
@@ -150,8 +137,8 @@
         }
 
         .current-weather {
-            background: #f4f5f7;
-            border: 1px solid #1a1f24;
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
             border-radius: 0;
             padding: 24px;
             margin: 0 -60px 32px;
@@ -169,62 +156,52 @@
         }
 
         .current-weather .cw-label {
-            font-size: 11px;
-            color: #4a5258;
+            font-size: 13px;
+            color: #586069;
             text-transform: uppercase;
-            letter-spacing: 0.08em;
+            letter-spacing: 0.5px;
             font-weight: 600;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            margin-bottom: 6px;
-            padding-bottom: 4px;
-            border-bottom: 1px solid #d8dde1;
+            margin-bottom: 4px;
         }
 
         .current-weather .cw-temp {
-            font-size: 52px;
+            font-size: 48px;
             font-weight: 700;
-            color: #1a1f24;
+            color: #24292e;
             line-height: 1;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            letter-spacing: -0.02em;
         }
 
         .current-weather .cw-desc {
-            font-size: 15px;
-            color: #4a5258;
-            margin-top: 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
+            font-size: 16px;
+            color: #586069;
+            margin-top: 4px;
         }
 
         .current-weather .cw-details {
             display: flex;
-            gap: 18px;
-            margin-top: 14px;
+            gap: 20px;
+            margin-top: 12px;
             flex-wrap: wrap;
-            padding-top: 12px;
-            border-top: 1px solid #d8dde1;
         }
 
         .current-weather .cw-detail {
             display: flex;
             align-items: center;
             gap: 6px;
-            font-size: 13px;
-            color: #4a5258;
+            font-size: 14px;
+            color: #586069;
         }
 
         .current-weather .cw-detail span {
-            color: #1a1f24;
+            color: #24292e;
             font-weight: 600;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
         }
 
         .day-card {
             background: #ffffff;
-            border: 1px solid #1a1f24;
+            border: 1px solid #d0d7de;
             border-radius: 0;
-            padding: 18px 16px;
+            padding: 20px 18px;
             box-shadow: none;
         }
 
@@ -232,24 +209,20 @@
             display: flex;
             justify-content: space-between;
             align-items: baseline;
-            margin-bottom: 10px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #d8dde1;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e1e4e8;
         }
 
         .day-card .day-name {
-            font-size: 14px;
-            font-weight: 700;
-            color: #1a1f24;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
+            font-size: 16px;
+            font-weight: 600;
+            color: #24292e;
         }
 
         .day-card .day-date {
-            color: #4a5258;
-            font-size: 11px;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            letter-spacing: 0.04em;
+            color: #586069;
+            font-size: 13px;
         }
 
         .weather-icon-large {
@@ -258,85 +231,73 @@
         }
 
         .day-card .weather-desc {
-            font-size: 12px;
-            color: #4a5258;
+            font-size: 14px;
+            color: #586069;
             text-align: center;
-            margin-top: 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            font-weight: 600;
+            margin-top: 4px;
         }
 
         .day-card .day-narrative {
-            font-size: 13px;
-            color: #4a5258;
+            font-size: 14px;
+            color: #586069;
             text-align: center;
             margin-top: 4px;
-            line-height: 1.45;
+            line-height: 1.4;
             padding: 0 4px;
         }
 
         .day-card .temp-range {
             display: flex;
             justify-content: center;
-            gap: 18px;
+            gap: 16px;
             margin: 14px 0 10px;
-            font-size: 28px;
+            font-size: 30px;
             font-weight: 700;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            letter-spacing: -0.02em;
         }
 
-        .temp-high { color: #b71c1c; }
-        .temp-low { color: #1565c0; }
+        .temp-high { color: #d73a49; }
+        .temp-low { color: #0366d6; }
 
         .day-details {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 6px 12px;
+            gap: 8px;
             margin-top: 14px;
-            padding-top: 12px;
-            border-top: 1px solid #d8dde1;
+            padding-top: 14px;
+            border-top: 1px solid #e1e4e8;
         }
 
         .detail-item {
             display: flex;
             align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            color: #4a5258;
+            gap: 8px;
+            font-size: 13px;
+            color: #586069;
         }
 
         .detail-item img { flex-shrink: 0; }
         .detail-item .detail-icon { font-size: 16px; }
-        .detail-item .detail-val {
-            color: #1a1f24;
-            font-weight: 600;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            letter-spacing: -0.01em;
-        }
+        .detail-item .detail-val { color: #24292e; font-weight: 500; }
 
         .precip-badge {
-            background: #1a1f24;
-            border: 1px solid #1a1f24;
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
             border-radius: 0;
             padding: 6px 10px;
             margin-top: 12px;
             text-align: center;
-            font-size: 11px;
-            font-weight: 700;
-            color: #ffffff;
+            font-size: 14px;
+            font-weight: 600;
+            color: #24292e;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
         }
 
         .hourly-strip {
             background: #ffffff;
-            border: 1px solid #1a1f24;
+            border: 1px solid #d0d7de;
             border-radius: 0;
             padding: 0;
             margin: 0 -60px 36px;
@@ -345,14 +306,13 @@
         }
 
         .hourly-strip h3 {
-            font-size: 11px;
-            font-weight: 700;
+            font-size: 14px;
+            font-weight: 600;
             margin: 0;
-            padding: 8px 14px;
-            color: #ffffff;
-            background: #1a1f24;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
+            padding: 12px 16px;
+            color: #24292e;
+            background: #f6f8fa;
+            border-bottom: 1px solid #e1e4e8;
         }
 
         .hourly-row {
@@ -367,39 +327,34 @@
             flex-direction: column;
             align-items: center;
             min-width: 82px;
-            padding: 12px 6px;
-            border-right: 1px solid #d8dde1;
-            font-size: 12px;
+            padding: 14px 8px;
+            border-right: 1px solid #e1e4e8;
+            font-size: 13px;
             border-radius: 0;
         }
         .hourly-cell:last-child { border-right: none; }
         .hourly-cell .h-time {
-            color: #4a5258;
-            margin-bottom: 6px;
-            font-weight: 700;
-            font-size: 12px;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            letter-spacing: 0.04em;
+            color: #586069;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 14px;
         }
-        .hourly-cell .h-icon { margin-bottom: 4px; }
+        .hourly-cell .h-icon { margin-bottom: 6px; }
         .hourly-cell .h-temp {
             font-weight: 700;
-            font-size: 18px;
-            color: #1a1f24;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 20px;
+            color: #24292e;
         }
         .hourly-cell .h-rain {
-            color: #1565c0;
-            font-size: 11px;
+            color: #0366d6;
+            font-size: 13px;
             margin-top: 6px;
-            font-weight: 600;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-weight: 500;
         }
         .hourly-cell .h-wind {
-            color: #4a5258;
-            font-size: 11px;
+            color: #586069;
+            font-size: 12px;
             margin-top: 3px;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
         }
 
         .long-range-grid {
@@ -411,82 +366,66 @@
             margin-right: auto;
             margin-top: 0;
             margin-bottom: 36px;
-            border: 1px solid #1a1f24;
+            border: 1px solid #d0d7de;
         }
 
         .lr-card {
             background: #ffffff;
             border: none;
-            border-right: 1px solid #d8dde1;
-            border-bottom: 1px solid #d8dde1;
+            border-right: 1px solid #e1e4e8;
+            border-bottom: 1px solid #e1e4e8;
             border-radius: 0;
-            padding: 16px 12px;
+            padding: 18px 14px;
             text-align: center;
             box-shadow: none;
         }
         .lr-card:nth-child(3n) { border-right: none; }
 
         .lr-day {
-            font-weight: 700;
-            font-size: 12px;
-            color: #1a1f24;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
+            font-weight: 600;
+            font-size: 14px;
+            color: #24292e;
         }
 
         .lr-date {
-            font-size: 11px;
-            color: #4a5258;
+            font-size: 12px;
+            color: #586069;
             margin-bottom: 8px;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            letter-spacing: 0.04em;
         }
 
         .lr-icon { margin: 4px 0; }
 
         .lr-desc {
-            font-size: 11px;
-            color: #4a5258;
+            font-size: 12px;
+            color: #586069;
             margin-bottom: 2px;
             min-height: 18px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            font-weight: 600;
         }
 
         .lr-narrative {
-            font-size: 11px;
-            color: #4a5258;
-            font-style: normal;
+            font-size: 12px;
+            color: #6a737d;
             margin-bottom: 6px;
             min-height: 16px;
             line-height: 1.35;
         }
 
         .lr-precip-label {
-            font-size: 10px;
-            color: #ffffff;
-            background: #1565c0;
-            font-weight: 700;
-            margin-bottom: 4px;
-            display: inline-block;
-            padding: 2px 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
+            font-size: 11px;
+            color: #0366d6;
+            font-weight: 600;
+            margin-bottom: 2px;
         }
 
         .lr-temp {
-            font-size: 17px;
+            font-size: 18px;
             font-weight: 700;
             margin: 6px 0;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            letter-spacing: -0.02em;
         }
 
         .lr-details {
-            font-size: 11px;
-            color: #4a5258;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 12px;
+            color: #586069;
         }
 
         .lr-details span {
@@ -503,37 +442,36 @@
             gap: 0;
             margin-bottom: 0;
             flex-wrap: wrap;
-            border: 1px solid #1a1f24;
+            border: 1px solid #d0d7de;
             border-bottom: none;
         }
 
         .chart-tab {
-            padding: 8px 14px;
+            padding: 9px 14px;
             border-radius: 0;
             border: none;
-            border-right: 1px solid #d8dde1;
+            border-right: 1px solid #e1e4e8;
             background: #ffffff;
-            color: #4a5258;
+            color: #586069;
             cursor: pointer;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
+            font-size: 13px;
+            font-weight: 500;
             flex: 1;
             min-width: 0;
         }
         .chart-tab:last-child { border-right: none; }
 
         .chart-tab.active {
-            background: #1a1f24;
-            color: #ffffff;
+            background: #f6f8fa;
+            color: #24292e;
+            font-weight: 600;
         }
 
         .chart-container {
             background: #ffffff;
-            border: 1px solid #1a1f24;
+            border: 1px solid #d0d7de;
             border-radius: 0;
-            padding: 18px;
+            padding: 20px;
             position: relative;
             height: 340px;
         }
@@ -543,71 +481,64 @@
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 0;
             margin-bottom: 36px;
-            border: 1px solid #1a1f24;
+            border: 1px solid #d0d7de;
         }
 
         .metric-card {
             background: #ffffff;
             border: none;
-            border-right: 1px solid #d8dde1;
+            border-right: 1px solid #e1e4e8;
             border-radius: 0;
-            padding: 14px 12px;
+            padding: 16px;
             text-align: left;
         }
         .metric-card:last-child { border-right: none; }
 
         .metric-card .metric-label {
-            font-size: 10px;
-            color: #4a5258;
+            font-size: 11px;
+            color: #586069;
             text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-weight: 600;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            letter-spacing: 0.5px;
+            font-weight: 500;
         }
 
         .metric-card .metric-value {
             font-size: 22px;
             font-weight: 700;
-            margin: 6px 0 2px;
-            color: #1a1f24;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            letter-spacing: -0.02em;
+            margin: 4px 0;
+            color: #24292e;
         }
 
         .metric-card .metric-improvement {
-            font-size: 11px;
-            color: #1b5e20;
-            font-weight: 600;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            letter-spacing: 0.02em;
+            font-size: 12px;
+            color: #28a745;
+            font-weight: 500;
         }
 
         .footer {
             text-align: left;
-            color: #4a5258;
-            font-size: 12px;
-            padding: 20px 0 4px;
+            color: #586069;
+            font-size: 13px;
+            padding: 22px 0 4px;
             margin-top: 32px;
-            border-top: 1px solid #1a1f24;
+            border-top: 1px solid #d0d7de;
         }
 
-        .footer a { color: #1a1f24; text-decoration: underline; }
+        .footer a { color: #0366d6; }
 
         .loading {
             text-align: center;
             padding: 60px 20px;
-            color: #4a5258;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            border: 1px solid #d8dde1;
+            color: #586069;
+            font-size: 14px;
+            border: 1px solid #e1e4e8;
         }
 
         .loading .spinner {
-            width: 32px;
-            height: 32px;
-            border: 2px solid #d8dde1;
-            border-top-color: #1a1f24;
+            width: 36px;
+            height: 36px;
+            border: 3px solid #e1e4e8;
+            border-top-color: #0366d6;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
             margin: 0 auto 14px;
@@ -627,13 +558,13 @@
             .chart-container { height: 280px; }
             .metrics-bar { grid-template-columns: repeat(2, 1fr); }
             .metric-card:nth-child(2n) { border-right: none; }
-            .metric-card { border-bottom: 1px solid #d8dde1; }
+            .metric-card { border-bottom: 1px solid #e1e4e8; }
             .daily-grid { grid-template-columns: 1fr; width: 100%; margin-left: 0; margin-right: 0; }
             .current-weather { margin-left: 0; margin-right: 0; flex-direction: column; text-align: left; padding: 18px; }
             .current-weather .cw-details { justify-content: flex-start; }
             .hourly-strip { margin-left: 0; margin-right: 0; }
             .long-range-grid { grid-template-columns: repeat(2, 1fr); max-width: 100%; }
-            .lr-card:nth-child(3n) { border-right: 1px solid #d8dde1; }
+            .lr-card:nth-child(3n) { border-right: 1px solid #e1e4e8; }
             .lr-card:nth-child(2n) { border-right: none; }
         }
     </style>
@@ -1706,7 +1637,7 @@ async function loadForecast() {
         render(forecastData);
     } catch(e) {
         document.getElementById('app').innerHTML =
-            '<div class="loading" style="color:#b71c1c;border-color:#b71c1c;">GRESKA: ' + e.message +
+            '<div class="loading" style="color:#d73a49">Greška: ' + e.message +
             '<br><small>Pokrenite forecast_48h_v2.py za generisanje prognoze</small></div>';
     }
 }
@@ -1801,7 +1732,7 @@ function render(data) {
         const iconKey = getWeatherIcon(h.weather_code, h.hour);
         const isNow = h.hour === currentHour;
         html += `
-        <div class="hourly-cell" ${isNow ? 'style="background:#fff9c4;border-top:3px solid #1a1f24"' : ''}>
+        <div class="hourly-cell" ${isNow ? 'style="background:#f1f8ff;border-top:2px solid #0366d6"' : ''}>
             <span class="h-time">${String(h.hour).padStart(2,'0')}h</span>
             <span class="h-icon">${weatherIcon(iconKey, 48)}</span>
             <span class="h-temp">${t}</span>
@@ -1813,7 +1744,7 @@ function render(data) {
 
     html += `
     <h2>Interaktivni grafovi</h2>
-    <p style="color:#4a5258;font-size:13px;margin-bottom:14px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;text-transform:uppercase;letter-spacing:0.04em;">Puna linija: XGBoost korekcija · Isprekidana linija: sirovi ensemble prosjek</p>
+    <p style="color:#586069;font-size:15px;margin-bottom:16px;">Puna linija: XGBoost korekcija · Isprekidana linija: sirovi ensemble prosjek</p>
     <div class="charts-section">
         <div class="chart-tabs" id="chartTabs">
             <button class="chart-tab active" data-chart="temp">Temperatura</button>
@@ -1828,7 +1759,7 @@ function render(data) {
         </div>
         <div id="windCompass" style="display:none;text-align:center;padding:16px 0;">
             <canvas id="compassCanvas" width="90" height="90" style="margin:0 auto;display:block;"></canvas>
-            <div id="compassLabel" style="font-size:12px;color:#4a5258;margin-top:6px;font-weight:600;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;text-transform:uppercase;letter-spacing:0.04em;"></div>
+            <div id="compassLabel" style="font-size:13px;color:#586069;margin-top:6px;font-weight:500;"></div>
         </div>
     </div>`;
 
