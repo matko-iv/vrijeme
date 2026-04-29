@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XGBoost – Matija Ivanović</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            font-weight: 400;
+            font-size: 18px;
+            line-height: 1.6;
+            color: #24292e;
+            background: #ffffff;
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 60px 20px;
+        }
+
+        h1 {
+            font-size: 40px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            line-height: 1.25;
+            color: #24292e;
+        }
+
+        h2 {
+            font-size: 30px;
+            font-weight: 600;
+            margin-top: 50px;
+            margin-bottom: 18px;
+            line-height: 1.25;
+            color: #24292e;
+        }
+
+        p {
+            margin-bottom: 18px;
+            color: #24292e;
+        }
+
+        a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .site-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e1e4e8;
+            font-size: 15px;
+        }
+
+        .site-header a {
+            color: #586069;
+            text-decoration: none;
+        }
+
+        .site-header a:hover {
+            color: #24292e;
+        }
+
+        .site-header .site-name {
+            font-weight: 600;
+            color: #24292e;
+        }
+
+        .site-header nav a {
+            margin-left: 20px;
+        }
+
+        .note {
+            background: #f6f8fa;
+            border-left: 3px solid #586069;
+            padding: 15px 20px;
+            margin: 28px 0;
+            font-size: 16px;
+        }
+
+        .maintenance-icon {
+            font-size: 64px;
+            text-align: center;
+            margin: 60px 0 30px;
+        }
+
+        .maintenance-box {
+            text-align: center;
+            margin: 40px 0;
+        }
+
+        .maintenance-box h1 {
+            margin-bottom: 20px;
+        }
+
+        .maintenance-box p {
+            color: #586069;
+            font-size: 17px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid #e1e4e8;
+            font-size: 16px;
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .status-dot.working { background: #28a745; }
+        .status-dot.updating { background: #f9a825; }
+
+        @media (max-width: 680px) {
+            body {
+                font-size: 16px;
+                padding: 40px 16px;
+            }
+
+            h1 {
+                font-size: 32px;
+            }
+
+            h2 {
+                font-size: 26px;
+            }
+
+            .maintenance-icon {
+                font-size: 48px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="site-header">
+        <a href="/" class="site-name">Matija Ivanović</a>
+        <nav>
+            <a href="index.html">O projektu</a>
+            <a href="https://matko-iv.github.io/blog/">Blog</a>
+            <a href="https://github.com/matko-iv/vrijeme" target="_blank">GitHub</a>
+            <a href="mailto:ivanovicmatija2007@gmail.com">Kontakt</a>
+        </nav>
+    </div>
+
+    <div class="maintenance-box">
+        <h1>Upišao se model, popravljam ga</h1>
+        <p>Skinuo sam live prognozu sa sajta dok ne sredim. Vraća se čim model završi sa treniranjem.</p>
+    </div>
+
+    <div class="note" style="background:#fff5f5;border-left-color:#d73a49;">
+        Ako ste juče gledali prognozu, vjerovatno ste primjetili da je pisalo da će biti 20–21°C cijelo popodne. Stvarno je bilo 17–19°C, sa kratkim trenutkom kad je dotaklo 20.5. Znači model je sistematski grijao oko 3–4 stepena više nego što treba.
+    </div>
+
+    <h2>Šta se desilo</h2>
+
+    <p>Pravio sam grešku tokom treniranja modela. Neki feature-i koje sam dao modelu da uči — konkretno oni koji prate koliko je model grešio u prethodnim satima — bili su loše napisani. Umjesto da gledaju samo prošlost, slučajno su uključivali i sadašnjost. To znači da je model tokom učenja praktično "vidio" tačan odgovor za svaki sat. Lakomislen bug, ali mi je zbog njega metrika izgledala spektakularno: training greška od 0.36°C, što sam trebao odmah da prepoznam kao previše dobro da bi bilo istina (realno ide oko 1°C). Nisam, i pustio sam to u produkciju.</p>
+
+    <p>U produkciji ti isti feature-i ne mogu da se izračunaju — jer u tom trenutku ne znam stvarnu temperaturu za buduće sate, to je upravo ono što pokušavam da predvidim. Pa je model, naviknut da se oslanja na te informacije, ostao bez svog glavnog oslonca i počeo da pogađa. Ispostavilo se da kad pogađa, pogađa otprilike +3.5°C iznad ensemble prosjeka, što je upravo to što ste vidjeli na sajtu.</p>
+
+    <h2>Šta sad radim</h2>
+
+    <p>Popravio sam tri konkretne stvari u kodu — sad ti feature-i gledaju samo prošlost, kako i treba, i sve što zavisi od trenutne observacije sam izbacio iz treninga jer u produkciji ionako ne postoji. Usput sam pokušao i da poboljšam prognozu padavina, koja je dosad bila lošija od običnog prosjeka modela, što je bilo neprihvatljivo.</p>
+
+    <p>Sad puštam model da se istrenira ispočetka. Trening traje možda jedan dan. Kad završi, nova metrika će biti gora na papiru — ali realnija, i model će konačno raditi kako treba kad ga koristim.
+    <h2>Status</h2>
+
+    <div style="margin: 20px 0;">
+        <div class="status-item">
+            <div class="status-dot working"></div>
+            <span>Glavni sajt i Blog</span>
+            <span style="margin-left:auto;color:#28a745;font-weight:500;">Aktivan</span>
+        </div>
+        <div class="status-item">
+            <div class="status-dot updating"></div>
+            <span>Retreniranje XGBoost modela</span>
+            <span style="margin-left:auto;color:#f9a825;font-weight:500;">U toku</span>
+        </div>
+        <div class="status-item">
+            <div class="status-dot updating"></div>
+            <span>48h live prognoza</span>
+            <span style="margin-left:auto;color:#f9a825;font-weight:500;">Privremeno nedostupna</span>
+        </div>
+    </div>
+
+    <p style="color:#586069;font-size:15px;margin-top:40px;text-align:center;">Hvala na strpljenju. Pitanja? <a href="mailto:ivanovicmatija2007@gmail.com">ivanovicmatija2007@gmail.com</a></p>
+
+</body>
+</html>
