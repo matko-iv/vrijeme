@@ -2499,11 +2499,29 @@ def apply_correction(fc_df, trained, bias_tables):
                 pred = p_blend_alpha * pred + (1 - p_blend_alpha) * ens_vals_p
                 pred = np.clip(pred, 0, 50)
 
-            # False-alarm clamping: suppress noise and trust ensemble dry consensus
+            # False-alarm clamping (multi-layer):
+            # 1. Sub-threshold noise → 0
             pred[pred < 0.1] = 0.0
+            # 2. Ensemble unanimously dry (max of all models < 0.1mm) → 0
             if 'ens_all_dry' in fc.columns:
                 dry_mask = fc['ens_all_dry'].values > 0.5
                 pred[dry_mask] = 0.0
+            # 3. Consensus threshold: < 40% of models predicting rain → 0
+            #    (Robust against 1-3 outlier models triggering false rain)
+            if 'rain_agreement' in fc.columns:
+                low_consensus = pd.to_numeric(fc['rain_agreement'], errors='coerce').fillna(0).values < 0.4
+                pred[low_consensus] = 0.0
+            # 4. Median dry: if median model precipitation < 0.05mm → 0
+            #    (Robust to 1-2 outlier wet models)
+            if 'precipitation_ens_median' in fc.columns:
+                median_dry = pd.to_numeric(fc['precipitation_ens_median'], errors='coerce').fillna(0).values < 0.05
+                pred[median_dry] = 0.0
+            # 5. Amplification cap: never exceed 1.5 × ensemble p75 (with floor at 0.5mm)
+            #    Prevents XGB from amplifying tiny ensemble signals into false rain
+            if 'precip_ens_p75' in fc.columns:
+                p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
+                cap = np.maximum(0.5, 1.5 * p75_vals)
+                pred = np.minimum(pred, cap)
 
             corrected[f'{param}_xgb'] = pred
             method_lbl = method + (f'+blend({p_blend_alpha:.2f})' if p_blend_alpha < 1.0 else '')
