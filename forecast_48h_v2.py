@@ -2522,18 +2522,18 @@ def apply_correction(fc_df, trained, bias_tables):
                 p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
                 cap = np.maximum(0.5, 1.5 * p75_vals)
                 pred = np.minimum(pred, cap)
-            # 6. Trusted-models dry consensus: 8 well-verified models for our region.
-            #    - ECMWF (×2): global gold standard for medium-range precip
-            #    - ICON: tuned for European midlatitudes, strong for orographic precip
-            #    - ARPEGE/METEOFRANCE: French regional + seamless
-            #    - ITALIAMETEO_ICON2I: regional Adriatic, 2km resolution
-            #    - UKMO: nearly equals ECMWF in precip skill (Wiley/ASCE verification)
-            #    - GFS: solid global baseline, widely cross-checked
-            #    If NONE of these 8 predict rain, the 3 outliers (KNMI Northern Europe
-            #    AROME, DMI Scandinavian AROME, BOM Australian) shouldn't override.
-            trusted_models = ['ECMWF_IFS025', 'ECMWF_IFS', 'ICON_SEAMLESS',
-                              'ARPEGE_EUROPE', 'METEOFRANCE', 'ITALIAMETEO_ICON2I',
-                              'UKMO_SEAMLESS', 'GFS_SEAMLESS']
+            # 6. Trusted-models dry consensus: 6 elite models for our region.
+            #    Tighter list = stricter clamp (more often all "trusted" agree dry,
+            #    so more false alarms get suppressed).
+            #    - ECMWF_IFS: HRES 9km, global gold standard
+            #    - ICON_SEAMLESS: tuned for European midlatitudes, orographic precip
+            #    - ARPEGE/METEOFRANCE: French regional + seamless (W. Europe focus)
+            #    - ITALIAMETEO_ICON2I: 2km regional, direct Adriatic coverage
+            #    - UKMO: precip skill nearly equals ECMWF (ASCE verification)
+            #    Excluded: ECMWF_IFS025 (redundant with HRES), GFS (slightly weaker
+            #    for 0-48h EU precip), and the 3 outliers (KNMI/DMI/BOM).
+            trusted_models = ['ECMWF_IFS', 'ICON_SEAMLESS', 'ARPEGE_EUROPE',
+                              'METEOFRANCE', 'ITALIAMETEO_ICON2I', 'UKMO_SEAMLESS']
             trusted_cols = [f'{m}_precipitation_model' for m in trusted_models
                             if f'{m}_precipitation_model' in fc.columns]
             if trusted_cols:
