@@ -2522,12 +2522,18 @@ def apply_correction(fc_df, trained, bias_tables):
                 p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
                 cap = np.maximum(0.5, 1.5 * p75_vals)
                 pred = np.minimum(pred, cap)
-            # 6. Trusted-models dry consensus: gold-standard European models
-            #    (ECMWF×2, ICON, ARPEGE, METEOFRANCE, ITALIAMETEO) are tuned for our
-            #    region. If NONE of them predict rain (max < 0.1mm), don't trust
-            #    weaker outliers (BOM/KNMI/DMI/UKMO) — likely false alarm.
+            # 6. Trusted-models dry consensus: 8 well-verified models for our region.
+            #    - ECMWF (×2): global gold standard for medium-range precip
+            #    - ICON: tuned for European midlatitudes, strong for orographic precip
+            #    - ARPEGE/METEOFRANCE: French regional + seamless
+            #    - ITALIAMETEO_ICON2I: regional Adriatic, 2km resolution
+            #    - UKMO: nearly equals ECMWF in precip skill (Wiley/ASCE verification)
+            #    - GFS: solid global baseline, widely cross-checked
+            #    If NONE of these 8 predict rain, the 3 outliers (KNMI Northern Europe
+            #    AROME, DMI Scandinavian AROME, BOM Australian) shouldn't override.
             trusted_models = ['ECMWF_IFS025', 'ECMWF_IFS', 'ICON_SEAMLESS',
-                              'ARPEGE_EUROPE', 'METEOFRANCE', 'ITALIAMETEO_ICON2I']
+                              'ARPEGE_EUROPE', 'METEOFRANCE', 'ITALIAMETEO_ICON2I',
+                              'UKMO_SEAMLESS', 'GFS_SEAMLESS']
             trusted_cols = [f'{m}_precipitation_model' for m in trusted_models
                             if f'{m}_precipitation_model' in fc.columns]
             if trusted_cols:
