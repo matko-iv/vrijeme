@@ -749,13 +749,14 @@ function fixLRIcon(icon, precipProb, precipTotal, cloudCover) {
     return icon;
 }
 
-function precipLabel(pp, icon) {
+function precipProbStyle(pp) {
+    // Returns inline style for precip probability based on confidence band.
     if (pp == null) return '';
-    if (pp <= 30) return '';
-    if (pp <= 50) return 'Neizvjesno — ne možemo potvrditi padavine';
-    if (pp <= 70) return 'Padavine moguće';
-    if (pp <= 85) return 'Padavine vjerovatne';
-    return 'Kiša gotovo sigurna';
+    if (pp < 30) return 'color:#959da5;';                          // very low: muted
+    if (pp <= 50) return 'color:#586069;font-weight:600;';         // uncertain: medium grey, bold
+    if (pp <= 70) return 'color:#0366d6;font-weight:600;';         // moderate: blue, bold
+    if (pp <= 85) return 'color:#005cc5;font-weight:700;';         // likely: stronger blue, heavier
+    return 'color:#d73a49;font-weight:700;';                       // almost certain: red, heavy
 }
 
 function generateNarrative(d, icon) {
@@ -1784,14 +1785,13 @@ function render(data) {
             const pp = d.precip_probability != null ? d.precip_probability : 0;
             const desc = fixedIc !== (d.weather_icon || 'partly_cloudy') ? iconToDesc(fixedIc) : (d.weather_desc || '');
             const narrative = d.day_narrative || generateNarrative(d, fixedIc);
-            const pLabel = precipLabel(pp, fixedIc);
+            const ppStyle = precipProbStyle(pp);
             html += `
             <div class="lr-card">
                 <div class="lr-day">${dayName}</div>
                 <div class="lr-date">${formatDate(d.date)}</div>
                 <div class="lr-icon">${icon}</div>
                 <div class="lr-desc">${desc}</div>
-                ${pLabel ? '<div class="lr-precip-label">' + pLabel + '</div>' : ''}
                 <div class="lr-narrative">${narrative}</div>
                 <div class="lr-temp">
                     <span class="temp-low">${d.temp_min != null ? d.temp_min.toFixed(1) + '°' : '-'}</span>
@@ -1800,7 +1800,7 @@ function render(data) {
                 </div>
                 <div class="lr-details">
                     ${windTxt ? '<span>' + windTxt + '</span>' : ''}
-                    ${pp >= 30 && !['clear','mostly_clear'].includes(fixedIc) ? '<span>Šansa za padavine: ' + pp + '%</span>' : ''}
+                    ${pp >= 30 && !['clear','mostly_clear'].includes(fixedIc) ? '<span style="' + ppStyle + '">Šansa za padavine: ' + pp + '%</span>' : ''}
                     ${d.precip_total > 0.5 && !['clear','mostly_clear'].includes(fixedIc) ? '<span>' + d.precip_total + ' mm</span>' : ''}
                 </div>
             </div>`;

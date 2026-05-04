@@ -2522,6 +2522,19 @@ def apply_correction(fc_df, trained, bias_tables):
                 p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
                 cap = np.maximum(0.5, 1.5 * p75_vals)
                 pred = np.minimum(pred, cap)
+            # 6. Trusted-models dry consensus: gold-standard European models
+            #    (ECMWF×2, ICON, ARPEGE, METEOFRANCE, ITALIAMETEO) are tuned for our
+            #    region. If NONE of them predict rain (max < 0.1mm), don't trust
+            #    weaker outliers (BOM/KNMI/DMI/UKMO) — likely false alarm.
+            trusted_models = ['ECMWF_IFS025', 'ECMWF_IFS', 'ICON_SEAMLESS',
+                              'ARPEGE_EUROPE', 'METEOFRANCE', 'ITALIAMETEO_ICON2I']
+            trusted_cols = [f'{m}_precipitation_model' for m in trusted_models
+                            if f'{m}_precipitation_model' in fc.columns]
+            if trusted_cols:
+                trusted_vals = fc[trusted_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
+                trusted_max = trusted_vals.max(axis=1).values
+                trusted_dry_mask = trusted_max < 0.1
+                pred[trusted_dry_mask] = 0.0
 
             corrected[f'{param}_xgb'] = pred
             method_lbl = method + (f'+blend({p_blend_alpha:.2f})' if p_blend_alpha < 1.0 else '')
