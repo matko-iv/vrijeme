@@ -3086,10 +3086,14 @@ def _gemini_narrative_daily(date_str, ds):
                f"padavine {precip}mm (šansa {pp}%), vjetar do {wind}m/s.")
     prompt = (
         f"{summary}\n\n"
-        "Napiši JEDNU rečenicu (max 10 riječi) koja opisuje vremenske uslove.\n"
+        "Napiši JEDNU rečenicu (max 10 riječi) koja opisuje cijeli dan.\n"
         "Crnogorski jezik. Bez emotikona. Bez savjeta.\n"
+        "VAŽNO: Imaš samo dnevne agregate, NEMAŠ satne podatke. NE smiješ navoditi\n"
+        "konkretno doba dana (kao 'prijepodne', 'popodne', 'od 15h', 'do podneva').\n"
+        "Opiši samo opšte stanje za cijeli dan.\n"
         "Ako oblačnost > 50%, pomeni oblake. Ako padavine > 0.5mm, pomeni kišu.\n"
-        "Primjeri: Djelimično oblačno, moguća slaba kiša. / Pretežno vedro uz umjeren vjetar.\n"
+        "Primjeri: Djelimično oblačno, moguća slaba kiša. / Pretežno vedro uz umjeren vjetar. /\n"
+        "Oblačno sa povremenom kišom. / Sunčano i toplo.\n"
         "Samo rečenicu:"
     )
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
@@ -3146,24 +3150,31 @@ def _enrich_narratives_with_ai(daily_list, hourly_data):
     api_calls = 0
     for ds in daily_list:
         date_str = ds.get('date', '')
+        rows = hourly_by_date.get(date_str, [])
+        rows.sort(key=lambda r: r.get('hour', 0))
+        has_hourly = len(rows) >= 8
 
-        # Use cache if we already have a narrative for this date
-        if date_str in cache:
+        # Cache strategy: only use cache for long-range days (no hourly available).
+        # Hourly-covered days are ALWAYS regenerated so the narrative reflects the
+        # latest forecast — and because earlier-cached entries may have been
+        # generated when this date was still long-range (Gemini hallucinates timing
+        # without hourly data). Cost: a few extra API calls per run, worth it.
+        if not has_hourly and date_str in cache:
             ds['day_narrative'] = cache[date_str]
             count += 1
             continue
 
-        rows = hourly_by_date.get(date_str, [])
-        # Sort by hour to ensure chronological order
-        rows.sort(key=lambda r: r.get('hour', 0))
-        if len(rows) >= 8:
+        if has_hourly:
             narrative = _gemini_narrative(date_str, rows)
         else:
             narrative = _gemini_narrative_daily(date_str, ds)
         api_calls += 1
         if narrative:
             ds['day_narrative'] = narrative
-            cache[date_str] = narrative
+            # Cache only daily-sourced narratives (long-range stable).
+            # Hourly-sourced ones change with each run so caching them is wasteful.
+            if not has_hourly:
+                cache[date_str] = narrative
             count += 1
         if api_calls < len(daily_list):
             time.sleep(12)
