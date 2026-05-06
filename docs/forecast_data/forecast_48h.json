@@ -1,5 +1,5 @@
 {
-  "generated": "2026-05-06T18:09:34.298870",
+  "generated": "2026-05-06T18:24:12.541083",
   "location": {
     "name": "Budva, Crna Gora",
     "lat": 42.2864,
@@ -193,7 +193,7 @@
       "weather_desc": "Oblacno",
       "weather_icon": "cloudy",
       "weather_emoji": "☁️",
-      "day_narrative": "Pretežno oblačno",
+      "day_narrative": "Pretežno oblačno uz mogućnost slabe kiše.",
       "precip_probability": 0
     },
     {
@@ -212,7 +212,7 @@
       "weather_desc": "Umjerena kisa",
       "weather_icon": "rain",
       "weather_emoji": "🌧️",
-      "day_narrative": "Kiša tokom dana do kasno poslijepodne, suvo predveče",
+      "day_narrative": "Kišovito jutro, popodne razvedravanje i sunčano vrijeme.",
       "precip_probability": 82
     },
     {
@@ -231,7 +231,7 @@
       "weather_desc": "Slabi pljuskovi",
       "weather_icon": "light_rain",
       "weather_emoji": "🌦️",
-      "day_narrative": "Kiša od podneva do kraja dana (6.7 mm)",
+      "day_narrative": "Oblačno vrijeme sa kišom od kasnog popodneva.",
       "precip_probability": 82
     }
   ],
@@ -1982,7 +1982,7 @@
       "weather_desc": "Sitna kisa",
       "weather_icon": "light_rain",
       "weather_emoji": "🌦️",
-      "day_narrative": "Oblačno, kiša od podneva do kasno poslijepodne",
+      "day_narrative": "Popodne razvedravanje nakon oblačnog i kišovitog jutra.",
       "precip_probability": 64
     },
     {
@@ -2001,14 +2001,14 @@
       "weather_desc": "Pretezno vedro",
       "weather_icon": "mostly_clear",
       "weather_emoji": "🌤️",
-      "day_narrative": "Oblačno sa sunčanim periodima",
+      "day_narrative": "Razvedravanje od prijepodneva, popodne pretežno sunčano.",
       "precip_probability": 9
     },
     {
       "date": "2026-05-11",
       "day_name": "Monday",
       "temp_min": 15.4,
-      "temp_max": 24.9,
+      "temp_max": 25.0,
       "wind_max": 1.7,
       "gust_max": 2.3,
       "precip_total": 0.0,
@@ -2020,45 +2020,45 @@
       "weather_desc": "Pretezno vedro",
       "weather_icon": "mostly_clear",
       "weather_emoji": "🌤️",
-      "day_narrative": "Oblačno prije podne, sunce od podneva",
+      "day_narrative": "Popodne razvedravanje, od 13:00 potpuno vedro i toplo.",
       "precip_probability": 9
     },
     {
       "date": "2026-05-12",
       "day_name": "Tuesday",
-      "temp_min": 17.0,
-      "temp_max": 25.8,
+      "temp_min": 17.1,
+      "temp_max": 25.9,
       "wind_max": 1.6,
       "gust_max": 2.3,
       "precip_total": 1.8,
       "humidity_avg": 73.0,
-      "pressure_avg": 1013.0,
+      "pressure_avg": 1012.0,
       "wind_dir_avg": 126.0,
       "cloud_cover_day": 27.0,
       "weather_code": 61,
       "weather_desc": "Slaba kisa",
       "weather_icon": "light_rain",
       "weather_emoji": "🌦️",
-      "day_narrative": "Suvo tokom dana, kiša predveče",
+      "day_narrative": "Sunčano popodne, uveče prelazak u laganu kišu.",
       "precip_probability": 45
     },
     {
       "date": "2026-05-13",
       "day_name": "Wednesday",
-      "temp_min": 16.0,
-      "temp_max": 21.5,
-      "wind_max": 1.3,
+      "temp_min": 15.9,
+      "temp_max": 22.0,
+      "wind_max": 1.2,
       "gust_max": 1.8,
       "precip_total": 4.5,
       "humidity_avg": 75.0,
       "pressure_avg": 1008.0,
       "wind_dir_avg": 128.0,
-      "cloud_cover_day": 33.0,
+      "cloud_cover_day": 36.0,
       "weather_code": 63,
       "weather_desc": "Umjerena kisa",
       "weather_icon": "rain",
       "weather_emoji": "🌧️",
-      "day_narrative": "Kiša tokom dana do kasno poslijepodne, suvo predveče",
+      "day_narrative": "Popodne prestaje kiša i nastupa vedro vrijeme.",
       "precip_probability": 36
     },
     {
@@ -2077,7 +2077,7 @@
       "weather_desc": "Pretezno vedro",
       "weather_icon": "mostly_clear",
       "weather_emoji": "🌤️",
-      "day_narrative": "Više oblaka prijepodna, sunčano od podneva",
+      "day_narrative": "Popodne razvedravanje uz postepen porast dnevne temperature.",
       "precip_probability": 9
     },
     {
@@ -2096,7 +2096,7 @@
       "weather_desc": "Pretezno vedro",
       "weather_icon": "mostly_clear",
       "weather_emoji": "🌤️",
-      "day_narrative": "Više oblaka prijepodna, sunčano od podneva",
+      "day_narrative": "Popodne razvedravanje uz postepen prelazak u sunčano vrijeme.",
       "precip_probability": 0
     }
   ]
