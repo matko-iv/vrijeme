@@ -1662,7 +1662,7 @@ let forecastData = null;
 
 async function loadForecast() {
     try {
-        const resp = await fetch('forecast_data/forecast_48h.json');
+        const resp = await fetch('forecast_data/forecast_48h.json?v=' + Date.now(), { cache: 'no-store' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         forecastData = await resp.json();
         render(forecastData);
