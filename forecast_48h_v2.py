@@ -5,7 +5,7 @@ Run: .venv/Scripts/python.exe forecast_48h_v2.py
 Author: Matija Ivanović (@matko-iv)
 """
 
-import sys, io, os, json, time, warnings
+import sys, io, os, json, time, warnings, re
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 warnings.filterwarnings('ignore')
@@ -29,12 +29,18 @@ PREV_RUNS_DIR = os.path.join(BASE_DIR, "previous_runs_data")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-LAT, LON = 42.29, 18.84  # E viva!!
+LAT, LON = 42.2864, 18.84  # E viva!!
+# Open-Meteo defaults to GMT when timezone is omitted. Keep every live API
+# request and every output timestamp explicitly in Budva local time.
+FORECAST_TIMEZONE = "Europe/Podgorica"
 
 MODELS = ["ARPEGE_EUROPE", "GFS_SEAMLESS", "ICON_SEAMLESS", "METEOFRANCE", "ECMWF_IFS025", "ITALIAMETEO_ICON2I", "UKMO_SEAMLESS", "BOM_ACCESS", "ECMWF_IFS", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
 TRUSTED_MODELS = ["ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
-TRUSTED_RAIN_THRESHOLD = 0.1
+CORRECTED_RAIN_THRESHOLD_MM = 0.2
+TRUSTED_RAIN_THRESHOLD = 0.2
 TRUSTED_WEAK_SIGNAL_MIN_MM = 0.2
+LOCAL_DRY_NOWCAST_HOURS = 4
+LOCAL_DRY_LIGHT_RAIN_MAX_MM = 0.7
 MODEL_IDS = {
     "ARPEGE_EUROPE": "arpege_europe",
     "GFS_SEAMLESS": "gfs_seamless",
@@ -56,6 +62,13 @@ PREV_RUNS_VARS = [
     "cloud_cover", "precipitation",
 ]
 PREV_RUNS_API = "https://previous-runs-api.open-meteo.com/v1/forecast"
+WU_STATION_ID = os.environ.get("WU_STATION_ID", "IBUDVA5")
+WU_API_KEY = os.environ.get("WU_API_KEY", "")
+
+
+def local_now():
+    """Naive timestamp in the forecast timezone used by Open-Meteo rows."""
+    return pd.Timestamp.now(tz=FORECAST_TIMEZONE).tz_localize(None)
 
 HOURLY_VARS = [
     "temperature_2m", "relative_humidity_2m", "dew_point_2m",
@@ -115,7 +128,7 @@ def fetch_sst_data(start_date, end_date):
         'hourly': 'sea_surface_temperature',
         'start_date': start_date.strftime('%Y-%m-%d'),
         'end_date': end_date.strftime('%Y-%m-%d'),
-        'timezone': 'auto',
+        'timezone': FORECAST_TIMEZONE,
     }
     try:
         r = requests.get(url, params=params, timeout=60)
@@ -137,6 +150,62 @@ def fetch_sst_data(start_date, end_date):
     except Exception as e:
         print(f"  SST: fetch failed ({e}), skipping")
         return None
+
+
+def fetch_current_station_observation():
+    """Fetch current Weather Underground PWS observation if an API key exists."""
+    if not WU_API_KEY:
+        return None
+
+    url = "https://api.weather.com/v2/pws/observations/current"
+    params = {
+        "stationId": WU_STATION_ID,
+        "format": "json",
+        "units": "m",
+        "numericPrecision": "decimal",
+        "apiKey": WU_API_KEY,
+    }
+    try:
+        r = requests.get(url, params=params, timeout=15)
+        if r.status_code == 204:
+            print(f"  WU nowcast: nema svjezeg zapisa za {WU_STATION_ID}")
+            return None
+        r.raise_for_status()
+        observations = r.json().get("observations", [])
+        if not observations:
+            return None
+
+        obs = observations[0]
+        metric = obs.get("metric", {}) or {}
+        epoch = obs.get("epoch")
+        age_min = None
+        if epoch:
+            age_min = (time.time() - float(epoch)) / 60.0
+
+        return {
+            "station": obs.get("stationID", WU_STATION_ID),
+            "obs_time_local": obs.get("obsTimeLocal"),
+            "age_min": age_min,
+            "precip_rate_mm": metric.get("precipRate"),
+            "precip_total_mm": metric.get("precipTotal"),
+            "humidity": obs.get("humidity"),
+            "solar_radiation": obs.get("solarRadiation"),
+        }
+    except Exception as e:
+        print(f"  WU nowcast: ne mogu ucitati trenutni zapis ({e})")
+        return None
+
+
+def station_says_dry_now(obs):
+    if not obs:
+        return False
+    age_min = obs.get("age_min")
+    if age_min is None or age_min > 90:
+        return False
+    precip_rate = obs.get("precip_rate_mm")
+    if precip_rate is None:
+        return False
+    return float(precip_rate) <= 0.05
 
 
 def load_historical_data():
@@ -2282,7 +2351,7 @@ def fetch_live_forecasts():
         params = {
             "latitude": LAT, "longitude": LON,
             "hourly": ",".join(HOURLY_VARS),
-            "timezone": "auto", "temperature_unit": "celsius",
+            "timezone": FORECAST_TIMEZONE, "temperature_unit": "celsius",
             "wind_speed_unit": "ms", "precipitation_unit": "mm",
             "models": model_id, "forecast_days": 10,
         }
@@ -2316,7 +2385,7 @@ def fetch_live_forecasts():
     merged.sort_values('datetime', inplace=True)
     merged.reset_index(drop=True, inplace=True)
 
-    now = pd.Timestamp.now().floor('h')
+    now = local_now().floor('h')
     mask = merged['datetime'] >= now
     fc_all = merged[mask].copy().reset_index(drop=True)
     print(f"  Prognoza: {fc_all.shape[0]} sati ({fc_all['datetime'].min()} --- {fc_all['datetime'].max()})")
@@ -2336,7 +2405,7 @@ def fetch_live_forecasts():
         pr_params = {
             "latitude": LAT, "longitude": LON,
             "hourly": prev_hourly_str,
-            "timezone": "auto", "models": model_id, "forecast_days": 10,
+            "timezone": FORECAST_TIMEZONE, "models": model_id, "forecast_days": 10,
         }
         try:
             r = requests.get(PREV_RUNS_API, params=pr_params, timeout=30)
@@ -2383,7 +2452,7 @@ def correct_weather_code_row(row, raw_row=None):
     so we trust it over the raw weather code mode.
     
     This is how we're going to fix:
-    - If XGBoost says precip < 0.1mm AND raw WC is rain/drizzle → downgrade to cloud-based code
+    - If XGBoost says precip below display threshold AND raw WC is rain/drizzle → downgrade to cloud-based code
     - If XGBoost says precip > 0 but raw WC is clear → upgrade to appropriate rain code
     - Use cloud cover to determine the correct non-rain code
     """
@@ -2403,7 +2472,7 @@ def correct_weather_code_row(row, raw_row=None):
     if is_thunderstorm:
         return wc_raw
     
-    if is_rain_code and precip_xgb is not None and pd.notna(precip_xgb) and precip_xgb < 0.1:
+    if is_rain_code and precip_xgb is not None and pd.notna(precip_xgb) and precip_xgb < CORRECTED_RAIN_THRESHOLD_MM:
         if cloud_xgb is not None and pd.notna(cloud_xgb):
             if cloud_xgb > 80:
                 return 3   
@@ -2416,11 +2485,11 @@ def correct_weather_code_row(row, raw_row=None):
         return 3 
     
     if 51 <= wc_raw <= 55 and precip_xgb is not None and pd.notna(precip_xgb):
-        if precip_xgb < 0.2:
+        if precip_xgb < CORRECTED_RAIN_THRESHOLD_MM:
             if cloud_xgb is not None and pd.notna(cloud_xgb) and cloud_xgb > 85:
                 return 3  
     
-    if wc_raw <= 3 and precip_xgb is not None and pd.notna(precip_xgb) and precip_xgb > 0.1:
+    if wc_raw <= 3 and precip_xgb is not None and pd.notna(precip_xgb) and precip_xgb >= CORRECTED_RAIN_THRESHOLD_MM:
         if precip_xgb > 3.0:
             return 63  
         elif precip_xgb > 1.0:
@@ -2441,7 +2510,7 @@ def correct_weather_code_row(row, raw_row=None):
     return wc_raw
 
 
-def apply_correction(fc_df, trained, bias_tables):
+def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
     print("\n[5/6] Primjena korekcije...")
 
     fc = apply_bias_features(fc_df.copy(), bias_tables)
@@ -2485,7 +2554,7 @@ def apply_correction(fc_df, trained, bias_tables):
                 reg_pred = np.clip(pinfo['reg_model'].predict(X), 0, None)
 
             single_pred = np.clip(pinfo['single_model'].predict(X), 0, None)
-            single_pred[single_pred < 0.1] = 0.0
+            single_pred[single_pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
 
             if method == 'hard':
                 pred = np.where(cls_proba >= thresh, reg_pred, 0.0)
@@ -2545,8 +2614,8 @@ def apply_correction(fc_df, trained, bias_tables):
             trusted_signal = trusted_strong_signal | trusted_weak_signal
             no_signal = ~trusted_signal
 
-            # 1. Sub-threshold noise → 0 (always)
-            pred[pred < 0.1] = 0.0
+            # 1. Sub-threshold noise -> 0 (always)
+            pred[pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
             # 2. Ensemble unanimously dry (only when no trusted signal)
             if 'ens_all_dry' in fc.columns:
                 dry_mask = (fc['ens_all_dry'].values > 0.5) & no_signal
@@ -2565,21 +2634,43 @@ def apply_correction(fc_df, trained, bias_tables):
             #    is mostly dry; trusted support scales the cap with trusted amount.
             if 'precip_ens_p75' in fc.columns:
                 p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
-                cap = np.maximum(np.full(len(fc), 0.15), 1.5 * p75_vals)
+                cap = np.maximum(np.full(len(fc), CORRECTED_RAIN_THRESHOLD_MM), 1.5 * p75_vals)
                 trusted_cap = np.maximum(1.2 * trusted_rain_mean, 0.8 * trusted_max)
                 cap[trusted_signal] = np.maximum(cap[trusted_signal], trusted_cap[trusted_signal])
                 pred = np.minimum(pred, cap)
             # 6. Trusted-models dry consensus: only fires when ALL trusted models
-            #    predict < 0.1mm.
-            trusted_dry_mask = trusted_max < 0.1
+            #    stay below the trusted rain threshold.
+            trusted_dry_mask = trusted_max < TRUSTED_RAIN_THRESHOLD
             pred[trusted_dry_mask] = 0.0
             # 7. If a trusted model sees rain, the corrected precipitation must
             #    also stay just above the rain threshold. Larger single-model
             #    amounts remain cautious unless the correction model supports them.
             if trusted_signal.any():
                 floor_cap = np.where(trusted_strong_signal, 0.5, 0.3)
-                trusted_floor = np.maximum(0.11, np.minimum(trusted_rain_mean, floor_cap))
+                trusted_floor = np.maximum(CORRECTED_RAIN_THRESHOLD_MM, np.minimum(trusted_rain_mean, floor_cap))
                 pred[trusted_signal] = np.maximum(pred[trusted_signal], trusted_floor[trusted_signal])
+
+            if local_dry_nowcast:
+                now_local = local_now()
+                dry_start = now_local.floor('h')
+                if now_local.minute >= 30:
+                    dry_start += pd.Timedelta(hours=1)
+                dry_end = dry_start + pd.Timedelta(hours=LOCAL_DRY_NOWCAST_HOURS)
+                dry_window = (fc['datetime'] >= dry_start) & (fc['datetime'] <= dry_end)
+                ens_vals_now = (
+                    pd.to_numeric(fc.get('precipitation_ens_mean', pd.Series(0, index=fc.index)),
+                                  errors='coerce').fillna(0).values
+                )
+                storm_wc_count = (
+                    pd.to_numeric(fc.get('storm_wc_count', pd.Series(0, index=fc.index)),
+                                  errors='coerce').fillna(0).values
+                )
+                light_rain = pred <= LOCAL_DRY_LIGHT_RAIN_MAX_MM
+                strong_near_support = (ens_vals_now >= 0.5) | (storm_wc_count >= 1)
+                dry_now_mask = dry_window.values & light_rain & ~strong_near_support
+                pred[dry_now_mask] = 0.0
+
+            pred[pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
 
             corrected[f'{param}_xgb'] = pred
             method_lbl = method + (f'+blend({p_blend_alpha:.2f})' if p_blend_alpha < 1.0 else '')
@@ -3127,7 +3218,7 @@ def _gemini_narrative_daily(date_str, ds):
         f"{summary}\n\n"
         "Napiši JEDNU rečenicu (max 10 riječi) koja opisuje vremenske uslove.\n"
         "Crnogorski jezik. Bez emotikona. Bez savjeta.\n"
-        "Ako oblačnost > 50%, pomeni oblake. Ako padavine > 0.1mm, pomeni kišu.\n"
+        "Ako oblačnost > 50%, pomeni oblake. Ako padavine >= 0.2mm, pomeni kišu.\n"
         "Primjeri: Djelimično oblačno, moguća slaba kiša. / Pretežno vedro uz umjeren vjetar.\n"
         "Samo rečenicu:"
     )
@@ -3216,7 +3307,7 @@ def _enrich_narratives_with_ai(daily_list, hourly_data):
 
     # Save cache only on CI
     if use_cache:
-        today_str = pd.Timestamp.now().strftime('%Y-%m-%d')
+        today_str = local_now().strftime('%Y-%m-%d')
         cache = {k: v for k, v in cache.items() if k >= today_str}
         try:
             with open(cache_path, 'w', encoding='utf-8') as f:
@@ -3229,8 +3320,8 @@ def _enrich_narratives_with_ai(daily_list, hourly_data):
 
 def generate_output(corrected, trained, results, fc_raw=None):
     print("\n[6/6] Generisanje izlaza...")
-    now_str = pd.Timestamp.now().isoformat()
-    now_ts = pd.Timestamp.now().floor('h')
+    now_str = local_now().isoformat()
+    now_ts = local_now().floor('h')
     cutoff_48h = now_ts + pd.Timedelta(hours=48)
 
     forecast_hours = []
@@ -3274,7 +3365,7 @@ def generate_output(corrected, trained, results, fc_raw=None):
     all_data['_day_name'] = all_data['datetime'].dt.strftime('%A')
     all_data['hour'] = all_data['datetime'].dt.hour
 
-    today_str = pd.Timestamp.now().strftime('%Y-%m-%d')
+    today_str = local_now().strftime('%Y-%m-%d')
     today_cache_path = os.path.join(OUTPUT_DIR, "today_daily_cache.json")
 
     all_daily = {}  # date_str -> summary dict
@@ -3337,6 +3428,7 @@ def generate_output(corrected, trained, results, fc_raw=None):
     output = {
         "generated": now_str,
         "location": {"name": "Budva, Crna Gora", "lat": LAT, "lon": LON,
+                      "timezone": FORECAST_TIMEZONE,
                       "station": "ibudva5 (Weather Underground)"},
         "method": "XGBoost Multi-Model Ensemble + Historical Bias + Forecast Revision v3",
         "description": "11 modela, 6 godina podataka (2020-2026), pametna korekcija + Day1/Day2 revizije",
@@ -3395,6 +3487,7 @@ def generate_output(corrected, trained, results, fc_raw=None):
 
 if __name__ == "__main__":
     skip_training = '--skip-training' in sys.argv or '--skip_training' in sys.argv
+    local_dry_nowcast = '--dry-now' in sys.argv or '--dry_now' in sys.argv
 
     if skip_training:
         print("\n  MODE: --skip-training (ucitavam sacuvane modele)")
@@ -3419,7 +3512,23 @@ if __name__ == "__main__":
         trained, results = train_all_models(hist)
 
     fc_all = fetch_live_forecasts()
-    corrected = apply_correction(fc_all, trained, bias_tables)
+    station_obs = fetch_current_station_observation()
+    station_dry_nowcast = station_says_dry_now(station_obs)
+    if station_obs:
+        rate = station_obs.get("precip_rate_mm")
+        age = station_obs.get("age_min")
+        age_txt = f"{age:.0f}" if age is not None else "?"
+        print(f"\n  WU nowcast: {station_obs.get('station')} rate={rate} mm/h, age={age_txt} min")
+
+    dry_nowcast_active = local_dry_nowcast or station_dry_nowcast
+    if local_dry_nowcast:
+        print("  NOWCAST: lokalno suvo sada (--dry-now), gasim slabu blisku kisu bez sire podrske")
+    elif station_dry_nowcast:
+        print("  NOWCAST: WU stanica javlja suvo sada, gasim slabu blisku kisu bez sire podrske")
+    elif not WU_API_KEY:
+        print("\n  WU nowcast: WU_API_KEY nije postavljen, preskacem automatsku live-stanicu")
+
+    corrected = apply_correction(fc_all, trained, bias_tables, local_dry_nowcast=dry_nowcast_active)
     json_path, csv_path = generate_output(corrected, trained, results, fc_raw=fc_all)
 
     print("\n" + "=" * 72)
