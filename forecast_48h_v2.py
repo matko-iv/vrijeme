@@ -33,6 +33,8 @@ LAT, LON = 42.29, 18.84  # E viva!!
 
 MODELS = ["ARPEGE_EUROPE", "GFS_SEAMLESS", "ICON_SEAMLESS", "METEOFRANCE", "ECMWF_IFS025", "ITALIAMETEO_ICON2I", "UKMO_SEAMLESS", "BOM_ACCESS", "ECMWF_IFS", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
 TRUSTED_MODELS = ["ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
+TRUSTED_RAIN_THRESHOLD = 0.1
+TRUSTED_WEAK_SIGNAL_MIN_MM = 0.2
 MODEL_IDS = {
     "ARPEGE_EUROPE": "arpege_europe",
     "GFS_SEAMLESS": "gfs_seamless",
@@ -2516,15 +2518,31 @@ def apply_correction(fc_df, trained, bias_tables):
             trusted_cols = [f'{m}_precipitation_model' for m in trusted_models
                             if f'{m}_precipitation_model' in fc.columns]
             trusted_max = np.zeros(len(fc))
+            trusted_rain_mean = np.zeros(len(fc))
             trusted_rain_count = np.zeros(len(fc), dtype=int)
             if trusted_cols:
                 trusted_vals = fc[trusted_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
                 trusted_max = trusted_vals.max(axis=1).values
-                trusted_rain_count = (trusted_vals >= 0.1).sum(axis=1).values
+                trusted_rain_mask = trusted_vals >= TRUSTED_RAIN_THRESHOLD
+                trusted_rain_count = trusted_rain_mask.sum(axis=1).values
+                trusted_rain_mean = trusted_vals.where(trusted_rain_mask).mean(axis=1).fillna(0).values
 
-            # Trusted override: if any trusted model predicts >= 0.1mm, treat it
-            # as a real rain signal and skip consensus/median dry clamps.
-            trusted_signal = trusted_rain_count >= 1
+            # Tiered trusted override:
+            # - 2/3 trusted models is a strong rain signal.
+            # - 1/3 trusted model is accepted only when amount/model probability
+            #   gives extra support, reducing single-model drizzle noise.
+            model_rain_signal = pred >= TRUSTED_RAIN_THRESHOLD
+            weak_cls_support = cls_proba >= max(0.25, thresh * 0.75)
+            trusted_strong_signal = (trusted_rain_count >= 2) | (trusted_max >= 0.5)
+            trusted_weak_signal = (
+                (trusted_rain_count == 1) &
+                (
+                    (trusted_max >= TRUSTED_WEAK_SIGNAL_MIN_MM) |
+                    model_rain_signal |
+                    weak_cls_support
+                )
+            )
+            trusted_signal = trusted_strong_signal | trusted_weak_signal
             no_signal = ~trusted_signal
 
             # 1. Sub-threshold noise → 0 (always)
@@ -2543,12 +2561,13 @@ def apply_correction(fc_df, trained, bias_tables):
             if 'precipitation_ens_median' in fc.columns:
                 median_dry = (pd.to_numeric(fc['precipitation_ens_median'], errors='coerce').fillna(0).values < 0.05) & no_signal
                 pred[median_dry] = 0.0
-            # 5. Amplification cap. Floor accommodates trusted signals so that
-            #    KNMI predicting 1.9mm doesn't get capped down to 0.5mm just because
-            #    other models are dry (low p75).
+            # 5. Amplification cap. Avoid a hard 0.5mm minimum when the ensemble
+            #    is mostly dry; trusted support scales the cap with trusted amount.
             if 'precip_ens_p75' in fc.columns:
                 p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
-                cap = np.maximum.reduce([np.full(len(fc), 0.5), 1.5 * p75_vals, 0.7 * trusted_max])
+                cap = np.maximum(np.full(len(fc), 0.15), 1.5 * p75_vals)
+                trusted_cap = np.maximum(1.2 * trusted_rain_mean, 0.8 * trusted_max)
+                cap[trusted_signal] = np.maximum(cap[trusted_signal], trusted_cap[trusted_signal])
                 pred = np.minimum(pred, cap)
             # 6. Trusted-models dry consensus: only fires when ALL trusted models
             #    predict < 0.1mm.
@@ -2558,7 +2577,8 @@ def apply_correction(fc_df, trained, bias_tables):
             #    also stay just above the rain threshold. Larger single-model
             #    amounts remain cautious unless the correction model supports them.
             if trusted_signal.any():
-                trusted_floor = np.maximum(0.11, np.minimum(trusted_max, 0.5))
+                floor_cap = np.where(trusted_strong_signal, 0.5, 0.3)
+                trusted_floor = np.maximum(0.11, np.minimum(trusted_rain_mean, floor_cap))
                 pred[trusted_signal] = np.maximum(pred[trusted_signal], trusted_floor[trusted_signal])
 
             corrected[f'{param}_xgb'] = pred
