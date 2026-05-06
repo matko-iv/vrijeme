@@ -2499,27 +2499,30 @@ def apply_correction(fc_df, trained, bias_tables):
                 pred = p_blend_alpha * pred + (1 - p_blend_alpha) * ens_vals_p
                 pred = np.clip(pred, 0, 50)
 
-            # False-alarm clamping (multi-layer with strong-signal override).
+            # False-alarm clamping (multi-layer with 2-model corroboration override).
             #
-            # Trusted models for our region. KNMI added because HARMONIE-AROME
-            # (convection-permitting, ~2.5km) catches afternoon convective showers
-            # the global models (ECMWF/GFS/ICON at 9-13km) miss. Verified empirically
-            # for May 6 2026: KNMI predicted 0.3-1.9mm 14h-18h, all globals said 0,
-            # actual rain occurred.
+            # Trusted models for our region (8 total). KNMI and DMI included
+            # because HARMONIE-AROME (convection-permitting, ~2.5km) catches
+            # afternoon convective showers the global models miss. Verified
+            # empirically for May 6 2026: KNMI 1.9mm + DMI 0.1mm at 17h, all
+            # globals said 0mm, actual rain occurred.
             trusted_models = ['ECMWF_IFS', 'ICON_SEAMLESS', 'ARPEGE_EUROPE',
                               'METEOFRANCE', 'ITALIAMETEO_ICON2I', 'UKMO_SEAMLESS',
-                              'KNMI_SEAMLESS']
+                              'KNMI_SEAMLESS', 'DMI_SEAMLESS']
             trusted_cols = [f'{m}_precipitation_model' for m in trusted_models
                             if f'{m}_precipitation_model' in fc.columns]
             trusted_max = np.zeros(len(fc))
+            trusted_rain_count = np.zeros(len(fc), dtype=int)
             if trusted_cols:
                 trusted_vals = fc[trusted_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
                 trusted_max = trusted_vals.max(axis=1).values
+                trusted_rain_count = (trusted_vals >= 0.1).sum(axis=1).values
 
-            # Strong-signal override: if ANY trusted model predicts ≥ 0.5mm, that's
-            # a meaningful signal (esp. AROME catching convection) — skip the
-            # consensus/median dry clamps that would otherwise wipe it out.
-            strong_signal = trusted_max >= 0.5
+            # Corroboration override: if ≥ 2 trusted models predict ≥ 0.1mm,
+            # treat as a real rain signal — skip the consensus/median dry clamps
+            # that would otherwise wipe it out. Single-model outliers don't trigger
+            # (avoids AROME false alarms); two-model agreement does.
+            strong_signal = trusted_rain_count >= 2
             no_signal = ~strong_signal
 
             # 1. Sub-threshold noise → 0 (always)
