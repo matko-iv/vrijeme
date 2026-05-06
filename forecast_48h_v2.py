@@ -2499,48 +2499,56 @@ def apply_correction(fc_df, trained, bias_tables):
                 pred = p_blend_alpha * pred + (1 - p_blend_alpha) * ens_vals_p
                 pred = np.clip(pred, 0, 50)
 
-            # False-alarm clamping (multi-layer):
-            # 1. Sub-threshold noise → 0
-            pred[pred < 0.1] = 0.0
-            # 2. Ensemble unanimously dry (max of all models < 0.1mm) → 0
-            if 'ens_all_dry' in fc.columns:
-                dry_mask = fc['ens_all_dry'].values > 0.5
-                pred[dry_mask] = 0.0
-            # 3. Consensus threshold: < 40% of models predicting rain → 0
-            #    (Robust against 1-3 outlier models triggering false rain)
-            if 'rain_agreement' in fc.columns:
-                low_consensus = pd.to_numeric(fc['rain_agreement'], errors='coerce').fillna(0).values < 0.4
-                pred[low_consensus] = 0.0
-            # 4. Median dry: if median model precipitation < 0.05mm → 0
-            #    (Robust to 1-2 outlier wet models)
-            if 'precipitation_ens_median' in fc.columns:
-                median_dry = pd.to_numeric(fc['precipitation_ens_median'], errors='coerce').fillna(0).values < 0.05
-                pred[median_dry] = 0.0
-            # 5. Amplification cap: never exceed 1.5 × ensemble p75 (with floor at 0.5mm)
-            #    Prevents XGB from amplifying tiny ensemble signals into false rain
-            if 'precip_ens_p75' in fc.columns:
-                p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
-                cap = np.maximum(0.5, 1.5 * p75_vals)
-                pred = np.minimum(pred, cap)
-            # 6. Trusted-models dry consensus: 6 elite models for our region.
-            #    Tighter list = stricter clamp (more often all "trusted" agree dry,
-            #    so more false alarms get suppressed).
-            #    - ECMWF_IFS: HRES 9km, global gold standard
-            #    - ICON_SEAMLESS: tuned for European midlatitudes, orographic precip
-            #    - ARPEGE/METEOFRANCE: French regional + seamless (W. Europe focus)
-            #    - ITALIAMETEO_ICON2I: 2km regional, direct Adriatic coverage
-            #    - UKMO: precip skill nearly equals ECMWF (ASCE verification)
-            #    Excluded: ECMWF_IFS025 (redundant with HRES), GFS (slightly weaker
-            #    for 0-48h EU precip), and the 3 outliers (KNMI/DMI/BOM).
+            # False-alarm clamping (multi-layer with strong-signal override).
+            #
+            # Trusted models for our region. KNMI added because HARMONIE-AROME
+            # (convection-permitting, ~2.5km) catches afternoon convective showers
+            # the global models (ECMWF/GFS/ICON at 9-13km) miss. Verified empirically
+            # for May 6 2026: KNMI predicted 0.3-1.9mm 14h-18h, all globals said 0,
+            # actual rain occurred.
             trusted_models = ['ECMWF_IFS', 'ICON_SEAMLESS', 'ARPEGE_EUROPE',
-                              'METEOFRANCE', 'ITALIAMETEO_ICON2I', 'UKMO_SEAMLESS']
+                              'METEOFRANCE', 'ITALIAMETEO_ICON2I', 'UKMO_SEAMLESS',
+                              'KNMI_SEAMLESS']
             trusted_cols = [f'{m}_precipitation_model' for m in trusted_models
                             if f'{m}_precipitation_model' in fc.columns]
+            trusted_max = np.zeros(len(fc))
             if trusted_cols:
                 trusted_vals = fc[trusted_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
                 trusted_max = trusted_vals.max(axis=1).values
-                trusted_dry_mask = trusted_max < 0.1
-                pred[trusted_dry_mask] = 0.0
+
+            # Strong-signal override: if ANY trusted model predicts ≥ 0.5mm, that's
+            # a meaningful signal (esp. AROME catching convection) — skip the
+            # consensus/median dry clamps that would otherwise wipe it out.
+            strong_signal = trusted_max >= 0.5
+            no_signal = ~strong_signal
+
+            # 1. Sub-threshold noise → 0 (always)
+            pred[pred < 0.1] = 0.0
+            # 2. Ensemble unanimously dry (only when no strong signal)
+            if 'ens_all_dry' in fc.columns:
+                dry_mask = (fc['ens_all_dry'].values > 0.5) & no_signal
+                pred[dry_mask] = 0.0
+            # 3. Consensus threshold: < 40% of models predicting rain → 0
+            #    (skipped when strong trusted-model signal exists)
+            if 'rain_agreement' in fc.columns:
+                low_consensus = (pd.to_numeric(fc['rain_agreement'], errors='coerce').fillna(0).values < 0.4) & no_signal
+                pred[low_consensus] = 0.0
+            # 4. Median dry: if median model precipitation < 0.05mm → 0
+            #    (skipped when strong trusted-model signal exists)
+            if 'precipitation_ens_median' in fc.columns:
+                median_dry = (pd.to_numeric(fc['precipitation_ens_median'], errors='coerce').fillna(0).values < 0.05) & no_signal
+                pred[median_dry] = 0.0
+            # 5. Amplification cap. Floor accommodates strong trusted signals so that
+            #    KNMI predicting 1.9mm doesn't get capped down to 0.5mm just because
+            #    other models are dry (low p75).
+            if 'precip_ens_p75' in fc.columns:
+                p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
+                cap = np.maximum.reduce([np.full(len(fc), 0.5), 1.5 * p75_vals, 0.7 * trusted_max])
+                pred = np.minimum(pred, cap)
+            # 6. Trusted-models dry consensus: only fires when ALL trusted predict
+            #    < 0.1mm (no signal anywhere among the 7 elite models).
+            trusted_dry_mask = trusted_max < 0.1
+            pred[trusted_dry_mask] = 0.0
 
             corrected[f'{param}_xgb'] = pred
             method_lbl = method + (f'+blend({p_blend_alpha:.2f})' if p_blend_alpha < 1.0 else '')
