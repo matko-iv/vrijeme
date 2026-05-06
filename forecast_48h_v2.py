@@ -32,6 +32,7 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 LAT, LON = 42.29, 18.84  # E viva!!
 
 MODELS = ["ARPEGE_EUROPE", "GFS_SEAMLESS", "ICON_SEAMLESS", "METEOFRANCE", "ECMWF_IFS025", "ITALIAMETEO_ICON2I", "UKMO_SEAMLESS", "BOM_ACCESS", "ECMWF_IFS", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
+TRUSTED_MODELS = ["ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
 MODEL_IDS = {
     "ARPEGE_EUROPE": "arpege_europe",
     "GFS_SEAMLESS": "gfs_seamless",
@@ -1643,6 +1644,13 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val, feature_
         if 'ens_all_dry' in X_data.columns:
             dry_mask = X_data['ens_all_dry'].values > 0.5
             pred[dry_mask] = 0.0
+
+        if 'precip_ens_max_single' in X_data.columns:
+            max_single = X_data['precip_ens_max_single'].values
+            
+            override_mask = (pred < 0.1) & (max_single >= 0.1)
+            
+            pred[override_mask] = max_single[override_mask]
         return pred
 
     methods = {
@@ -2410,7 +2418,7 @@ def correct_weather_code_row(row, raw_row=None):
             if cloud_xgb is not None and pd.notna(cloud_xgb) and cloud_xgb > 85:
                 return 3  
     
-    if wc_raw <= 3 and precip_xgb is not None and pd.notna(precip_xgb) and precip_xgb > 0.5:
+    if wc_raw <= 3 and precip_xgb is not None and pd.notna(precip_xgb) and precip_xgb > 0.1:
         if precip_xgb > 3.0:
             return 63  
         elif precip_xgb > 1.0:
@@ -2499,16 +2507,12 @@ def apply_correction(fc_df, trained, bias_tables):
                 pred = p_blend_alpha * pred + (1 - p_blend_alpha) * ens_vals_p
                 pred = np.clip(pred, 0, 50)
 
-            # False-alarm clamping (multi-layer with 2-model corroboration override).
+            # False-alarm clamping with trusted-model override.
             #
-            # Trusted models for our region (8 total). KNMI and DMI included
-            # because HARMONIE-AROME (convection-permitting, ~2.5km) catches
-            # afternoon convective showers the global models miss. Verified
-            # empirically for May 6 2026: KNMI 1.9mm + DMI 0.1mm at 17h, all
-            # globals said 0mm, actual rain occurred.
-            trusted_models = ['ECMWF_IFS', 'ICON_SEAMLESS', 'ARPEGE_EUROPE',
-                              'METEOFRANCE', 'ITALIAMETEO_ICON2I', 'UKMO_SEAMLESS',
-                              'KNMI_SEAMLESS', 'DMI_SEAMLESS']
+            # For Budva, these regional/high-resolution models can veto the
+            # dry consensus because coastal showers are easy to dilute away in
+            # the global ensemble.
+            trusted_models = TRUSTED_MODELS
             trusted_cols = [f'{m}_precipitation_model' for m in trusted_models
                             if f'{m}_precipitation_model' in fc.columns]
             trusted_max = np.zeros(len(fc))
@@ -2518,40 +2522,44 @@ def apply_correction(fc_df, trained, bias_tables):
                 trusted_max = trusted_vals.max(axis=1).values
                 trusted_rain_count = (trusted_vals >= 0.1).sum(axis=1).values
 
-            # Corroboration override: if ≥ 2 trusted models predict ≥ 0.1mm,
-            # treat as a real rain signal — skip the consensus/median dry clamps
-            # that would otherwise wipe it out. Single-model outliers don't trigger
-            # (avoids AROME false alarms); two-model agreement does.
-            strong_signal = trusted_rain_count >= 2
-            no_signal = ~strong_signal
+            # Trusted override: if any trusted model predicts >= 0.1mm, treat it
+            # as a real rain signal and skip consensus/median dry clamps.
+            trusted_signal = trusted_rain_count >= 1
+            no_signal = ~trusted_signal
 
             # 1. Sub-threshold noise → 0 (always)
             pred[pred < 0.1] = 0.0
-            # 2. Ensemble unanimously dry (only when no strong signal)
+            # 2. Ensemble unanimously dry (only when no trusted signal)
             if 'ens_all_dry' in fc.columns:
                 dry_mask = (fc['ens_all_dry'].values > 0.5) & no_signal
                 pred[dry_mask] = 0.0
             # 3. Consensus threshold: < 40% of models predicting rain → 0
-            #    (skipped when strong trusted-model signal exists)
+            #    (skipped when trusted-model signal exists)
             if 'rain_agreement' in fc.columns:
                 low_consensus = (pd.to_numeric(fc['rain_agreement'], errors='coerce').fillna(0).values < 0.4) & no_signal
                 pred[low_consensus] = 0.0
             # 4. Median dry: if median model precipitation < 0.05mm → 0
-            #    (skipped when strong trusted-model signal exists)
+            #    (skipped when trusted-model signal exists)
             if 'precipitation_ens_median' in fc.columns:
                 median_dry = (pd.to_numeric(fc['precipitation_ens_median'], errors='coerce').fillna(0).values < 0.05) & no_signal
                 pred[median_dry] = 0.0
-            # 5. Amplification cap. Floor accommodates strong trusted signals so that
+            # 5. Amplification cap. Floor accommodates trusted signals so that
             #    KNMI predicting 1.9mm doesn't get capped down to 0.5mm just because
             #    other models are dry (low p75).
             if 'precip_ens_p75' in fc.columns:
                 p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
                 cap = np.maximum.reduce([np.full(len(fc), 0.5), 1.5 * p75_vals, 0.7 * trusted_max])
                 pred = np.minimum(pred, cap)
-            # 6. Trusted-models dry consensus: only fires when ALL trusted predict
-            #    < 0.1mm (no signal anywhere among the 7 elite models).
+            # 6. Trusted-models dry consensus: only fires when ALL trusted models
+            #    predict < 0.1mm.
             trusted_dry_mask = trusted_max < 0.1
             pred[trusted_dry_mask] = 0.0
+            # 7. If a trusted model sees rain, the corrected precipitation must
+            #    also stay just above the rain threshold. Larger single-model
+            #    amounts remain cautious unless the correction model supports them.
+            if trusted_signal.any():
+                trusted_floor = np.maximum(0.11, np.minimum(trusted_max, 0.5))
+                pred[trusted_signal] = np.maximum(pred[trusted_signal], trusted_floor[trusted_signal])
 
             corrected[f'{param}_xgb'] = pred
             method_lbl = method + (f'+blend({p_blend_alpha:.2f})' if p_blend_alpha < 1.0 else '')
@@ -3099,7 +3107,7 @@ def _gemini_narrative_daily(date_str, ds):
         f"{summary}\n\n"
         "Napiši JEDNU rečenicu (max 10 riječi) koja opisuje vremenske uslove.\n"
         "Crnogorski jezik. Bez emotikona. Bez savjeta.\n"
-        "Ako oblačnost > 50%, pomeni oblake. Ako padavine > 0.5mm, pomeni kišu.\n"
+        "Ako oblačnost > 50%, pomeni oblake. Ako padavine > 0.1mm, pomeni kišu.\n"
         "Primjeri: Djelimično oblačno, moguća slaba kiša. / Pretežno vedro uz umjeren vjetar.\n"
         "Samo rečenicu:"
     )
