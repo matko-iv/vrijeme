@@ -3086,14 +3086,10 @@ def _gemini_narrative_daily(date_str, ds):
                f"padavine {precip}mm (šansa {pp}%), vjetar do {wind}m/s.")
     prompt = (
         f"{summary}\n\n"
-        "Napiši JEDNU rečenicu (max 10 riječi) koja opisuje cijeli dan.\n"
+        "Napiši JEDNU rečenicu (max 10 riječi) koja opisuje vremenske uslove.\n"
         "Crnogorski jezik. Bez emotikona. Bez savjeta.\n"
-        "VAŽNO: Imaš samo dnevne agregate, NEMAŠ satne podatke. NE smiješ navoditi\n"
-        "konkretno doba dana (kao 'prijepodne', 'popodne', 'od 15h', 'do podneva').\n"
-        "Opiši samo opšte stanje za cijeli dan.\n"
         "Ako oblačnost > 50%, pomeni oblake. Ako padavine > 0.5mm, pomeni kišu.\n"
-        "Primjeri: Djelimično oblačno, moguća slaba kiša. / Pretežno vedro uz umjeren vjetar. /\n"
-        "Oblačno sa povremenom kišom. / Sunčano i toplo.\n"
+        "Primjeri: Djelimično oblačno, moguća slaba kiša. / Pretežno vedro uz umjeren vjetar.\n"
         "Samo rečenicu:"
     )
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
