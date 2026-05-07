@@ -418,7 +418,7 @@
         <li class="trusted">DMI Seamless</li>
     </ul>
 
-    <p>Za većinu parametara ansambl koristi sve modele. Za padavine posebno pratim <span class="trusted">ItaliaMeteo, KNMI i DMI</span>, tim redom: ItaliaMeteo je najjači lokalni signal, KNMI drugi, a DMI ostaje koristan ali slabiji treći signal. To ne znači da samo oni čine prosjek. Ensemble prosjek ostaje prosjek svih dostupnih modela, a trusted grupa je dodatni signal u korekcionoj logici.</p>
+    <p>Za većinu parametara ansambl koristi sve modele. Za padavine posebno pratim <span class="trusted">ItaliaMeteo, KNMI i DMI</span>, ali sa strožim pravilom: ItaliaMeteo može sam potvrditi kišu već od 0.10 mm, dok KNMI i DMI moraju zajedno vidjeti barem 0.20 mm. Ako taj trusted uslov nije ispunjen, korekcioni model prikazuje suvo.</p>
 
     <h2>Kako XGBoost popravlja prognozu</h2>
 
@@ -489,19 +489,27 @@
         rain_{\text{shown}} =
         \left(precip_{\text{corrected}} \geq 0.20\text{ mm}\right)
         \land
-        \left(trusted_{\text{signal}} \lor ensemble_{\text{support}}\right)
+        \left(
+            \left(ItaliaMeteo \geq 0.10\text{ mm}\right)
+            \lor
+            \left(
+                KNMI \geq 0.20\text{ mm}
+                \land
+                DMI \geq 0.20\text{ mm}
+            \right)
+        \right)
         \]
     </div>
 
     <ul>
         <li><strong>Ensemble prosjek</strong> se računa iz svih dostupnih modela, ne samo iz trusted grupe.</li>
-        <li><strong>Trusted grupa</strong> je dodatni signal sa ponderisanim prioritetom: ItaliaMeteo, zatim KNMI, zatim DMI. DMI sam mora imati jači signal nego ranije, ne samo 0.10 mm šuma.</li>
+        <li><strong>Trusted gate</strong> je strogo pravilo: ItaliaMeteo sam može potvrditi kišu od 0.10 mm, ili KNMI i DMI moraju potvrditi kišu zajedno sa barem 0.20 mm.</li>
         <li><strong>Prag za prikaz kiše</strong> je 0.20 mm po satu. Ispod toga ide 0.0 i weather code se spušta na oblačno ili vedro.</li>
         <li><strong>Dry-nowcast</strong> može gasiti slabu blisku kišu kada postoji pouzdan lokalni signal da je trenutno suvo.</li>
     </ul>
 
     <div class="note green">
-        <strong>Bitno:</strong> ako prioritetni trusted signal vidi ozbiljniju kišu, korekcioni model ne smije to ignorisati. Ali ako je signal samo 0.10 mm, posebno iz slabijeg DMI sloja, ne želimo da korisnik vidi kišu na sajtu. To je razlika između korisnog upozorenja i lažnog drizzle-a.
+        <strong>Bitno:</strong> ako ItaliaMeteo vidi makar 0.10 mm, ili ako se KNMI i DMI slože oko barem 0.20 mm, korekcioni model ne smije to ignorisati. Ali DMI sam, KNMI sam, ili njihov sitan signal od 0.10 mm ne pale kišu na sajtu. To je razlika između korisnog upozorenja i lažnog drizzle-a.
     </div>
 
     <h2>Rezultati</h2>

@@ -36,16 +36,11 @@ FORECAST_TIMEZONE = "Europe/Podgorica"
 
 MODELS = ["ARPEGE_EUROPE", "GFS_SEAMLESS", "ICON_SEAMLESS", "METEOFRANCE", "ECMWF_IFS025", "ITALIAMETEO_ICON2I", "UKMO_SEAMLESS", "BOM_ACCESS", "ECMWF_IFS", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
 TRUSTED_MODELS = ["ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
-TRUSTED_RAIN_MODEL_WEIGHTS = {
-    "ITALIAMETEO_ICON2I": 1.0,
-    "KNMI_SEAMLESS": 0.85,
-    "DMI_SEAMLESS": 0.5,
-}
-TRUSTED_RAIN_WEAK_SCORE = 0.75
-TRUSTED_RAIN_STRONG_SCORE = 1.35
+TRUSTED_RAIN_PRIMARY_MODEL = "ITALIAMETEO_ICON2I"
+TRUSTED_RAIN_CONFIRMING_PAIR = ("KNMI_SEAMLESS", "DMI_SEAMLESS")
 CORRECTED_RAIN_THRESHOLD_MM = 0.2
-TRUSTED_RAIN_THRESHOLD = 0.2
-TRUSTED_WEAK_SIGNAL_MIN_MM = 0.2
+TRUSTED_RAIN_PRIMARY_THRESHOLD = 0.1
+TRUSTED_RAIN_CONFIRMING_THRESHOLD = 0.2
 LOCAL_DRY_NOWCAST_HOURS = 4
 LOCAL_DRY_LIGHT_RAIN_MAX_MM = 0.7
 MODEL_IDS = {
@@ -2585,98 +2580,58 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
                 pred = p_blend_alpha * pred + (1 - p_blend_alpha) * ens_vals_p
                 pred = np.clip(pred, 0, 50)
 
-            # False-alarm clamping with trusted-model override.
+            # False-alarm clamping with trusted-model rain gate.
             #
-            # For Budva, these regional/high-resolution models can veto the
-            # dry consensus because coastal showers are easy to dilute away in
-            # the global ensemble.
-            trusted_models = TRUSTED_MODELS
-            trusted_cols = [f'{m}_precipitation_model' for m in trusted_models
-                            if f'{m}_precipitation_model' in fc.columns]
-            trusted_max = np.zeros(len(fc))
-            trusted_weighted_max = np.zeros(len(fc))
-            trusted_weighted_rain_amount = np.zeros(len(fc))
-            trusted_signal_score = np.zeros(len(fc))
-            if trusted_cols:
-                trusted_vals = fc[trusted_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
-                trusted_weights = pd.Series(
-                    {f'{m}_precipitation_model': TRUSTED_RAIN_MODEL_WEIGHTS.get(m, 1.0)
-                     for m in trusted_models},
-                    dtype=float
-                ).reindex(trusted_cols).fillna(1.0)
-                trusted_max = trusted_vals.max(axis=1).values
-                trusted_weighted_vals = trusted_vals.mul(trusted_weights, axis=1)
-                trusted_weighted_max = trusted_weighted_vals.max(axis=1).values
-                trusted_rain_mask = trusted_vals >= TRUSTED_RAIN_THRESHOLD
-                trusted_rain_count_s = trusted_rain_mask.sum(axis=1)
-                trusted_signal_score = trusted_rain_mask.mul(trusted_weights, axis=1).sum(axis=1).values
-                trusted_weighted_rain_amount = (
-                    trusted_weighted_vals.where(trusted_rain_mask, 0)
-                    .sum(axis=1)
-                    .div(trusted_rain_count_s.replace(0, np.nan))
-                    .fillna(0)
-                    .values
-                )
+            # For Budva, rain is allowed only when ItaliaMeteo sees at least
+            # 0.1mm or KNMI and DMI both see at least 0.2mm. That keeps
+            # single-model drizzle noise out of the public forecast.
+            def _trusted_precip_values(model_name):
+                col = f'{model_name}_precipitation_model'
+                if col not in fc.columns:
+                    return np.zeros(len(fc))
+                return pd.to_numeric(fc[col], errors='coerce').fillna(0).values
 
-            # Tiered trusted override:
-            # - Trusted models are weighted by current rain priority:
-            #   ItaliaMeteo > KNMI > DMI.
-            # - DMI remains useful, but it is weaker as a standalone veto of
-            #   an otherwise dry consensus.
-            model_rain_signal = pred >= TRUSTED_RAIN_THRESHOLD
-            weak_cls_support = cls_proba >= max(0.25, thresh * 0.75)
-            trusted_strong_signal = (
-                (trusted_signal_score >= TRUSTED_RAIN_STRONG_SCORE) |
-                (trusted_weighted_max >= 0.5)
+            italia_vals = _trusted_precip_values(TRUSTED_RAIN_PRIMARY_MODEL)
+            knmi_vals = _trusted_precip_values(TRUSTED_RAIN_CONFIRMING_PAIR[0])
+            dmi_vals = _trusted_precip_values(TRUSTED_RAIN_CONFIRMING_PAIR[1])
+
+            italia_rain = italia_vals >= TRUSTED_RAIN_PRIMARY_THRESHOLD
+            knmi_rain = knmi_vals >= TRUSTED_RAIN_CONFIRMING_THRESHOLD
+            dmi_rain = dmi_vals >= TRUSTED_RAIN_CONFIRMING_THRESHOLD
+            knmi_dmi_rain = knmi_rain & dmi_rain
+
+            # Hard trusted rain gate:
+            # - ItaliaMeteo can trigger rain alone at 0.1mm.
+            # - KNMI and DMI must agree with each other at 0.2mm.
+            # - Otherwise, the corrected model is forced dry.
+            trusted_signal = italia_rain | knmi_dmi_rain
+            trusted_strong_signal = knmi_dmi_rain | (italia_rain & (knmi_rain | dmi_rain))
+            trusted_signal_amount = np.maximum(
+                np.where(italia_rain, italia_vals, 0),
+                np.where(knmi_dmi_rain, (knmi_vals + dmi_vals) / 2, 0)
             )
-            trusted_weak_signal = (
-                (trusted_signal_score >= TRUSTED_RAIN_WEAK_SCORE) &
-                ~trusted_strong_signal &
-                (
-                    (trusted_max >= TRUSTED_WEAK_SIGNAL_MIN_MM) |
-                    model_rain_signal |
-                    weak_cls_support
-                )
-            )
-            trusted_signal = trusted_strong_signal | trusted_weak_signal
             no_signal = ~trusted_signal
 
             # 1. Sub-threshold noise -> 0 (always)
             pred[pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
-            # 2. Ensemble unanimously dry (only when no trusted signal)
-            if 'ens_all_dry' in fc.columns:
-                dry_mask = (fc['ens_all_dry'].values > 0.5) & no_signal
-                pred[dry_mask] = 0.0
-            # 3. Consensus threshold: < 40% of models predicting rain → 0
-            #    (skipped when trusted-model signal exists)
-            if 'rain_agreement' in fc.columns:
-                low_consensus = (pd.to_numeric(fc['rain_agreement'], errors='coerce').fillna(0).values < 0.4) & no_signal
-                pred[low_consensus] = 0.0
-            # 4. Median dry: if median model precipitation < 0.05mm → 0
-            #    (skipped when trusted-model signal exists)
-            if 'precipitation_ens_median' in fc.columns:
-                median_dry = (pd.to_numeric(fc['precipitation_ens_median'], errors='coerce').fillna(0).values < 0.05) & no_signal
-                pred[median_dry] = 0.0
-            # 5. Amplification cap. Avoid a hard 0.5mm minimum when the ensemble
+            # 2. No trusted gate -> no rain.
+            pred[no_signal] = 0.0
+            # 3. Amplification cap. Avoid a hard 0.5mm minimum when the ensemble
             #    is mostly dry; trusted support scales the cap with trusted amount.
             if 'precip_ens_p75' in fc.columns:
                 p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
                 cap = np.maximum(np.full(len(fc), CORRECTED_RAIN_THRESHOLD_MM), 1.5 * p75_vals)
-                trusted_cap = np.maximum(1.2 * trusted_weighted_rain_amount, 0.8 * trusted_weighted_max)
+                trusted_cap = 1.2 * trusted_signal_amount
                 cap[trusted_signal] = np.maximum(cap[trusted_signal], trusted_cap[trusted_signal])
                 pred = np.minimum(pred, cap)
-            # 6. Trusted-models dry consensus: only fires when ALL trusted models
-            #    stay below the trusted rain threshold.
-            trusted_dry_mask = trusted_max < TRUSTED_RAIN_THRESHOLD
-            pred[trusted_dry_mask] = 0.0
-            # 7. If a trusted model sees rain, the corrected precipitation must
+            # 4. If the trusted gate sees rain, the corrected precipitation must
             #    also stay just above the rain threshold. Larger single-model
             #    amounts remain cautious unless the correction model supports them.
             if trusted_signal.any():
                 floor_cap = np.where(trusted_strong_signal, 0.5, 0.3)
                 trusted_floor = np.maximum(
                     CORRECTED_RAIN_THRESHOLD_MM,
-                    np.minimum(trusted_weighted_rain_amount, floor_cap)
+                    np.minimum(trusted_signal_amount, floor_cap)
                 )
                 pred[trusted_signal] = np.maximum(pred[trusted_signal], trusted_floor[trusted_signal])
 
