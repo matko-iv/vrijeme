@@ -36,6 +36,13 @@ FORECAST_TIMEZONE = "Europe/Podgorica"
 
 MODELS = ["ARPEGE_EUROPE", "GFS_SEAMLESS", "ICON_SEAMLESS", "METEOFRANCE", "ECMWF_IFS025", "ITALIAMETEO_ICON2I", "UKMO_SEAMLESS", "BOM_ACCESS", "ECMWF_IFS", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
 TRUSTED_MODELS = ["ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
+TRUSTED_RAIN_MODEL_WEIGHTS = {
+    "ITALIAMETEO_ICON2I": 1.0,
+    "KNMI_SEAMLESS": 0.85,
+    "DMI_SEAMLESS": 0.5,
+}
+TRUSTED_RAIN_WEAK_SCORE = 0.75
+TRUSTED_RAIN_STRONG_SCORE = 1.35
 CORRECTED_RAIN_THRESHOLD_MM = 0.2
 TRUSTED_RAIN_THRESHOLD = 0.2
 TRUSTED_WEAK_SIGNAL_MIN_MM = 0.2
@@ -2587,24 +2594,44 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
             trusted_cols = [f'{m}_precipitation_model' for m in trusted_models
                             if f'{m}_precipitation_model' in fc.columns]
             trusted_max = np.zeros(len(fc))
-            trusted_rain_mean = np.zeros(len(fc))
-            trusted_rain_count = np.zeros(len(fc), dtype=int)
+            trusted_weighted_max = np.zeros(len(fc))
+            trusted_weighted_rain_amount = np.zeros(len(fc))
+            trusted_signal_score = np.zeros(len(fc))
             if trusted_cols:
                 trusted_vals = fc[trusted_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
+                trusted_weights = pd.Series(
+                    {f'{m}_precipitation_model': TRUSTED_RAIN_MODEL_WEIGHTS.get(m, 1.0)
+                     for m in trusted_models},
+                    dtype=float
+                ).reindex(trusted_cols).fillna(1.0)
                 trusted_max = trusted_vals.max(axis=1).values
+                trusted_weighted_vals = trusted_vals.mul(trusted_weights, axis=1)
+                trusted_weighted_max = trusted_weighted_vals.max(axis=1).values
                 trusted_rain_mask = trusted_vals >= TRUSTED_RAIN_THRESHOLD
-                trusted_rain_count = trusted_rain_mask.sum(axis=1).values
-                trusted_rain_mean = trusted_vals.where(trusted_rain_mask).mean(axis=1).fillna(0).values
+                trusted_rain_count_s = trusted_rain_mask.sum(axis=1)
+                trusted_signal_score = trusted_rain_mask.mul(trusted_weights, axis=1).sum(axis=1).values
+                trusted_weighted_rain_amount = (
+                    trusted_weighted_vals.where(trusted_rain_mask, 0)
+                    .sum(axis=1)
+                    .div(trusted_rain_count_s.replace(0, np.nan))
+                    .fillna(0)
+                    .values
+                )
 
             # Tiered trusted override:
-            # - 2/3 trusted models is a strong rain signal.
-            # - 1/3 trusted model is accepted only when amount/model probability
-            #   gives extra support, reducing single-model drizzle noise.
+            # - Trusted models are weighted by current rain priority:
+            #   ItaliaMeteo > KNMI > DMI.
+            # - DMI remains useful, but it is weaker as a standalone veto of
+            #   an otherwise dry consensus.
             model_rain_signal = pred >= TRUSTED_RAIN_THRESHOLD
             weak_cls_support = cls_proba >= max(0.25, thresh * 0.75)
-            trusted_strong_signal = (trusted_rain_count >= 2) | (trusted_max >= 0.5)
+            trusted_strong_signal = (
+                (trusted_signal_score >= TRUSTED_RAIN_STRONG_SCORE) |
+                (trusted_weighted_max >= 0.5)
+            )
             trusted_weak_signal = (
-                (trusted_rain_count == 1) &
+                (trusted_signal_score >= TRUSTED_RAIN_WEAK_SCORE) &
+                ~trusted_strong_signal &
                 (
                     (trusted_max >= TRUSTED_WEAK_SIGNAL_MIN_MM) |
                     model_rain_signal |
@@ -2635,7 +2662,7 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
             if 'precip_ens_p75' in fc.columns:
                 p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
                 cap = np.maximum(np.full(len(fc), CORRECTED_RAIN_THRESHOLD_MM), 1.5 * p75_vals)
-                trusted_cap = np.maximum(1.2 * trusted_rain_mean, 0.8 * trusted_max)
+                trusted_cap = np.maximum(1.2 * trusted_weighted_rain_amount, 0.8 * trusted_weighted_max)
                 cap[trusted_signal] = np.maximum(cap[trusted_signal], trusted_cap[trusted_signal])
                 pred = np.minimum(pred, cap)
             # 6. Trusted-models dry consensus: only fires when ALL trusted models
@@ -2647,7 +2674,10 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
             #    amounts remain cautious unless the correction model supports them.
             if trusted_signal.any():
                 floor_cap = np.where(trusted_strong_signal, 0.5, 0.3)
-                trusted_floor = np.maximum(CORRECTED_RAIN_THRESHOLD_MM, np.minimum(trusted_rain_mean, floor_cap))
+                trusted_floor = np.maximum(
+                    CORRECTED_RAIN_THRESHOLD_MM,
+                    np.minimum(trusted_weighted_rain_amount, floor_cap)
+                )
                 pred[trusted_signal] = np.maximum(pred[trusted_signal], trusted_floor[trusted_signal])
 
             if local_dry_nowcast:
