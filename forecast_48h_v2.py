@@ -35,12 +35,10 @@ LAT, LON = 42.2864, 18.84  # E viva!!
 FORECAST_TIMEZONE = "Europe/Podgorica"
 
 MODELS = ["ARPEGE_EUROPE", "GFS_SEAMLESS", "ICON_SEAMLESS", "METEOFRANCE", "ECMWF_IFS025", "ITALIAMETEO_ICON2I", "UKMO_SEAMLESS", "BOM_ACCESS", "ECMWF_IFS", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
-TRUSTED_MODELS = ["ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
-TRUSTED_RAIN_PRIMARY_MODEL = "ITALIAMETEO_ICON2I"
-TRUSTED_RAIN_CONFIRMING_PAIR = ("KNMI_SEAMLESS", "DMI_SEAMLESS")
+TRUSTED_MODELS = ["ITALIAMETEO_ICON2I"]
+TRUSTED_RAIN_MODEL = "ITALIAMETEO_ICON2I"
 CORRECTED_RAIN_THRESHOLD_MM = 0.2
-TRUSTED_RAIN_PRIMARY_THRESHOLD = 0.1
-TRUSTED_RAIN_CONFIRMING_THRESHOLD = 0.2
+TRUSTED_RAIN_THRESHOLD = 0.1
 LOCAL_DRY_NOWCAST_HOURS = 4
 LOCAL_DRY_LIGHT_RAIN_MAX_MM = 0.7
 MODEL_IDS = {
@@ -2582,34 +2580,22 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
 
             # False-alarm clamping with trusted-model rain gate.
             #
-            # For Budva, rain is allowed only when ItaliaMeteo sees at least
-            # 0.1mm or KNMI and DMI both see at least 0.2mm. That keeps
-            # single-model drizzle noise out of the public forecast.
+            # For this experiment, rain is allowed only when ItaliaMeteo sees
+            # at least 0.1mm. KNMI and DMI still feed the ensemble/model, but
+            # they do not open the rain gate.
             def _trusted_precip_values(model_name):
                 col = f'{model_name}_precipitation_model'
                 if col not in fc.columns:
                     return np.zeros(len(fc))
                 return pd.to_numeric(fc[col], errors='coerce').fillna(0).values
 
-            italia_vals = _trusted_precip_values(TRUSTED_RAIN_PRIMARY_MODEL)
-            knmi_vals = _trusted_precip_values(TRUSTED_RAIN_CONFIRMING_PAIR[0])
-            dmi_vals = _trusted_precip_values(TRUSTED_RAIN_CONFIRMING_PAIR[1])
-
-            italia_rain = italia_vals >= TRUSTED_RAIN_PRIMARY_THRESHOLD
-            knmi_rain = knmi_vals >= TRUSTED_RAIN_CONFIRMING_THRESHOLD
-            dmi_rain = dmi_vals >= TRUSTED_RAIN_CONFIRMING_THRESHOLD
-            knmi_dmi_rain = knmi_rain & dmi_rain
+            trusted_vals = _trusted_precip_values(TRUSTED_RAIN_MODEL)
+            trusted_signal = trusted_vals >= TRUSTED_RAIN_THRESHOLD
 
             # Hard trusted rain gate:
             # - ItaliaMeteo can trigger rain alone at 0.1mm.
-            # - KNMI and DMI must agree with each other at 0.2mm.
             # - Otherwise, the corrected model is forced dry.
-            trusted_signal = italia_rain | knmi_dmi_rain
-            trusted_strong_signal = knmi_dmi_rain | (italia_rain & (knmi_rain | dmi_rain))
-            trusted_signal_amount = np.maximum(
-                np.where(italia_rain, italia_vals, 0),
-                np.where(knmi_dmi_rain, (knmi_vals + dmi_vals) / 2, 0)
-            )
+            trusted_signal_amount = np.where(trusted_signal, trusted_vals, 0)
             no_signal = ~trusted_signal
 
             # 1. Sub-threshold noise -> 0 (always)
@@ -2628,7 +2614,7 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
             #    also stay just above the rain threshold. Larger single-model
             #    amounts remain cautious unless the correction model supports them.
             if trusted_signal.any():
-                floor_cap = np.where(trusted_strong_signal, 0.5, 0.3)
+                floor_cap = np.full(len(fc), 0.5)
                 trusted_floor = np.maximum(
                     CORRECTED_RAIN_THRESHOLD_MM,
                     np.minimum(trusted_signal_amount, floor_cap)

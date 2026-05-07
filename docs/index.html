@@ -414,11 +414,11 @@
         <li>UKMO Seamless</li>
         <li>BOM ACCESS</li>
         <li>ECMWF IFS</li>
-        <li class="trusted">KNMI Seamless</li>
-        <li class="trusted">DMI Seamless</li>
+        <li>KNMI Seamless</li>
+        <li>DMI Seamless</li>
     </ul>
 
-    <p>Za većinu parametara ansambl koristi sve modele. Za padavine posebno pratim <span class="trusted">ItaliaMeteo, KNMI i DMI</span>, ali sa strožim pravilom: ItaliaMeteo može sam potvrditi kišu već od 0.10 mm, dok KNMI i DMI moraju zajedno vidjeti barem 0.20 mm. Ako taj trusted uslov nije ispunjen, korekcioni model prikazuje suvo.</p>
+    <p>Za većinu parametara ansambl koristi sve modele. Za padavine trenutno eksperimentišem sa jednim trusted signalom: <span class="trusted">ItaliaMeteo</span>. KNMI i DMI ostaju u ansamblu i feature-ima, ali za sada ne mogu sami otvoriti rain gate. Ako ItaliaMeteo ne vidi barem 0.10 mm, korekcioni model prikazuje suvo.</p>
 
     <h2>Kako XGBoost popravlja prognozu</h2>
 
@@ -489,27 +489,19 @@
         rain_{\text{shown}} =
         \left(precip_{\text{corrected}} \geq 0.20\text{ mm}\right)
         \land
-        \left(
-            \left(ItaliaMeteo \geq 0.10\text{ mm}\right)
-            \lor
-            \left(
-                KNMI \geq 0.20\text{ mm}
-                \land
-                DMI \geq 0.20\text{ mm}
-            \right)
-        \right)
+        \left(ItaliaMeteo \geq 0.10\text{ mm}\right)
         \]
     </div>
 
     <ul>
         <li><strong>Ensemble prosjek</strong> se računa iz svih dostupnih modela, ne samo iz trusted grupe.</li>
-        <li><strong>Trusted gate</strong> je strogo pravilo: ItaliaMeteo sam može potvrditi kišu od 0.10 mm, ili KNMI i DMI moraju potvrditi kišu zajedno sa barem 0.20 mm.</li>
+        <li><strong>Trusted gate</strong> je trenutno eksperimentalno strogo pravilo: samo ItaliaMeteo može potvrditi kišu, i to od 0.10 mm.</li>
         <li><strong>Prag za prikaz kiše</strong> je 0.20 mm po satu. Ispod toga ide 0.0 i weather code se spušta na oblačno ili vedro.</li>
         <li><strong>Dry-nowcast</strong> može gasiti slabu blisku kišu kada postoji pouzdan lokalni signal da je trenutno suvo.</li>
     </ul>
 
     <div class="note green">
-        <strong>Bitno:</strong> ako ItaliaMeteo vidi makar 0.10 mm, ili ako se KNMI i DMI slože oko barem 0.20 mm, korekcioni model ne smije to ignorisati. Ali DMI sam, KNMI sam, ili njihov sitan signal od 0.10 mm ne pale kišu na sajtu. To je razlika između korisnog upozorenja i lažnog drizzle-a.
+        <strong>Bitno:</strong> ako ItaliaMeteo vidi makar 0.10 mm, korekcioni model ne smije to ignorisati. Ali KNMI i DMI su za sada samo inputi ansambla i korekcionog modela; ne pale trusted rain gate dok ne uporedimo rezultate.
     </div>
 
     <h2>Rezultati</h2>
