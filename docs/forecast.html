@@ -612,7 +612,9 @@
         <div class="loading" style="color:#d73a49">
             Failed to initialize forecast_48h_v2.py. Please check the console for errors.
             <br>
-            <strong>SEGMENTATION FAULT (core dumped)</strong>
+            CRITICAL_SERVICE_FAILED [0x000000EF]
+            <br>
+            <small>Stack Trace: forecast.html -> fetch() -> [UNDEFINED_JSON_BUFFER]</small>
             <br>
             <code>MOV EAX, [FORECAST_DATA] ; Error: Address not found</code>
             <br>
