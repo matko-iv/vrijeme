@@ -41,21 +41,6 @@ CORRECTED_RAIN_THRESHOLD_MM = 0.2
 TRUSTED_RAIN_THRESHOLD = 0.1
 LOCAL_DRY_NOWCAST_HOURS = 4
 LOCAL_DRY_LIGHT_RAIN_MAX_MM = 0.7
-
-# Short-burst wind boost (microcellular convection signature in trusted model).
-# When ItaliaMeteo shows an isolated 1-2h wet run, that's almost certainly a
-# convective cell with downdraft gusts that the XGBoost wind models — trained
-# on typical hours — will systematically under-predict. We boost both core
-# burst hours and a 1-hour halo on each side (gust-front + decay).
-BURST_MAX_HOURS = 2            # contiguous wet hours <= this = "burst"
-BURST_GUST_DELTA = 5.0         # m/s added to gusts during core burst hours
-BURST_GUST_FLOOR = 12.0        # m/s minimum gust during core burst hours
-BURST_GUST_HALO_DELTA = 2.0    # m/s added to gusts during +/-1h halo
-BURST_WIND_DELTA = 2.5         # m/s added to sustained wind during burst
-BURST_WIND_FLOOR = 7.0         # m/s minimum sustained wind during burst
-BURST_WIND_HALO_DELTA = 1.0    # m/s halo add
-BURST_GUST_MAX = 40.0          # absolute cap (safety)
-BURST_WIND_MAX = 25.0
 MODEL_IDS = {
     "ARPEGE_EUROPE": "arpege_europe",
     "GFS_SEAMLESS": "gfs_seamless",
@@ -2525,102 +2510,6 @@ def correct_weather_code_row(row, raw_row=None):
     return wc_raw
 
 
-class TrustedRainGateError(RuntimeError):
-    """Raised when the trusted rain model is unavailable for the gate.
-
-    Used so the main script can specifically catch THIS failure mode and fall
-    back to the previous run, instead of writing a silently-dry forecast.
-    """
-    pass
-
-
-def _detect_short_rain_bursts(wet_mask, max_burst_hours):
-    """Return mask of hours that belong to a short isolated wet run.
-
-    A "short burst" is a contiguous run of wet hours of length 1..max_burst_hours,
-    surrounded by dry hours. Coastal Adriatic summers produce these when
-    individual convective cells drift over Budva for an hour or two before
-    decaying. Stratiform / synoptic rain (long wet runs) is ignored — that's
-    a different beast and the wind model already handles it.
-    """
-    n = len(wet_mask)
-    burst_mask = np.zeros(n, dtype=bool)
-    if n == 0:
-        return burst_mask
-    i = 0
-    while i < n:
-        if wet_mask[i]:
-            j = i
-            while j < n and wet_mask[j]:
-                j += 1
-            run_len = j - i
-            if run_len <= max_burst_hours:
-                burst_mask[i:j] = True
-            i = j
-        else:
-            i += 1
-    return burst_mask
-
-
-def _apply_burst_wind_boost(corrected, fc):
-    """Boost wind & gust predictions for short isolated rain bursts.
-
-    Operates AFTER the param loop, modifying `corrected` in place. Reads the
-    trusted-model precip column directly from `fc`, detects bursts, builds a
-    +/-1h halo, and boosts wind_speed_10m / wind_gusts_10m on both _xgb and
-    _ensemble outputs so whichever the JSON writer picks ends up boosted.
-
-    NaN handling: NaN inputs stay NaN — we don't manufacture observations.
-    """
-    trusted_col = f'{TRUSTED_RAIN_MODEL}_precipitation_model'
-    if trusted_col not in fc.columns:
-        return
-
-    italia_precip = pd.to_numeric(fc[trusted_col], errors='coerce').fillna(0).values
-    italia_wet = italia_precip >= TRUSTED_RAIN_THRESHOLD
-    burst_mask = _detect_short_rain_bursts(italia_wet, BURST_MAX_HOURS)
-
-    if not burst_mask.any():
-        return
-
-    # Halo: +/-1h around bursts, excluding burst hours themselves.
-    halo_mask = np.zeros_like(burst_mask)
-    halo_mask[:-1] |= burst_mask[1:]
-    halo_mask[1:] |= burst_mask[:-1]
-    halo_mask &= ~burst_mask
-
-    n_burst = int(burst_mask.sum())
-    n_halo = int(halo_mask.sum())
-
-    # Boost spec: (column base name, core delta, core floor, halo delta, hard cap)
-    boost_spec = [
-        ('wind_gusts_10m', BURST_GUST_DELTA, BURST_GUST_FLOOR, BURST_GUST_HALO_DELTA, BURST_GUST_MAX),
-        ('wind_speed_10m', BURST_WIND_DELTA, BURST_WIND_FLOOR, BURST_WIND_HALO_DELTA, BURST_WIND_MAX),
-    ]
-
-    for base, delta_core, floor_core, delta_halo, hard_cap in boost_spec:
-        for suffix in ['_xgb', '_ensemble']:
-            col = f'{base}{suffix}'
-            if col not in corrected.columns:
-                continue
-            w = corrected[col].values.astype(float).copy()
-            # Core: w + delta, floor at floor_core, cap at hard_cap. NaN propagates.
-            w[burst_mask] = np.minimum(
-                np.maximum(w[burst_mask] + delta_core, floor_core),
-                hard_cap
-            )
-            # Halo: weaker additive boost, no floor, same cap.
-            w[halo_mask] = np.minimum(w[halo_mask] + delta_halo, hard_cap)
-            corrected[col] = w
-
-    # Log which datetimes were flagged so user can sanity-check.
-    burst_times = corrected.loc[burst_mask, 'datetime'].dt.strftime('%d.%m %H:%M').tolist()
-    sample = ', '.join(burst_times[:6]) + (' ...' if len(burst_times) > 6 else '')
-    print(f"  Kratki pljuskovi: {n_burst} sat(a) core + {n_halo} sat(a) halo "
-          f"-> vjetar/udari pojacani")
-    print(f"    Sati: {sample}")
-
-
 def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
     print("\n[5/6] Primjena korekcije...")
 
@@ -2694,45 +2583,19 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
             # For this experiment, rain is allowed only when ItaliaMeteo sees
             # at least 0.1mm. KNMI and DMI still feed the ensemble/model, but
             # they do not open the rain gate.
-            #
-            # Hard-fail policy: if the trusted model column is missing entirely,
-            # OR every hour in the 48h horizon is NaN, raise TrustedRainGateError
-            # so main can fall back to the previous run instead of silently
-            # producing a fully-dry forecast.
             def _trusted_precip_values(model_name):
                 col = f'{model_name}_precipitation_model'
                 if col not in fc.columns:
-                    raise TrustedRainGateError(
-                        f"Trusted rain model '{model_name}' nije fetched - "
-                        f"kolona '{col}' nedostaje u live prognozama. "
-                        f"Trusted gate ne moze da radi. Provjeri "
-                        f"fetch_live_forecasts log iznad za FAIL poruke."
-                    )
-                vals = pd.to_numeric(fc[col], errors='coerce').values
-                nan_mask = np.isnan(vals)
-                horizon = min(48, len(vals))
-                if horizon > 0 and int(nan_mask[:horizon].sum()) >= horizon:
-                    raise TrustedRainGateError(
-                        f"Trusted rain model '{model_name}' ima sve NaN u "
-                        f"prvih {horizon} sati. Trusted gate ne moze da radi."
-                    )
-                return vals, nan_mask
+                    return np.zeros(len(fc))
+                return pd.to_numeric(fc[col], errors='coerce').fillna(0).values
 
-            trusted_vals, trusted_nan = _trusted_precip_values(TRUSTED_RAIN_MODEL)
-            n_nan = int(trusted_nan.sum())
-            if n_nan > 0:
-                print(f"  UPOZORENJE: {TRUSTED_RAIN_MODEL} ima NaN za "
-                      f"{n_nan}/{len(trusted_vals)} sati. Ti sati se "
-                      f"tretiraju kao 'bez signala' (suvo).")
-            # NaN -> 0 samo za poredjenje sa pragom; gate ostaje zatvoren
-            # za NaN sate. Ovo razdvaja "Italia kaze nula" od "Italia nema podatak".
-            trusted_vals_filled = np.where(trusted_nan, 0.0, trusted_vals)
-            trusted_signal = trusted_vals_filled >= TRUSTED_RAIN_THRESHOLD
+            trusted_vals = _trusted_precip_values(TRUSTED_RAIN_MODEL)
+            trusted_signal = trusted_vals >= TRUSTED_RAIN_THRESHOLD
 
             # Hard trusted rain gate:
             # - ItaliaMeteo can trigger rain alone at 0.1mm.
-            # - Otherwise (or NaN), the corrected model is forced dry.
-            trusted_signal_amount = np.where(trusted_signal, trusted_vals_filled, 0)
+            # - Otherwise, the corrected model is forced dry.
+            trusted_signal_amount = np.where(trusted_signal, trusted_vals, 0)
             no_signal = ~trusted_signal
 
             # 1. Sub-threshold noise -> 0 (always)
@@ -2877,10 +2740,6 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
         ec = [f"{m}_{extra}_model" for m in MODELS if f"{m}_{extra}_model" in fc.columns]
         if ec:
             corrected[f'{extra}_ens'] = fc[ec].apply(pd.to_numeric, errors='coerce').mean(axis=1)
-
-    # Microcellular-shower wind boost. Runs LAST so it can see the final
-    # wind_speed_10m_xgb / wind_gusts_10m_xgb that the param loop produced.
-    _apply_burst_wind_boost(corrected, fc)
 
     return corrected
 
@@ -3640,28 +3499,7 @@ if __name__ == "__main__":
     elif not WU_API_KEY:
         print("\n  WU nowcast: WU_API_KEY nije postavljen, preskacem automatsku live-stanicu")
 
-    try:
-        corrected = apply_correction(fc_all, trained, bias_tables, local_dry_nowcast=dry_nowcast_active)
-    except TrustedRainGateError as e:
-        print("\n" + "!" * 72)
-        print(f"  TRUSTED RAIN GATE FAIL: {e}")
-        print("!" * 72)
-        prev_json = os.path.join(OUTPUT_DIR, "forecast_48h.json")
-        prev_csv = os.path.join(OUTPUT_DIR, "forecast_48h.csv")
-        if os.path.exists(prev_json):
-            mtime = os.path.getmtime(prev_json)
-            age_str = pd.Timestamp.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
-            print(f"\n  ZADRZAVAM prethodnu prognozu: {prev_json}")
-            print(f"  (generisana: {age_str})")
-            print("  Nova prognoza NIJE upisana - prethodni run ostaje na snazi.")
-            print("=" * 72)
-            sys.exit(0)
-        else:
-            print(f"\n  Prethodna prognoza ne postoji ({prev_json}).")
-            print("  Ne postoji fallback - prekidam bez upisa.")
-            print("=" * 72)
-            sys.exit(1)
-
+    corrected = apply_correction(fc_all, trained, bias_tables, local_dry_nowcast=dry_nowcast_active)
     json_path, csv_path = generate_output(corrected, trained, results, fc_raw=fc_all)
 
     print("\n" + "=" * 72)
