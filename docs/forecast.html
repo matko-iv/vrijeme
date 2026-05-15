@@ -1906,11 +1906,29 @@ function computeWarnings(hourly, currentHour, currentDate) {
         if (slice.some(tsPred) || slice.some(heavyPred)) return;
         const totalRain = slice.reduce((s, h) => s + (h.precipitation || 0), 0);
         const maxGust = Math.max(...slice.map(h => h.wind_gusts_10m || 0));
+        // Direction at peak gust hour drives beach amplification (same rule
+        // as wind warnings). Showers carry downdraft gusts whose direction
+        // matters as much as raw magnitude on the beach.
+        let domDir = null, peakGust = -1;
+        slice.forEach(h => {
+            const g = h.wind_gusts_10m || 0;
+            if (g > peakGust) { peakGust = g; domDir = h.wind_direction_10m; }
+        });
+        const beach = beachWindAdjustment(domDir);
         const lenTxt = len === 1 ? '1 sat' : len + ' sata';
+        let details = `${lenTxt}, ~${totalRain.toFixed(1)} mm, udari do ${maxGust.toFixed(0)} m/s`;
+        if (beach) {
+            const beachGust = Math.round(maxGust * beach.factor);
+            // Skip beach line when amplified value is still trivially small;
+            // adds noise without info. Same threshold as current-weather hint.
+            if (beachGust >= 8) {
+                details += `. Na plaži udari moguće do ~${beachGust} m/s (${beach.label}).`;
+            }
+        }
         warnings.push({
             kind: 'shower', sev: 'moderate', title: 'Kratki pljusak',
             time: fmtSpan(r.start, r.end),
-            details: `${lenTxt}, ~${totalRain.toFixed(1)} mm, udari do ${maxGust.toFixed(0)} m/s. Vjerovatno mikroćelijska konvekcija.`,
+            details,
             active: isCovered(r.start, r.end),
             startIdx: r.start, endIdx: r.end,
         });
@@ -1924,14 +1942,13 @@ function computeWarnings(hourly, currentHour, currentDate) {
         return a.startIdx - b.startIdx;
     });
 
-    // Showers can repeat 5+ times across 48h, which becomes noisy.
-    // Keep only: (a) the active shower, if any, and (b) the next future one.
-    // All other warning kinds are kept in full.
-    let showerActiveKept = false, showerNextKept = false;
+    // Showers across 48h become noisy; only show the one happening NOW (if any).
+    // Future bursts are intentionally hidden — short-burst forecasts more than
+    // a few hours out are too uncertain to act on. Other warning kinds remain.
+    let showerActiveKept = false;
     const filtered = warnings.filter(w => {
         if (w.kind !== 'shower') return true;
         if (w.active && !showerActiveKept) { showerActiveKept = true; return true; }
-        if (!w.active && !showerNextKept) { showerNextKept = true; return true; }
         return false;
     });
 
