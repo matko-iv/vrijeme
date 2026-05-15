@@ -700,7 +700,7 @@
     <h1>Matkov model v2</h1>
 
     <div class="note" style="background:#ffcdca;border-left-color:#b60000;margin-bottom:30px;">
-        Poštovani posjetioci, trenutna verzija mog modela (kolokvijalno v2) je <b>penzionisana</b>. Ručno održavanje ukinuto je 15 maja 2026-te godine. Nova verzija uveliko je u razvoju, a uključivaće bolju detekciju vremenskih nepogoda, bolju detekciju signala za kišu, precizniju brzinu vjetra i još toga.
+        Poštovani posjetioci, trenutna verzija mog modela (kolokvijalno v2) je <b>penzionisana</b>. Ručno održavanje ukinuto je 15. maja 2026. godine. Nova verzija uveliko je u razvoju, a uključivaće prognozu za pomorce, bolju detekciju signala za kišu, precizniju brzinu vjetra i još toga.
     </div>
 
     <div class="note" style="background:#caffcf;border-left-color:#00b624;margin-bottom:30px;">
@@ -1751,6 +1751,26 @@ function maeToAccuracy(param, mae) {
 let currentChart = null;
 let forecastData = null;
 
+// Beach-level wind amplification estimate based on direction.
+// Open-Meteo's coastal grid cells smooth over land+sea; right at the waterline,
+// directional effects produce noticeably stronger gusts than the model predicts.
+// Returns null when no amplification applies.
+function beachWindAdjustment(directionDeg) {
+    if (directionDeg == null || isNaN(directionDeg)) return null;
+    const d = ((directionDeg % 360) + 360) % 360;
+    // Jugo sector: S ± 45° (135-225°). Onshore wind from open sea, no friction.
+    if (d >= 135 && d <= 225) {
+        return { factor: 1.4, label: 'jugo',
+                 hint: 'Jugo sa mora — na plaži udari osjetno jači, more može biti uzburkano.' };
+    }
+    // Bura sector: NE-ENE (10-70°). Katabatic downwash from Lovćen, gusty at coast.
+    if (d >= 10 && d <= 70) {
+        return { factor: 1.25, label: 'bura',
+                 hint: 'Bura silazna sa Lovćena — na obali grublja, more može odnositi prema pučini.' };
+    }
+    return null;
+}
+
 // ---------- Weather warnings ----------
 // Inspects 48h hourly_forecast and returns warning objects covering wind,
 // thunderstorms, heavy rain, and microcellular short bursts (1-2h isolated).
@@ -1820,13 +1840,27 @@ function computeWarnings(hourly, currentHour, currentDate) {
         const slice = hourly.slice(r.start, r.end + 1);
         const maxGust = Math.max(...slice.map(h => h.wind_gusts_10m || 0));
         const maxWind = Math.max(...slice.map(h => h.wind_speed_10m || 0));
+        // Representative direction = direction at the hour of peak gust.
+        let domDir = null, peakGust = -1;
+        slice.forEach(h => {
+            const g = h.wind_gusts_10m || 0;
+            if (g > peakGust) { peakGust = g; domDir = h.wind_direction_10m; }
+        });
+        const beach = beachWindAdjustment(domDir);
+
         let sev = 'moderate', title = 'Jak vjetar';
         if (maxGust >= 28) { sev = 'extreme'; title = 'Orkanski vjetar'; }
         else if (maxGust >= 22 || maxWind >= 18) { sev = 'severe'; title = 'Olujni vjetar'; }
+
+        let details = `Udari do ${maxGust.toFixed(0)} m/s, vjetar do ${maxWind.toFixed(0)} m/s`;
+        if (beach) {
+            const beachGust = Math.round(maxGust * beach.factor);
+            details += `. Smjer ${beach.label} — na plaži udari moguće do ~${beachGust} m/s.`;
+        }
         warnings.push({
             kind: 'wind', sev, title,
             time: fmtSpan(r.start, r.end),
-            details: `Udari do ${maxGust.toFixed(0)} m/s, vjetar do ${maxWind.toFixed(0)} m/s`,
+            details,
             active: isCovered(r.start, r.end),
             startIdx: r.start, endIdx: r.end,
         });
@@ -1890,7 +1924,18 @@ function computeWarnings(hourly, currentHour, currentDate) {
         return a.startIdx - b.startIdx;
     });
 
-    return warnings;
+    // Showers can repeat 5+ times across 48h, which becomes noisy.
+    // Keep only: (a) the active shower, if any, and (b) the next future one.
+    // All other warning kinds are kept in full.
+    let showerActiveKept = false, showerNextKept = false;
+    const filtered = warnings.filter(w => {
+        if (w.kind !== 'shower') return true;
+        if (w.active && !showerActiveKept) { showerActiveKept = true; return true; }
+        if (!w.active && !showerNextKept) { showerNextKept = true; return true; }
+        return false;
+    });
+
+    return filtered;
 }
 
 function warningIcon(kind) {
@@ -2018,6 +2063,14 @@ function render(data) {
                     <div class="cw-detail">${weatherIcon('humidity', 20)} <span>${Math.round(currentData.relative_humidity_2m)}%</span></div>
                     <div class="cw-detail"><img src="${ICON_CDN}barometer.svg" width="20" height="20" style="vertical-align:middle"> <span>${currentData.pressure_msl.toFixed(0)} hPa</span></div>
                     ${currentData.precipitation > 0.05 ? '<div class="cw-detail">' + weatherIcon('rain_icon', 20) + ' <span>' + currentData.precipitation.toFixed(1) + ' mm</span></div>' : ''}
+                    ${(function() {
+                        const beach = beachWindAdjustment(currentData.wind_direction_10m);
+                        if (!beach) return '';
+                        const gust = currentData.wind_gusts_10m || (currentData.wind_speed_10m * 1.5);
+                        const beachGust = Math.round(gust * beach.factor);
+                        if (beachGust < 8) return '';
+                        return `<div class="cw-detail" title="${beach.hint}">${weatherIcon('wind', 20)} <span>Na plaži udari do ~${beachGust} m/s (${beach.label})</span></div>`;
+                    })()}
                 </div>
             </div>
         </div>`;
