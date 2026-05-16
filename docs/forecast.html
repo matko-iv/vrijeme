@@ -2066,9 +2066,9 @@ function render(data) {
     html += '</div>';
 
     html += `<div style="margin-bottom:20px; margin-top:40px"><p>
-        Vrijednosti <strong>padavina</strong> i <strong>udara vjetra</strong> odnose se na <em>naredni sat</em> — 12:00 = 1.5 mm znači da će 1.5 mm pasti između 12:00 i 13:00. Open-Meteo originalno labeluje akumulaciju krajem sata, ali ovdje smo pomjerili unaprijed da prikaz bude intuitivniji — sat koji vidiš pokazuje šta dolazi, ne šta je bilo.
+        Vrijednosti <strong>padavina</strong> i <strong>udara vjetra</strong> na mojoj platformi odnose se na <b>naredni sat</b> — 12:00 = 1.5 mm znači da će 1.5 mm pasti između 12:00 i 13:00. Open-Meteo, platforma odakle dobijam sirove podatke (prije nego se koriguju) bilježi akumulaciju do <b>kraja sata</b> (za 12h govori koliko će pasti između 11:00 i 12:00), ali ovdje smo pomjerili unaprijed da prikaz bude intuitivniji — sat koji vidiš pokazuje šta dolazi, ne šta je bilo.
     </p><p style="margin-top:8px">
-        Ostale vrijednosti (temperatura, vlažnost, pritisak, oblačnost, brzina i smjer vjetra) su <strong>trenutne</strong> za taj sat, tj. vrijednost koja važi tačno u 12:00:00. Sub-satna preciznost (npr. "tačno u 12:25") nije moguća bez radar nowcasting-a.
+        Ostale vrijednosti (temperatura, vlažnost, pritisak, oblačnost, brzina i smjer vjetra) su <strong>trenutne</strong> za taj sat, tj. vrijednost koja važi tačno u 12:00:00. Sub-satna preciznost (npr. tačno u 12:25) nije moguća bez korišćenja radara za preciznu detekciju kiše, ali njih Crna Gora ne posjeduje, a radari susjednih država nisu u mogućnosti da tačno detektuju, zbog vrlo kompleksne orografske mape naše države. 
     </p></div>`;
 
     const now = new Date();
