@@ -2377,8 +2377,21 @@ def fetch_live_forecasts():
     print("\n[4/6] Preuzimanje LIVE prognoza...")
     URL = "https://api.open-meteo.com/v1/forecast"
     all_fc = {}
-    for model_name, model_id in MODEL_IDS.items():
-        print(f"  {model_name}...", end=" ")
+
+    # Trusted models go FIRST -- before any rate-limit pressure builds up
+    # from other model calls -- and get more retries, longer timeout, and
+    # a precipitation-presence check (Open-Meteo sometimes returns 200 OK
+    # with empty hourly or no precip key, which would silently break the
+    # trusted gate downstream).
+    ordered = TRUSTED_MODELS + [m for m in MODELS if m not in TRUSTED_MODELS]
+
+    for model_name in ordered:
+        model_id = MODEL_IDS[model_name]
+        is_trusted = model_name in TRUSTED_MODELS
+        max_attempts = 5 if is_trusted else 3
+        timeout_s = 60 if is_trusted else 30
+        tag = " [TRUSTED]" if is_trusted else ""
+        print(f"  {model_name}{tag}...", end=" ")
         params = {
             "latitude": LAT, "longitude": LON,
             "hourly": ",".join(HOURLY_VARS),
@@ -2386,13 +2399,27 @@ def fetch_live_forecasts():
             "wind_speed_unit": "ms", "precipitation_unit": "mm",
             "models": model_id, "forecast_days": 10,
         }
-        for attempt in range(3):
+        for attempt in range(max_attempts):
             try:
-                r = requests.get(URL, params=params, timeout=30)
+                r = requests.get(URL, params=params, timeout=timeout_s)
                 if r.status_code == 429:
-                    time.sleep(60); continue
+                    # Exponential backoff on rate limit: 60s, 90s, 135s, ...
+                    backoff = 60 * (1.5 ** attempt)
+                    print(f"429 (sleep {backoff:.0f}s)", end=" ")
+                    time.sleep(backoff); continue
                 r.raise_for_status()
                 h = r.json().get('hourly', {})
+                # Trusted gate: response must carry precipitation, otherwise
+                # the column never makes it into the merged DF and the gate
+                # silently fails downstream. Treat as transient and retry.
+                if is_trusted and (not h or 'precipitation' not in h
+                                   or not h.get('precipitation')):
+                    if attempt < max_attempts - 1:
+                        print("empty/no-precip; retrying", end=" ")
+                        time.sleep(5 * (attempt + 1)); continue
+                    print(f"FAIL: trusted response missing precipitation after "
+                          f"{max_attempts} attempts")
+                    break
                 d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
                 for v in HOURLY_VARS:
                     if v in h:
@@ -2401,11 +2428,22 @@ def fetch_live_forecasts():
                 print(f"OK ({len(d)}h)")
                 break
             except Exception as e:
-                if attempt == 2:
+                if attempt == max_attempts - 1:
                     print(f"FAIL: {e}")
                 else:
-                    time.sleep(5)
+                    time.sleep(5 * (attempt + 1))
         time.sleep(1.5)
+
+    # Hard fail early if the trusted model never materialised. Better to
+    # bail here -- before training / correction burn cycles -- so the
+    # outer fallback (previous JSON) kicks in immediately.
+    for tm in TRUSTED_MODELS:
+        if tm not in all_fc or f'{tm}_precipitation_model' not in all_fc[tm].columns:
+            raise TrustedRainGateError(
+                f"Trusted model '{tm}' nije fetched ni nakon prioritetnog "
+                f"pokušaja sa povećanim retry/timeout-om. Najvjerovatnije je "
+                f"Open-Meteo API trenutno bez tog modela za našu tačku."
+            )
 
     if not all_fc:
         raise RuntimeError("Nema prognoza!")
@@ -3674,24 +3712,24 @@ if __name__ == "__main__":
 
         trained, results = train_all_models(hist)
 
-    fc_all = fetch_live_forecasts()
-    station_obs = fetch_current_station_observation()
-    station_dry_nowcast = station_says_dry_now(station_obs)
-    if station_obs:
-        rate = station_obs.get("precip_rate_mm")
-        age = station_obs.get("age_min")
-        age_txt = f"{age:.0f}" if age is not None else "?"
-        print(f"\n  WU nowcast: {station_obs.get('station')} rate={rate} mm/h, age={age_txt} min")
-
-    dry_nowcast_active = local_dry_nowcast or station_dry_nowcast
-    if local_dry_nowcast:
-        print("  NOWCAST: lokalno suvo sada (--dry-now), gasim slabu blisku kisu bez sire podrske")
-    elif station_dry_nowcast:
-        print("  NOWCAST: WU stanica javlja suvo sada, gasim slabu blisku kisu bez sire podrske")
-    elif not WU_API_KEY:
-        print("\n  WU nowcast: WU_API_KEY nije postavljen, preskacem automatsku live-stanicu")
-
     try:
+        fc_all = fetch_live_forecasts()
+        station_obs = fetch_current_station_observation()
+        station_dry_nowcast = station_says_dry_now(station_obs)
+        if station_obs:
+            rate = station_obs.get("precip_rate_mm")
+            age = station_obs.get("age_min")
+            age_txt = f"{age:.0f}" if age is not None else "?"
+            print(f"\n  WU nowcast: {station_obs.get('station')} rate={rate} mm/h, age={age_txt} min")
+
+        dry_nowcast_active = local_dry_nowcast or station_dry_nowcast
+        if local_dry_nowcast:
+            print("  NOWCAST: lokalno suvo sada (--dry-now), gasim slabu blisku kisu bez sire podrske")
+        elif station_dry_nowcast:
+            print("  NOWCAST: WU stanica javlja suvo sada, gasim slabu blisku kisu bez sire podrske")
+        elif not WU_API_KEY:
+            print("\n  WU nowcast: WU_API_KEY nije postavljen, preskacem automatsku live-stanicu")
+
         corrected = apply_correction(fc_all, trained, bias_tables, local_dry_nowcast=dry_nowcast_active)
     except TrustedRainGateError as e:
         print("\n" + "!" * 72)
