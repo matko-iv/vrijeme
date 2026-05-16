@@ -2532,10 +2532,11 @@ def correct_weather_code_row(row, raw_row=None):
     - If XGBoost says precip > 0 but raw WC is clear → upgrade to appropriate rain code
     - Use cloud cover to determine the correct non-rain code
     """
-    wc_raw = int(row.get('weather_code_raw', row.get('weather_code', 0)))
-    if pd.isna(wc_raw):
+    wc_raw_val = row.get('weather_code_raw', row.get('weather_code', 0))
+    if wc_raw_val is None or pd.isna(wc_raw_val):
         wc_raw = 0
-    wc_raw = int(wc_raw)
+    else:
+        wc_raw = int(wc_raw_val)
     
     precip_xgb = row.get('precipitation_xgb', None)
     cloud_xgb = row.get('cloud_cover_xgb', None)
@@ -2982,18 +2983,33 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
     # the hour: row T's precip/gusts cover [T-1h, T]. Shift these columns
     # back by 1 so a row labelled T means "from T to T+1h" -- intuitive on
     # the UI (precip at 12:00 = what falls between 12:00 and 13:00).
-    # Weather code follows precip and shifts with it. Other variables
-    # (temp, humidity, sustained wind, pressure, cloud cover) are
-    # instantaneous and stay anchored to the row's timestamp.
+    # weather_code_raw follows precip (same convention) and shifts with it.
+    # wind_speed_10m is also shifted: the burst boost ties sustained wind to
+    # the trusted-model precip in that hour, so shifting precip without wind
+    # would misalign the boosted value (e.g., 5 m/s at the rain hour would
+    # display 1h later than the rain that drove the boost).
+    # Other variables (temp, humidity, pressure, cloud cover, wind direction)
+    # are instantaneous and stay anchored to the row's timestamp.
     shift_cols = [
         'precipitation_xgb', 'precipitation_ensemble',
+        'wind_speed_10m_xgb', 'wind_speed_10m_ensemble',
         'wind_gusts_10m_xgb', 'wind_gusts_10m_ensemble',
-        'weather_code', 'weather_code_raw',
+        'weather_code_raw',
         'rain_ens', 'snowfall_ens',
     ]
     for col in shift_cols:
         if col in corrected.columns:
             corrected[col] = corrected[col].shift(-1)
+
+    # weather_code MUST be recomputed AFTER the shift so it sees the shifted
+    # precip (for "rain coming" decisions) AND the instantaneous cloud cover
+    # at the same row (for cloud-based sky codes). Otherwise hour T's icon
+    # represents hour T+1's sky -- e.g., 67% cloud display + "Vedro" icon
+    # because the next hour happens to clear.
+    if 'weather_code_raw' in corrected.columns:
+        corrected['weather_code'] = corrected.apply(
+            lambda r: correct_weather_code_row(r, fc.loc[r.name] if r.name in fc.index else None), axis=1
+        )
 
     return corrected
 
