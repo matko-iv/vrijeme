@@ -1895,25 +1895,26 @@ function computeWarnings(hourly, currentHour, currentDate) {
         });
     });
 
-    // --- Heavy rain (not already a thunderstorm) ---
-    findRuns(h => heavyPred(h) && !tsPred(h)).forEach(r => {
-        const slice = hourly.slice(r.start, r.end + 1);
-        const totalRain = slice.reduce((s, h) => s + (h.precipitation || 0), 0);
-        const maxRain = Math.max(...slice.map(h => h.precipitation || 0));
-        let sev = maxRain >= 10 ? 'severe' : 'moderate';
-        // Imminent obilna kisa (>= 5 mm/h vec implied by findRuns predicate)
-        // -> red regardless of total magnitude.
-        if (sev !== 'extreme' && isImminent(r.start, r.end)) {
-            sev = 'extreme';
+    // --- Heavy rain (3h sum gate) ---
+    // Trigger only when next 3h cumulative precipitation > 6 mm. This
+    // catches stacked moderate hours (e.g. 3+3+2) that any-single-hour
+    // thresholds miss, and keeps the warning panel focused on near-term
+    // actionable rainfall.
+    if (currentIdx >= 0) {
+        const endIdx3h = Math.min(hourly.length - 1, currentIdx + 2);
+        const slice3h = hourly.slice(currentIdx, endIdx3h + 1);
+        const sum3h = slice3h.reduce((s, h) => s + (h.precipitation || 0), 0);
+        if (sum3h > 6) {
+            const maxRain = Math.max(...slice3h.map(h => h.precipitation || 0));
+            warnings.push({
+                kind: 'rainHeavy', sev: 'extreme', title: 'Obilna kiša',
+                time: fmtSpan(currentIdx, endIdx3h),
+                details: `Suma ${sum3h.toFixed(1)} mm u narednih 3h, maks. ${maxRain.toFixed(1)} mm/h`,
+                active: true,
+                startIdx: currentIdx, endIdx: endIdx3h,
+            });
         }
-        warnings.push({
-            kind: 'rainHeavy', sev, title: 'Obilna kiša',
-            time: fmtSpan(r.start, r.end),
-            details: `Ukupno ${totalRain.toFixed(1)} mm, maks. ${maxRain.toFixed(1)} mm/h`,
-            active: isCovered(r.start, r.end),
-            startIdx: r.start, endIdx: r.end,
-        });
-    });
+    }
 
     // --- Short-burst showers (microcellular convection signature) ---
     // Wet runs of 1-2 hours, NOT overlapping thunderstorm or heavy-rain runs
