@@ -3388,8 +3388,12 @@ def _gemini_narrative(date_str, hourly_rows):
         wind = h.get('wind_speed_10m', h.get('wind_speed_10m_ensemble', '?'))
         press = h.get('surface_pressure', h.get('pressure_msl', '?'))
         cloud = h.get('cloud_cover', '?')
-        precip = h.get('precipitation', h.get('precipitation_ensemble', 0))
-        wc = int(h.get('weather_code', h.get('weather_code_raw', 0)) or 0)
+        # precipitation + weather_code can be NaN at the forecast horizon's
+        # last row after the hourly shift; sanitize so the prompt stays clean.
+        precip_raw = h.get('precipitation', h.get('precipitation_ensemble', 0))
+        precip = precip_raw if precip_raw is not None and pd.notna(precip_raw) else 0
+        wc_raw = h.get('weather_code', h.get('weather_code_raw', 0))
+        wc = int(wc_raw) if wc_raw is not None and pd.notna(wc_raw) else 0
         icon = WMO_CODES.get(wc, {}).get('icon', 'unknown')
         emoji = h.get('weather_emoji', '')
         lines.append(
