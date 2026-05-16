@@ -1830,6 +1830,17 @@ function computeWarnings(hourly, currentHour, currentDate) {
         return false;
     }
 
+    // Index of "now" in the hourly array; used to flag warnings whose span
+    // falls within the next 3h (active counts too). Imminent + threshold ->
+    // severity escalates to extreme so the row renders red.
+    const currentIdx = hourly.findIndex(h =>
+        h.hour === currentHour && (h.datetime || '').slice(0, 10) === currentDate
+    );
+    function isImminent(startIdx, endIdx) {
+        if (currentIdx < 0) return false;
+        return startIdx <= currentIdx + 3 && endIdx >= currentIdx;
+    }
+
     const warnings = [];
     const tsPred = h => [95, 96, 99].includes(h.weather_code);
     const heavyPred = h => (h.precipitation || 0) >= 5;
@@ -1851,6 +1862,10 @@ function computeWarnings(hourly, currentHour, currentDate) {
         let sev = 'moderate', title = 'Jak vjetar';
         if (maxGust >= 28) { sev = 'extreme'; title = 'Orkanski vjetar'; }
         else if (maxGust >= 22 || maxWind >= 18) { sev = 'severe'; title = 'Olujni vjetar'; }
+        // Imminent (next 3h) + gusts >= 17 -> escalate to red.
+        if (sev !== 'extreme' && maxGust >= 17 && isImminent(r.start, r.end)) {
+            sev = 'extreme';
+        }
 
         let details = `Udari do ${maxGust.toFixed(0)} m/s, vjetar do ${maxWind.toFixed(0)} m/s`;
         if (beach) {
@@ -1885,7 +1900,12 @@ function computeWarnings(hourly, currentHour, currentDate) {
         const slice = hourly.slice(r.start, r.end + 1);
         const totalRain = slice.reduce((s, h) => s + (h.precipitation || 0), 0);
         const maxRain = Math.max(...slice.map(h => h.precipitation || 0));
-        const sev = maxRain >= 10 ? 'severe' : 'moderate';
+        let sev = maxRain >= 10 ? 'severe' : 'moderate';
+        // Imminent obilna kisa (>= 5 mm/h vec implied by findRuns predicate)
+        // -> red regardless of total magnitude.
+        if (sev !== 'extreme' && isImminent(r.start, r.end)) {
+            sev = 'extreme';
+        }
         warnings.push({
             kind: 'rainHeavy', sev, title: 'Obilna kiša',
             time: fmtSpan(r.start, r.end),
@@ -1925,8 +1945,14 @@ function computeWarnings(hourly, currentHour, currentDate) {
                 details += `. Na plaži udari moguće do ~${beachGust} m/s (${beach.label}).`;
             }
         }
+        // Imminent micro-cell with stout gusts -> red. Slabi pljuskovi
+        // (gust < 12) ostaju amber.
+        let showerSev = 'moderate';
+        if (maxGust >= 12 && isImminent(r.start, r.end)) {
+            showerSev = 'extreme';
+        }
         warnings.push({
-            kind: 'shower', sev: 'moderate', title: 'Kratki pljusak',
+            kind: 'shower', sev: showerSev, title: 'Kratki pljusak',
             time: fmtSpan(r.start, r.end),
             details,
             active: isCovered(r.start, r.end),
@@ -1942,13 +1968,15 @@ function computeWarnings(hourly, currentHour, currentDate) {
         return a.startIdx - b.startIdx;
     });
 
-    // Showers across 48h become noisy; only show the one happening NOW (if any).
-    // Future bursts are intentionally hidden — short-burst forecasts more than
-    // a few hours out are too uncertain to act on. Other warning kinds remain.
-    let showerActiveKept = false;
+    // Showers across 48h become noisy; only show the one happening NOW or
+    // imminent within the next 3h. Bursts further out are too uncertain to
+    // act on — but a 3h horizon is short enough to be actionable, so the
+    // imminent + red-severity escalation is allowed through.
+    let showerKept = false;
     const filtered = warnings.filter(w => {
         if (w.kind !== 'shower') return true;
-        if (w.active && !showerActiveKept) { showerActiveKept = true; return true; }
+        const keep = w.active || isImminent(w.startIdx, w.endIdx);
+        if (keep && !showerKept) { showerKept = true; return true; }
         return false;
     });
 
