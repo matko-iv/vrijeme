@@ -2454,10 +2454,17 @@ def fetch_live_forecasts():
     merged.sort_values('datetime', inplace=True)
     merged.reset_index(drop=True, inplace=True)
 
+    # Keep today's already-elapsed hours so the daily summary for "today"
+    # can include morning rainfall instead of computing icon/total from a
+    # partial-afternoon slice. Hourly JSON output filters past hours back
+    # out at write time.
     now = local_now().floor('h')
-    mask = merged['datetime'] >= now
+    today_start = now.normalize()
+    mask = merged['datetime'] >= today_start
     fc_all = merged[mask].copy().reset_index(drop=True)
-    print(f"  Prognoza: {fc_all.shape[0]} sati ({fc_all['datetime'].min()} --- {fc_all['datetime'].max()})")
+    n_past = int((fc_all['datetime'] < now).sum())
+    print(f"  Prognoza: {fc_all.shape[0]} sati ({fc_all['datetime'].min()} --- "
+          f"{fc_all['datetime'].max()}) [+{n_past} prethodnih sati danasnjeg dana za daily summary]")
 
     print("\n  Preuzimanje Previous Runs (Day1/Day2)...")
     prev_hourly_list = []
@@ -2970,6 +2977,23 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
     # Microcellular-shower wind boost. Runs LAST so it can see the final
     # wind_speed_10m_xgb / wind_gusts_10m_xgb that the param loop produced.
     _apply_burst_wind_boost(corrected, fc)
+
+    # Open-Meteo labels accumulations / preceding-hour maxima at the END of
+    # the hour: row T's precip/gusts cover [T-1h, T]. Shift these columns
+    # back by 1 so a row labelled T means "from T to T+1h" -- intuitive on
+    # the UI (precip at 12:00 = what falls between 12:00 and 13:00).
+    # Weather code follows precip and shifts with it. Other variables
+    # (temp, humidity, sustained wind, pressure, cloud cover) are
+    # instantaneous and stay anchored to the row's timestamp.
+    shift_cols = [
+        'precipitation_xgb', 'precipitation_ensemble',
+        'wind_gusts_10m_xgb', 'wind_gusts_10m_ensemble',
+        'weather_code', 'weather_code_raw',
+        'rain_ens', 'snowfall_ens',
+    ]
+    for col in shift_cols:
+        if col in corrected.columns:
+            corrected[col] = corrected[col].shift(-1)
 
     return corrected
 
@@ -3528,6 +3552,10 @@ def generate_output(corrected, trained, results, fc_raw=None):
     forecast_hours = []
     for _, row in corrected.iterrows():
         if row['datetime'] >= cutoff_48h:
+            continue
+        # Past hours (today's morning that already happened) stay in corrected
+        # for daily aggregation but must NOT appear in the live hourly JSON.
+        if row['datetime'] < now_ts:
             continue
         wc = int(row.get('weather_code', 0)) if pd.notna(row.get('weather_code', np.nan)) else 0
         wmo = WMO_CODES.get(wc, WMO_CODES[0])
