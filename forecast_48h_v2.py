@@ -43,17 +43,33 @@ LOCAL_DRY_NOWCAST_HOURS = 4
 LOCAL_DRY_LIGHT_RAIN_MAX_MM = 0.7
 
 # Short-burst wind boost (microcellular convection signature in trusted model).
-# When ItaliaMeteo shows an isolated 1-2h wet run, that's almost certainly a
-# convective cell with downdraft gusts that the XGBoost wind models — trained
-# on typical hours — will systematically under-predict. We boost both core
-# burst hours and a 1-hour halo on each side (gust-front + decay).
-BURST_MAX_HOURS = 2            # contiguous wet hours <= this = "burst"
-BURST_GUST_DELTA = 5.0         # m/s added to gusts during core burst hours
-BURST_GUST_FLOOR = 12.0        # m/s minimum gust during core burst hours
-BURST_GUST_HALO_DELTA = 2.0    # m/s added to gusts during +/-1h halo
-BURST_WIND_DELTA = 2.5         # m/s added to sustained wind during burst
-BURST_WIND_FLOOR = 7.0         # m/s minimum sustained wind during burst
-BURST_WIND_HALO_DELTA = 1.0    # m/s halo add
+# A "burst" is a contiguous wet run in the trusted model (>= TRUSTED_RAIN_THRESHOLD).
+# Up to 2h: always treated as burst. 3-4h: burst only if the run carries
+# enough intensity (max hourly >= BURST_EXTENDED_MAX_MM or sum >= BURST_EXTENDED_SUM_MM)
+# — heavy slow-movers still count as convective. Longer runs are stratiform.
+BURST_MAX_HOURS = 2
+BURST_MAX_HOURS_EXTENDED = 4
+BURST_EXTENDED_MAX_MM = 2.0    # mm/h needed in run for 3-4h extension
+BURST_EXTENDED_SUM_MM = 5.0    # OR total run sum needed for 3-4h extension
+
+# Wind boost activates per-hour only when italia precip >= this threshold
+# (slabe kise <2 mm/h ne dirau vjetar — previse nepredvidivo).
+BURST_BOOST_PRECIP_MM = 2.0
+
+# Dynamic floors keyed to italia precip in that hour:
+#   floor = base + slope * (italia_precip - BURST_BOOST_PRECIP_MM), capped.
+# At 2 mm: wind=4.0, gust=7.0. At 8 mm: wind=5.8, gust=11.2.
+BURST_WIND_FLOOR_BASE = 4.0
+BURST_WIND_FLOOR_SLOPE = 0.3
+BURST_WIND_FLOOR_CAP = 8.0
+BURST_GUST_FLOOR_BASE = 7.0
+BURST_GUST_FLOOR_SLOPE = 0.7
+BURST_GUST_FLOOR_CAP = 18.0
+
+# Halo: weaker additive boost on +/-1h around boost hours.
+BURST_HALO_WIND_DELTA = 1.0
+BURST_HALO_GUST_DELTA = 1.5
+
 BURST_GUST_MAX = 40.0          # absolute cap (safety)
 BURST_WIND_MAX = 25.0
 MODEL_IDS = {
@@ -2534,19 +2550,22 @@ class TrustedRainGateError(RuntimeError):
     pass
 
 
-def _detect_short_rain_bursts(wet_mask, max_burst_hours):
+def _detect_short_rain_bursts(precip_vals, wet_threshold,
+                              max_hours_base, max_hours_extended,
+                              ext_intensity_mm, ext_sum_mm):
     """Return mask of hours that belong to a short isolated wet run.
 
-    A "short burst" is a contiguous run of wet hours of length 1..max_burst_hours,
-    surrounded by dry hours. Coastal Adriatic summers produce these when
-    individual convective cells drift over Budva for an hour or two before
-    decaying. Stratiform / synoptic rain (long wet runs) is ignored — that's
-    a different beast and the wind model already handles it.
+    Coastal Adriatic summers produce convective cells that drift over Budva.
+    Short (1-2h) cells are always treated as bursts. Slow-moving heavy cells
+    (3-4h) also count if they carry enough water — either a single hour at
+    >= ext_intensity_mm or a total run sum >= ext_sum_mm. Anything longer is
+    stratiform / synoptic and gets ignored here.
     """
-    n = len(wet_mask)
+    n = len(precip_vals)
     burst_mask = np.zeros(n, dtype=bool)
     if n == 0:
         return burst_mask
+    wet_mask = precip_vals >= wet_threshold
     i = 0
     while i < n:
         if wet_mask[i]:
@@ -2554,8 +2573,12 @@ def _detect_short_rain_bursts(wet_mask, max_burst_hours):
             while j < n and wet_mask[j]:
                 j += 1
             run_len = j - i
-            if run_len <= max_burst_hours:
+            if run_len <= max_hours_base:
                 burst_mask[i:j] = True
+            elif run_len <= max_hours_extended:
+                run_slice = precip_vals[i:j]
+                if run_slice.max() >= ext_intensity_mm or run_slice.sum() >= ext_sum_mm:
+                    burst_mask[i:j] = True
             i = j
         else:
             i += 1
@@ -2566,9 +2589,11 @@ def _apply_burst_wind_boost(corrected, fc):
     """Boost wind & gust predictions for short isolated rain bursts.
 
     Operates AFTER the param loop, modifying `corrected` in place. Reads the
-    trusted-model precip column directly from `fc`, detects bursts, builds a
-    +/-1h halo, and boosts wind_speed_10m / wind_gusts_10m on both _xgb and
-    _ensemble outputs so whichever the JSON writer picks ends up boosted.
+    trusted-model precip column from `fc`, detects bursts (1-2h always, 3-4h
+    only when intensity carries), then applies the wind boost only on hours
+    where italia precip >= BURST_BOOST_PRECIP_MM. Floors scale linearly with
+    in-hour intensity; halo (+/-1h around boosted hours) gets a weak additive
+    bump.
 
     NaN handling: NaN inputs stay NaN — we don't manufacture observations.
     """
@@ -2577,48 +2602,72 @@ def _apply_burst_wind_boost(corrected, fc):
         return
 
     italia_precip = pd.to_numeric(fc[trusted_col], errors='coerce').fillna(0).values
-    italia_wet = italia_precip >= TRUSTED_RAIN_THRESHOLD
-    burst_mask = _detect_short_rain_bursts(italia_wet, BURST_MAX_HOURS)
+    burst_mask = _detect_short_rain_bursts(
+        italia_precip, TRUSTED_RAIN_THRESHOLD,
+        BURST_MAX_HOURS, BURST_MAX_HOURS_EXTENDED,
+        BURST_EXTENDED_MAX_MM, BURST_EXTENDED_SUM_MM,
+    )
 
     if not burst_mask.any():
         return
 
-    # Halo: +/-1h around bursts, excluding burst hours themselves.
-    halo_mask = np.zeros_like(burst_mask)
-    halo_mask[:-1] |= burst_mask[1:]
-    halo_mask[1:] |= burst_mask[:-1]
-    halo_mask &= ~burst_mask
+    # Wind boost only fires inside a burst when italia precip clears the
+    # in-hour threshold. Slabe kise (<2 mm/h) ne diraju vjetar.
+    boost_mask = burst_mask & (italia_precip >= BURST_BOOST_PRECIP_MM)
 
     n_burst = int(burst_mask.sum())
+    if not boost_mask.any():
+        print(f"  Kratki pljuskovi: {n_burst} sat(a) detektovano, "
+              f"nijedan ne prelazi {BURST_BOOST_PRECIP_MM:.1f} mm/h -> "
+              f"vjetar netaknut.")
+        return
+
+    # Halo: +/-1h around boosted hours (not all burst hours), excluding boost itself.
+    halo_mask = np.zeros_like(boost_mask)
+    halo_mask[:-1] |= boost_mask[1:]
+    halo_mask[1:] |= boost_mask[:-1]
+    halo_mask &= ~boost_mask
+
+    # Dynamic floors per hour, scaling with italia precip above the gate.
+    excess = np.maximum(italia_precip - BURST_BOOST_PRECIP_MM, 0.0)
+    wind_floor_per_hour = np.minimum(
+        BURST_WIND_FLOOR_BASE + BURST_WIND_FLOOR_SLOPE * excess,
+        BURST_WIND_FLOOR_CAP,
+    )
+    gust_floor_per_hour = np.minimum(
+        BURST_GUST_FLOOR_BASE + BURST_GUST_FLOOR_SLOPE * excess,
+        BURST_GUST_FLOOR_CAP,
+    )
+
+    n_boost = int(boost_mask.sum())
     n_halo = int(halo_mask.sum())
 
-    # Boost spec: (column base name, core delta, core floor, halo delta, hard cap)
     boost_spec = [
-        ('wind_gusts_10m', BURST_GUST_DELTA, BURST_GUST_FLOOR, BURST_GUST_HALO_DELTA, BURST_GUST_MAX),
-        ('wind_speed_10m', BURST_WIND_DELTA, BURST_WIND_FLOOR, BURST_WIND_HALO_DELTA, BURST_WIND_MAX),
+        ('wind_gusts_10m', gust_floor_per_hour, BURST_HALO_GUST_DELTA, BURST_GUST_MAX),
+        ('wind_speed_10m', wind_floor_per_hour, BURST_HALO_WIND_DELTA, BURST_WIND_MAX),
     ]
 
-    for base, delta_core, floor_core, delta_halo, hard_cap in boost_spec:
+    for base, floor_per_hour, halo_delta, hard_cap in boost_spec:
         for suffix in ['_xgb', '_ensemble']:
             col = f'{base}{suffix}'
             if col not in corrected.columns:
                 continue
             w = corrected[col].values.astype(float).copy()
-            # Core: w + delta, floor at floor_core, cap at hard_cap. NaN propagates.
-            w[burst_mask] = np.minimum(
-                np.maximum(w[burst_mask] + delta_core, floor_core),
-                hard_cap
+            # Core: keep original if already above the dynamic floor; otherwise lift.
+            w[boost_mask] = np.minimum(
+                np.maximum(w[boost_mask], floor_per_hour[boost_mask]),
+                hard_cap,
             )
-            # Halo: weaker additive boost, no floor, same cap.
-            w[halo_mask] = np.minimum(w[halo_mask] + delta_halo, hard_cap)
+            # Halo: weak additive boost, no floor, same cap. NaN propagates.
+            w[halo_mask] = np.minimum(w[halo_mask] + halo_delta, hard_cap)
             corrected[col] = w
 
-    # Log which datetimes were flagged so user can sanity-check.
-    burst_times = corrected.loc[burst_mask, 'datetime'].dt.strftime('%d.%m %H:%M').tolist()
-    sample = ', '.join(burst_times[:6]) + (' ...' if len(burst_times) > 6 else '')
-    print(f"  Kratki pljuskovi: {n_burst} sat(a) core + {n_halo} sat(a) halo "
-          f"-> vjetar/udari pojacani")
-    print(f"    Sati: {sample}")
+    boost_times = corrected.loc[boost_mask, 'datetime'].dt.strftime('%d.%m %H:%M').tolist()
+    sample = ', '.join(boost_times[:6]) + (' ...' if len(boost_times) > 6 else '')
+    print(f"  Kratki pljuskovi: {n_burst} sat(a) detektovano, "
+          f"{n_boost} boost (>= {BURST_BOOST_PRECIP_MM:.1f} mm/h) + {n_halo} halo "
+          f"-> vjetar/udari skalirani po intenzitetu.")
+    print(f"    Boost sati: {sample}")
 
 
 def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
@@ -2748,13 +2797,15 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
                 cap[trusted_signal] = np.maximum(cap[trusted_signal], trusted_cap[trusted_signal])
                 pred = np.minimum(pred, cap)
             # 4. If the trusted gate sees rain, the corrected precipitation must
-            #    also stay just above the rain threshold. Larger single-model
-            #    amounts remain cautious unless the correction model supports them.
+            #    track ItaliaMeteo more closely. Floor scales as 0.6 * italia
+            #    so a 5 mm Italia hour can't collapse to 0.5 mm under a
+            #    conservative XGBoost. Cap above (1.2 * italia) still bounds
+            #    the upside, so we never fully equal trusted — just stop
+            #    diverging when XGBoost is too dry.
             if trusted_signal.any():
-                floor_cap = np.full(len(fc), 0.5)
                 trusted_floor = np.maximum(
                     CORRECTED_RAIN_THRESHOLD_MM,
-                    np.minimum(trusted_signal_amount, floor_cap)
+                    0.6 * trusted_signal_amount,
                 )
                 pred[trusted_signal] = np.maximum(pred[trusted_signal], trusted_floor[trusted_signal])
 
