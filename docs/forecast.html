@@ -575,6 +575,71 @@
             .m-day { font-size: 11.5px; padding: 10px 6px; }
         }
 
+        .douglas-scale { margin: 24px 0 8px; }
+        .douglas-scale h3 { margin: 0 0 6px; font-size: 18px; color: #24292e; }
+        .douglas-intro {
+            font-size: 13.5px;
+            color: #57606a;
+            margin: 0 0 12px;
+            line-height: 1.5;
+        }
+        .douglas-table-wrap {
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            overflow-x: auto;
+            background: #fff;
+            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.04);
+        }
+        .douglas-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13.5px;
+        }
+        .douglas-table th {
+            text-align: left;
+            background: #f6f8fa;
+            color: #24292e;
+            font-weight: 600;
+            padding: 10px 12px;
+            border-bottom: 1px solid #d0d7de;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+        }
+        .douglas-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eaeef2;
+            color: #24292e;
+            vertical-align: middle;
+        }
+        .douglas-table tbody tr:last-child td { border-bottom: none; }
+        .douglas-table tbody tr:hover { background: #f6f8fa; }
+        .d-deg {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px; height: 26px;
+            border-radius: 999px;
+            color: #fff;
+            font-weight: 700;
+            font-size: 12px;
+        }
+        .d-0 { background: #1f883d; }
+        .d-1 { background: #4ea268; }
+        .d-2 { background: #bf8700; }
+        .d-3 { background: #d97706; }
+        .d-4 { background: #ea580c; }
+        .d-5 { background: #cf222e; }
+        .d-6 { background: #a40e26; }
+        .d-7 { background: #82071e; }
+        .d-en { color: #6a737d; font-size: 12px; font-weight: 400; }
+        @media (max-width: 600px) {
+            .douglas-table { font-size: 12px; }
+            .douglas-table th, .douglas-table td { padding: 8px 10px; }
+            .d-en { display: block; margin-top: 2px; }
+        }
+
         .long-range-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -764,72 +829,6 @@
         }
 
         .footer a { color: #0366d6; }
-
-        .douglas-scale { margin: 24px 0; }
-        .douglas-scale h3 { margin: 0 0 6px; font-size: 18px; color: #24292e; }
-        .douglas-intro {
-            font-size: 13.5px;
-            color: #57606a;
-            margin: 0 0 12px;
-            line-height: 1.5;
-        }
-        .douglas-table-wrap {
-            border: 1px solid #d0d7de;
-            border-radius: 6px;
-            overflow-x: auto;
-            background: #fff;
-            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.04);
-        }
-        .douglas-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13.5px;
-        }
-        .douglas-table th {
-            text-align: left;
-            background: #f6f8fa;
-            color: #24292e;
-            font-weight: 600;
-            padding: 10px 12px;
-            border-bottom: 1px solid #d0d7de;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-            white-space: nowrap;
-        }
-        .douglas-table td {
-            padding: 10px 12px;
-            border-bottom: 1px solid #eaeef2;
-            color: #24292e;
-            vertical-align: middle;
-        }
-        .douglas-table tbody tr:last-child td { border-bottom: none; }
-        .douglas-table tbody tr:hover { background: #f6f8fa; }
-        .d-deg {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 26px; height: 26px;
-            border-radius: 999px;
-            color: #fff;
-            font-weight: 700;
-            font-size: 12px;
-        }
-        .d-0 { background: #1f883d; }
-        .d-1 { background: #4ea268; }
-        .d-2 { background: #bf8700; }
-        .d-3 { background: #d97706; }
-        .d-4 { background: #ea580c; }
-        .d-5 { background: #cf222e; }
-        .d-6 { background: #a40e26; }
-        .d-7 { background: #82071e; }
-        .d-en { color: #6a737d; font-size: 12px; font-weight: 400; }
-
-        @media (max-width: 600px) {
-            .douglas-table { font-size: 12px; }
-            .douglas-table th, .douglas-table td { padding: 8px 10px; }
-            .d-en { display: block; margin-top: 2px; }
-        }
 
         .loading {
             text-align: center;
@@ -2471,6 +2470,88 @@ function render(data) {
                     </div>`;
                 });
                 html += '</div></div>';
+                html += `
+                    <div class="douglas-scale">
+                        <h3>Daglasova skala stanja mora</h3>
+                        <p class="douglas-intro">
+                            Međunarodna skala (kap. H. P. Douglas, 1921) za opis hrapavosti mora prema visini talasa.
+                            Ima 10 stepeni — od potpunog zatišja do fenomenalnih talasa. Vrijednost <b>"Stanje mora"</b> na karticama iznad odgovara nazivu iz ove tabele.
+                        </p>
+                        <div class="douglas-table-wrap">
+                            <table class="douglas-table">
+                                <thead>
+                                    <tr>
+                                        <th>Stepen</th>
+                                        <th>Visina talasa</th>
+                                        <th>Naziv</th>
+                                        <th>Opis površine mora</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><span class="d-deg d-0">0</span></td>
+                                        <td>0 m</td>
+                                        <td><b>Mirno</b> <span class="d-en">(Calm — glassy)</span></td>
+                                        <td>More glatko kao ogledalo, bez ikakvih talasa</td>
+                                    </tr>
+                                    <tr>
+                                        <td><span class="d-deg d-0">1</span></td>
+                                        <td>0 – 0.10 m</td>
+                                        <td><b>Tiho</b> <span class="d-en">(Calm — rippled)</span></td>
+                                        <td>Sitno mreškanje površine, bez pjene</td>
+                                    </tr>
+                                    <tr>
+                                        <td><span class="d-deg d-1">2</span></td>
+                                        <td>0.10 – 0.50 m</td>
+                                        <td><b>Blagi talasi</b> <span class="d-en">(Smooth)</span></td>
+                                        <td>Mali talasi sa staklastim grebenima, bez lomljenja</td>
+                                    </tr>
+                                    <tr>
+                                        <td><span class="d-deg d-2">3</span></td>
+                                        <td>0.50 – 1.25 m</td>
+                                        <td><b>Umjereno</b> <span class="d-en">(Slight)</span></td>
+                                        <td>Mali talasi sa povremenim "bijelim konjima" (pjenušava grla)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><span class="d-deg d-3">4</span></td>
+                                        <td>1.25 – 2.50 m</td>
+                                        <td><b>Uznemireno</b> <span class="d-en">(Moderate)</span></td>
+                                        <td>Umjereni talasi izduženog oblika, mnogo pjenušavih grla</td>
+                                    </tr>
+                                    <tr>
+                                        <td><span class="d-deg d-4">5</span></td>
+                                        <td>2.50 – 4.00 m</td>
+                                        <td><b>Vrlo uznemireno</b> <span class="d-en">(Rough)</span></td>
+                                        <td>Veliki talasi, pjena se širi po cijelom grebenu, povremena lomljenja</td>
+                                    </tr>
+                                    <tr>
+                                        <td><span class="d-deg d-5">6</span></td>
+                                        <td>4.00 – 6.00 m</td>
+                                        <td><b>Visoko more</b> <span class="d-en">(Very rough)</span></td>
+                                        <td>Vrlo veliki talasi, pjena se kreće u izraženim prugama u smjeru vjetra</td>
+                                    </tr>
+                                    <tr>
+                                        <td><span class="d-deg d-6">7</span></td>
+                                        <td>6.00 – 9.00 m</td>
+                                        <td><b>Vrlo visoko</b> <span class="d-en">(High)</span></td>
+                                        <td>Visoki talasi sa gustom bijelom pjenom; smanjena vidljivost</td>
+                                    </tr>
+                                    <tr>
+                                        <td><span class="d-deg d-7">8</span></td>
+                                        <td>9.00 – 14.00 m</td>
+                                        <td><b>Olujno</b> <span class="d-en">(Very high)</span></td>
+                                        <td>Izuzetno visoki talasi sa nadvišenim grebenima; more je gotovo bijelo od pjene</td>
+                                    </tr>
+                                    <tr>
+                                        <td><span class="d-deg d-7">9</span></td>
+                                        <td>&gt; 14.00 m</td>
+                                        <td><b>Izuzetno olujno</b> <span class="d-en">(Phenomenal)</span></td>
+                                        <td>Fenomenalni talasi; vazduh ispunjen pjenom i prskanjem, vidljivost vrlo slaba</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>`;
             }
             html += '</div>';
         });
