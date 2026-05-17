@@ -567,6 +567,16 @@
         .mh-period { font-size: 10px; color: #6a737d; }
         .mh-wind { font-size: 11px; color: #24292e; margin-top: 4px; }
         .mh-bft { font-size: 10px; color: #6a737d; }
+        .m-knots {
+            font-size: 10.5px;
+            color: #6a737d;
+            margin-top: 1px;
+        }
+        .mh-wind-kn {
+            font-size: 9.5px;
+            color: #6a737d;
+            margin-top: 1px;
+        }
         @media (max-width: 768px) {
             .marine-daily-grid {
                 grid-template-columns: repeat(7, minmax(80px, 1fr));
@@ -633,6 +643,15 @@
         .d-5 { background: #cf222e; }
         .d-6 { background: #a40e26; }
         .d-7 { background: #82071e; }
+
+        .d-deg-sm {
+            width: 18px;
+            height: 18px;
+            font-size: 10px;
+            vertical-align: middle;
+            margin-right: 5px;
+        }
+
         .d-en { color: #6a737d; font-size: 12px; font-weight: 400; }
         @media (max-width: 600px) {
             .douglas-table { font-size: 12px; }
@@ -1026,6 +1045,25 @@ function windIntensity(ms) {
     if (ms < 14) return 'jak';
     if (ms < 18) return 'vrlo jak';
     return 'olujni';
+}
+
+function msToKn(ms) {
+    if (ms == null || isNaN(ms)) return null;
+    return Math.round(ms * 1.94384);
+}
+
+const DOUGLAS_DEGREE_BY_LABEL = {
+    'Bonaca': 0, 'Mirno': 1, 'Blagi talasi': 2, 'Umjereni talasi': 3,
+    'Uzburkano': 4, 'Vrlo uzburkano': 5, 'Talasasto': 6,
+    'Vrlo talasasto': 7, 'Olujni talasi': 8, 'Izuzetno olujni talasi': 9,
+};
+
+function douglasPill(label) {
+    if (!label) return '';
+    const deg = DOUGLAS_DEGREE_BY_LABEL[label];
+    if (deg == null) return '';
+    const bucket = Math.min(Math.max(deg - 1, 0), 7);
+    return `<span class="d-deg d-deg-sm d-${bucket}">${deg}</span>`;
 }
 
 function wmoDailyIcon(code) {
@@ -2441,8 +2479,11 @@ function render(data) {
                         <div class="m-day-date">${dateShort}</div>
                         <div><span class="m-score-pill ${pillCls}">${d.sailing_score || ''}</span></div>
                         <div class="m-day-row"><b>${wave}</b>${period ? ' · ' + period : ''}</div>
-                        <div class="m-day-row" title="${seaLabel}">${seaLabel}</div>
+                        <div class="m-day-row" title="${seaLabel}">${douglasPill(seaLabel)}${seaLabel}</div>
                         <div class="m-day-row"><b>${bft}</b> ${wind}/${gust} m/s</div>
+                        ${d.wind_speed_max != null && d.wind_gusts_max != null
+                            ? `<div class="m-day-row m-knots">${msToKn(d.wind_speed_max)}/${msToKn(d.wind_gusts_max)} kn</div>`
+                            : ''}
                         ${wname ? '<div class="m-wind-name">' + wname + '</div>' : ''}
                     </div>`;
                 });
@@ -2467,6 +2508,9 @@ function render(data) {
                         <div class="mh-period">${period}</div>
                         <div class="mh-bft">${bft}</div>
                         <div class="mh-wind">${ws}/${wg}${wname ? ' ' + wname.slice(0, 3) : ''}</div>
+                        ${h.wind_speed_10m != null && h.wind_gusts_10m != null
+                            ? `<div class="mh-wind-kn">${msToKn(h.wind_speed_10m)}/${msToKn(h.wind_gusts_10m)} kn</div>`
+                            : ''}
                     </div>`;
                 });
                 html += '</div></div>';
@@ -2491,13 +2535,13 @@ function render(data) {
                                     <tr>
                                         <td><span class="d-deg d-0">0</span></td>
                                         <td>0 m</td>
-                                        <td><b>Mirno</b> <span class="d-en">(Calm — glassy)</span></td>
-                                        <td>More glatko kao ogledalo, bez ikakvih talasa</td>
+                                        <td><b>Bonaca</b> <span class="d-en">(Calm — glassy)</span></td>
+                                        <td>More glatko kao ulje, bez ikakvih talasa</td>
                                     </tr>
                                     <tr>
                                         <td><span class="d-deg d-0">1</span></td>
                                         <td>0 – 0.10 m</td>
-                                        <td><b>Tiho</b> <span class="d-en">(Calm — rippled)</span></td>
+                                        <td><b>Mirno</b> <span class="d-en">(Calm — rippled)</span></td>
                                         <td>Sitno mreškanje površine, bez pjene</td>
                                     </tr>
                                     <tr>
@@ -2509,44 +2553,44 @@ function render(data) {
                                     <tr>
                                         <td><span class="d-deg d-2">3</span></td>
                                         <td>0.50 – 1.25 m</td>
-                                        <td><b>Umjereno</b> <span class="d-en">(Slight)</span></td>
-                                        <td>Mali talasi sa povremenim "bijelim konjima" (pjenušava grla)</td>
+                                        <td><b>Umjereni talasi</b> <span class="d-en">(Slight)</span></td>
+                                        <td>Mali talasi sa pjenom</td>
                                     </tr>
                                     <tr>
                                         <td><span class="d-deg d-3">4</span></td>
                                         <td>1.25 – 2.50 m</td>
-                                        <td><b>Uznemireno</b> <span class="d-en">(Moderate)</span></td>
+                                        <td><b>Uzburkano</b> <span class="d-en">(Moderate)</span></td>
                                         <td>Umjereni talasi izduženog oblika, mnogo pjenušavih grla</td>
                                     </tr>
                                     <tr>
                                         <td><span class="d-deg d-4">5</span></td>
                                         <td>2.50 – 4.00 m</td>
-                                        <td><b>Vrlo uznemireno</b> <span class="d-en">(Rough)</span></td>
-                                        <td>Veliki talasi, pjena se širi po cijelom grebenu, povremena lomljenja</td>
+                                        <td><b>Vrlo uzburkano</b> <span class="d-en">(Rough)</span></td>
+                                        <td>Veliki talasi, pjena se širi po cijelom grebenu, prisutno lomljenje</td>
                                     </tr>
                                     <tr>
                                         <td><span class="d-deg d-5">6</span></td>
                                         <td>4.00 – 6.00 m</td>
-                                        <td><b>Visoko more</b> <span class="d-en">(Very rough)</span></td>
+                                        <td><b>Talasasto</b> <span class="d-en">(Very rough)</span></td>
                                         <td>Vrlo veliki talasi, pjena se kreće u izraženim prugama u smjeru vjetra</td>
                                     </tr>
                                     <tr>
                                         <td><span class="d-deg d-6">7</span></td>
                                         <td>6.00 – 9.00 m</td>
-                                        <td><b>Vrlo visoko</b> <span class="d-en">(High)</span></td>
+                                        <td><b>Vrlo talasasto</b> <span class="d-en">(High)</span></td>
                                         <td>Visoki talasi sa gustom bijelom pjenom; smanjena vidljivost</td>
                                     </tr>
                                     <tr>
                                         <td><span class="d-deg d-7">8</span></td>
                                         <td>9.00 – 14.00 m</td>
-                                        <td><b>Olujno</b> <span class="d-en">(Very high)</span></td>
+                                        <td><b>Olujni talasi</b> <span class="d-en">(Very high)</span></td>
                                         <td>Izuzetno visoki talasi sa nadvišenim grebenima; more je gotovo bijelo od pjene</td>
                                     </tr>
                                     <tr>
                                         <td><span class="d-deg d-7">9</span></td>
                                         <td>&gt; 14.00 m</td>
-                                        <td><b>Izuzetno olujno</b> <span class="d-en">(Phenomenal)</span></td>
-                                        <td>Fenomenalni talasi; vazduh ispunjen pjenom i prskanjem, vidljivost vrlo slaba</td>
+                                        <td><b>Izuzetno olujni talasi</b> <span class="d-en">(Phenomenal)</span></td>
+                                        <td>Ogromni talasi; vazduh ispunjen pjenom i prskanjem, vidljivost vrlo slaba</td>
                                     </tr>
                                 </tbody>
                             </table>
