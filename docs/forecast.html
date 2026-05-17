@@ -2482,7 +2482,7 @@ function render(data) {
                         <div class="m-day-row" title="${seaLabel}">${douglasPill(seaLabel)}${seaLabel}</div>
                         <div class="m-day-row"><b>${bft}</b> ${wind}/${gust} m/s</div>
                         ${d.wind_speed_max != null && d.wind_gusts_max != null
-                            ? `<div class="m-day-row m-knots">${msToKn(d.wind_speed_max)}/${msToKn(d.wind_gusts_max)} kn</div>`
+                            ? `<div class="m-day-row m-knots">${msToKn(d.wind_speed_max)}/${msToKn(d.wind_gusts_max)} čv</div>`
                             : ''}
                         ${wname ? '<div class="m-wind-name">' + wname + '</div>' : ''}
                     </div>`;
@@ -2509,7 +2509,7 @@ function render(data) {
                         <div class="mh-bft">${bft}</div>
                         <div class="mh-wind">${ws}/${wg}${wname ? ' ' + wname.slice(0, 3) : ''}</div>
                         ${h.wind_speed_10m != null && h.wind_gusts_10m != null
-                            ? `<div class="mh-wind-kn">${msToKn(h.wind_speed_10m)}/${msToKn(h.wind_gusts_10m)} kn</div>`
+                            ? `<div class="mh-wind-kn">${msToKn(h.wind_speed_10m)}/${msToKn(h.wind_gusts_10m)} čv</div>`
                             : ''}
                     </div>`;
                 });
