@@ -73,35 +73,31 @@ BURST_HALO_GUST_DELTA = 1.5
 BURST_GUST_MAX = 40.0          # absolute cap (safety)
 BURST_WIND_MAX = 25.0
 
-# Marine forecast — two locations. Bečići coastal (sheltered by capes) and
-# fully open Adriatic south of Sveti Nikola. Open-Meteo's wave grid is ~5km,
-# so close coastal points still interpolate from off-shore cells, but the
-# two locations differ enough in exposure to bottom topography / fetch that
-# the model picks up a real signal between them.
+
 MARINE_LOCATIONS = [
     {
         "id": "becici",
         "name": "Bečićki zaliv",
-        "lat": 42.279787,
-        "lon": 18.868746,
+        "lat": 42.270259,
+        "lon": 18.870885,
         "desc": "Bečićka plaža",
     },
     {
         "id": "open_sea",
         "name": "Otvoreno more",
-        "lat": 42.253388,
-        "lon": 18.833749,
+        "lat": 42.243934,
+        "lon": 18.809960,
         "desc": "Iza Svetog Nikole, otvoreno more",
     },
 ]
-MARINE_MODELS = ["ewam", "meteofrance_wave"]  # DWD EWAM (~5km) + MeteoFrance WAM
+MARINE_MODELS = ["ewam", "meteofrance_wave"]
 MARINE_VARS = [
     "wave_height", "wave_period", "wave_direction",
     "wind_wave_height", "wind_wave_period",
     "swell_wave_height", "swell_wave_period", "swell_wave_direction",
     "sea_surface_temperature",
 ]
-MARINE_WIND_MODELS = ["italia_meteo_arpae_icon_2i", "meteofrance_arpege_europe", "ecmwf_ifs"]
+MARINE_WIND_MODELS = ["italia_meteo_arpae_icon_2i", "meteofrance_arpege_europe", "ecmwf_ifs", "knmi_harmonie_arome_europe", "dmi_harmonie_arome_europe", "icon_eu"]
 
 MODEL_IDS = {
     "ARPEGE_EUROPE": "arpege_europe",
