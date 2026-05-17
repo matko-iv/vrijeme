@@ -85,8 +85,8 @@ MARINE_LOCATIONS = [
     {
         "id": "open_sea",
         "name": "Otvoreno more",
-        "lat": 42.243934,
-        "lon": 18.809960,
+        "lat": 42.252626,
+        "lon": 18.831183,
         "desc": "Iza Svetog Nikole, otvoreno more",
     },
 ]
