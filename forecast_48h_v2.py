@@ -84,14 +84,14 @@ MARINE_LOCATIONS = [
         "name": "Bečićki zaliv",
         "lat": 42.279787,
         "lon": 18.868746,
-        "desc": "Bliže obali, talasi prigušeni rtovima Sv. Nikole i Zavale",
+        "desc": "Bečićka plaža",
     },
     {
         "id": "open_sea",
         "name": "Otvoreno more",
         "lat": 42.253388,
         "lon": 18.833749,
-        "desc": "Iza Svetog Nikole, izložena pučina Jadrana — jači vjetar, veći talasi",
+        "desc": "Iza Svetog Nikole, otvoreno more",
     },
 ]
 MARINE_MODELS = ["ewam", "meteofrance_wave"]  # DWD EWAM (~5km) + MeteoFrance WAM
@@ -101,7 +101,7 @@ MARINE_VARS = [
     "swell_wave_height", "swell_wave_period", "swell_wave_direction",
     "sea_surface_temperature",
 ]
-MARINE_WIND_MODELS = ["ecmwf_ifs025", "icon_seamless", "gfs_seamless"]
+MARINE_WIND_MODELS = ["italia_meteo_arpae_icon_2i", "meteofrance_arpege_europe", "ecmwf_ifs"]
 
 MODEL_IDS = {
     "ARPEGE_EUROPE": "arpege_europe",
@@ -2564,9 +2564,9 @@ _BEAUFORT_THRESHOLDS = [0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 2
 _DOUGLAS_THRESHOLDS = [0.1, 0.5, 1.25, 2.5, 4.0, 6.0, 9.0, 14.0]
 
 DOUGLAS_LABELS = {
-    0: "Mirno", 1: "Tiho", 2: "Blagi talasi", 3: "Umjereno",
-    4: "Uznemireno", 5: "Vrlo uznemireno", 6: "Visoko more",
-    7: "Vrlo visoko", 8: "Olujno", 9: "Izuzetno olujno",
+    0: "Bonaca", 1: "Mirno", 2: "Blagi talasi", 3: "Umjereni talasi",
+    4: "Uzburkano", 5: "Vrlo uzburkano", 6: "Talasasto",
+    7: "Vrlo talasasto", 8: "Olujni talasi", 9: "Izuzetno olujni talasi",
 }
 
 
@@ -2622,7 +2622,7 @@ def sailing_score(bft, wave_height):
     if bft <= 4 and wave_height <= 1.0:
         return ("green", "Dobro")
     if bft <= 5 and wave_height <= 1.5:
-        return ("yellow", "Za iskusne")
+        return ("yellow", "Prihvatljivo")
     if bft <= 6 and wave_height <= 2.5:
         return ("orange", "Oprez")
     return ("red", "Opasno")
