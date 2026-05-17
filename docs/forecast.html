@@ -2337,24 +2337,21 @@ function render(data) {
         html += '</div>';
     }
 
-    // Marine forecast section — multi-location with tab toggle.
     if (data.marine_forecast && data.marine_forecast.locations && data.marine_forecast.locations.length > 0) {
         const locs = data.marine_forecast.locations;
         html += '<div class="marine-section">';
         html += '<h2>Pomorska prognoza</h2>';
         html += '<div class="marine-intro">' +
-            'Vjetar je znatno jači na moru nego na obali (nema friction-a sa terenom). Prognoza ispod pokazuje stanje na otvorenom moru i u zalivu — biraj lokaciju klikom. ' +
-            'Sailing score: <span class="m-score-pill m-score-green">Dobro</span> <span class="m-score-pill m-score-yellow">Za iskusne</span> <span class="m-score-pill m-score-orange">Oprez</span> <span class="m-score-pill m-score-red">Opasno</span>' +
+            'Vjetar je znatno jači na moru nego na obali (nema trenja sa terenom). Prognoza ispod pokazuje stanje na otvorenom moru i u Bečićima — biraj lokaciju klikom. ' +
+            'Sailing score: <span class="m-score-pill m-score-green">Dobro</span> <span class="m-score-pill m-score-yellow">Nepovoljno</span> <span class="m-score-pill m-score-orange">Oprez</span> <span class="m-score-pill m-score-red">Opasno</span>' +
             '</div>';
 
-        // Tab strip.
         html += '<div class="marine-tabs">';
         locs.forEach((loc, idx) => {
             html += `<button class="marine-tab${idx === 0 ? ' active' : ''}" data-marine-loc="${loc.id}">${loc.name}</button>`;
         });
         html += '</div>';
 
-        // Per-location panels (one visible, others hidden).
         locs.forEach((loc, idx) => {
             html += `<div class="marine-panel${idx === 0 ? ' active' : ''}" data-marine-panel="${loc.id}">`;
             if (loc.desc) {
@@ -2409,10 +2406,10 @@ function render(data) {
                 });
                 html += '</div></div>';
             }
-            html += '</div>';  // marine-panel
+            html += '</div>';
         });
 
-        html += '</div>';  // marine-section
+        html += '</div>';
     }
 
     html += `
