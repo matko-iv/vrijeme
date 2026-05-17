@@ -449,6 +449,132 @@
             margin-top: 3px;
         }
 
+        /* Marine forecast — sits below Dugorocna prognoza. */
+        .marine-section { margin-top: 32px; margin-bottom: 32px; }
+        .marine-section h2 { margin-bottom: 6px; }
+        .marine-intro {
+            font-size: 13.5px;
+            color: #57606a;
+            margin-bottom: 14px;
+            line-height: 1.5;
+        }
+        .marine-tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 14px;
+            border-bottom: 1px solid #d0d7de;
+        }
+        .marine-tab {
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #57606a;
+            cursor: pointer;
+            font-family: inherit;
+            margin-bottom: -1px;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .marine-tab:hover { color: #24292e; }
+        .marine-tab.active {
+            color: #0969da;
+            border-bottom-color: #0969da;
+            font-weight: 600;
+        }
+        .marine-panel { display: none; }
+        .marine-panel.active { display: block; }
+        .marine-loc-desc {
+            font-size: 13px;
+            color: #6a737d;
+            font-style: italic;
+            margin-bottom: 12px;
+        }
+        .marine-daily-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 0;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.04);
+            margin-bottom: 18px;
+        }
+        .m-day {
+            padding: 14px 8px;
+            text-align: center;
+            border-right: 1px solid #e1e4e8;
+            font-size: 12.5px;
+        }
+        .m-day:last-child { border-right: none; }
+        .m-day-name { font-weight: 600; color: #24292e; }
+        .m-day-date { color: #6a737d; font-size: 11px; margin-bottom: 6px; }
+        .m-score-pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 11px;
+            margin: 4px 0;
+            color: #fff;
+        }
+        .m-score-green  { background: #1f883d; }
+        .m-score-yellow { background: #d97706; }
+        .m-score-orange { background: #ea580c; }
+        .m-score-red    { background: #dc2626; }
+        .m-score-gray   { background: #6e7781; }
+        .m-day-row {
+            display: flex;
+            justify-content: center;
+            gap: 6px;
+            font-size: 11.5px;
+            color: #424a53;
+            margin-top: 4px;
+        }
+        .m-day-row b { color: #24292e; font-weight: 600; }
+        .m-wind-name {
+            font-size: 11px;
+            color: #0969da;
+            font-style: italic;
+            margin-top: 2px;
+        }
+        .marine-hourly-wrap {
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            background: #fff;
+            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.04);
+            overflow-x: auto;
+        }
+        .marine-hourly-wrap h4 { margin: 12px 14px 8px; font-size: 14px; color: #24292e; }
+        .marine-hourly {
+            display: flex;
+            min-width: 100%;
+            padding: 0 8px 12px;
+        }
+        .mh-cell {
+            min-width: 64px;
+            text-align: center;
+            font-size: 11.5px;
+            padding: 6px 4px;
+            border-right: 1px solid #f1f3f5;
+            color: #424a53;
+        }
+        .mh-cell:last-child { border-right: none; }
+        .mh-time { font-weight: 600; color: #24292e; font-size: 12px; }
+        .mh-wave { font-size: 13px; color: #0969da; font-weight: 600; margin-top: 4px; }
+        .mh-period { font-size: 10px; color: #6a737d; }
+        .mh-wind { font-size: 11px; color: #24292e; margin-top: 4px; }
+        .mh-bft { font-size: 10px; color: #6a737d; }
+        @media (max-width: 768px) {
+            .marine-daily-grid {
+                grid-template-columns: repeat(7, minmax(80px, 1fr));
+                overflow-x: auto;
+            }
+            .m-day { font-size: 11.5px; padding: 10px 6px; }
+        }
+
         .long-range-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -2066,9 +2192,9 @@ function render(data) {
     html += '</div>';
 
     html += `<div style="margin-bottom:20px; margin-top:40px"><p>
-        Vrijednosti <strong>padavina</strong> i <strong>udara vjetra</strong> na mojoj platformi odnose se na <b>naredni sat</b> — 12:00 = 1.5 mm znači da će 1.5 mm pasti između 12:00 i 13:00. Open-Meteo, platforma odakle dobijam sirove podatke (prije nego se koriguju) bilježi akumulaciju do <b>kraja sata</b> (za 12h govori koliko će pasti između 11:00 i 12:00), ali ovdje smo pomjerili unaprijed da prikaz bude intuitivniji — sat koji vidiš pokazuje šta dolazi, ne šta je bilo.
+        Vrijednosti <strong>padavina</strong>, <strong>brzine vjetra</strong> i <strong>udara vjetra</strong> na mojoj platformi odnose se na <b>naredni sat</b> — 12:00 = 1.5 mm znači da će 1.5 mm pasti između 12:00 i 13:00. Open-Meteo, platforma odakle dobijam sirove podatke (prije nego se koriguju) bilježi akumulaciju do <b>kraja sata</b> (za 12h govori koliko će pasti između 11:00 i 12:00), ali ovdje smo pomjerili unaprijed da prikaz bude intuitivniji — sat koji vidiš pokazuje šta dolazi, ne šta je bilo. Brzina vjetra ide u istu grupu jer je interno korigujemo prema padavinama u tom satu (jaka kiša znači jak vjetar), pa moramo zadržati istu vremensku referencu.
     </p><p style="margin-top:8px">
-        Ostale vrijednosti (temperatura, vlažnost, pritisak, oblačnost, brzina i smjer vjetra) su <strong>trenutne</strong> za taj sat, tj. vrijednost koja važi tačno u 12:00:00. Sub-satna preciznost (npr. tačno u 12:25) nije moguća bez korišćenja radara za preciznu detekciju kiše, ali njih Crna Gora ne posjeduje, a radari susjednih država nisu u mogućnosti da tačno detektuju, zbog vrlo kompleksne orografske mape naše države. 
+        Ostale vrijednosti (temperatura, vlažnost, pritisak, oblačnost, smjer vjetra) su <strong>trenutne</strong> za taj sat, tj. vrijednost koja važi tačno u 12:00:00. Sub-satna preciznost (npr. tačno u 12:25) nije moguća bez korišćenja radara za preciznu detekciju kiše, ali njih Crna Gora ne posjeduje, a radari susjednih država nisu u mogućnosti da tačno detektuju, zbog vrlo kompleksne orografske mape naše države.
     </p></div>`;
 
     const now = new Date();
@@ -2211,6 +2337,84 @@ function render(data) {
         html += '</div>';
     }
 
+    // Marine forecast section — multi-location with tab toggle.
+    if (data.marine_forecast && data.marine_forecast.locations && data.marine_forecast.locations.length > 0) {
+        const locs = data.marine_forecast.locations;
+        html += '<div class="marine-section">';
+        html += '<h2>Pomorska prognoza</h2>';
+        html += '<div class="marine-intro">' +
+            'Vjetar je znatno jači na moru nego na obali (nema friction-a sa terenom). Prognoza ispod pokazuje stanje na otvorenom moru i u zalivu — biraj lokaciju klikom. ' +
+            'Sailing score: <span class="m-score-pill m-score-green">Dobro</span> <span class="m-score-pill m-score-yellow">Za iskusne</span> <span class="m-score-pill m-score-orange">Oprez</span> <span class="m-score-pill m-score-red">Opasno</span>' +
+            '</div>';
+
+        // Tab strip.
+        html += '<div class="marine-tabs">';
+        locs.forEach((loc, idx) => {
+            html += `<button class="marine-tab${idx === 0 ? ' active' : ''}" data-marine-loc="${loc.id}">${loc.name}</button>`;
+        });
+        html += '</div>';
+
+        // Per-location panels (one visible, others hidden).
+        locs.forEach((loc, idx) => {
+            html += `<div class="marine-panel${idx === 0 ? ' active' : ''}" data-marine-panel="${loc.id}">`;
+            if (loc.desc) {
+                html += `<div class="marine-loc-desc">${loc.desc}</div>`;
+            }
+            if (loc.daily_summary && loc.daily_summary.length > 0) {
+                html += '<div class="marine-daily-grid">';
+                loc.daily_summary.forEach(d => {
+                    const dn = DAY_NAMES_SR[d.day_name] || d.day_name;
+                    const dateShort = (d.date || '').slice(5).replace('-', '.');
+                    const pillCls = 'm-score-' + (d.sailing_color || 'gray');
+                    const wave = d.wave_height_max != null ? d.wave_height_max.toFixed(1) + ' m' : '–';
+                    const period = d.wave_period_max != null ? d.wave_period_max.toFixed(0) + ' s' : '';
+                    const bft = d.beaufort_max != null ? d.beaufort_max + ' Bft' : '–';
+                    const wind = d.wind_speed_max != null ? d.wind_speed_max.toFixed(0) : '–';
+                    const gust = d.wind_gusts_max != null ? d.wind_gusts_max.toFixed(0) : '–';
+                    const wname = d.wind_name || '';
+                    const seaLabel = d.sea_state_label || '';
+                    html += `
+                    <div class="m-day">
+                        <div class="m-day-name">${dn}</div>
+                        <div class="m-day-date">${dateShort}</div>
+                        <div><span class="m-score-pill ${pillCls}">${d.sailing_score || ''}</span></div>
+                        <div class="m-day-row"><b>${wave}</b>${period ? ' · ' + period : ''}</div>
+                        <div class="m-day-row" title="${seaLabel}">${seaLabel}</div>
+                        <div class="m-day-row"><b>${bft}</b> ${wind}/${gust} m/s</div>
+                        ${wname ? '<div class="m-wind-name">' + wname + '</div>' : ''}
+                    </div>`;
+                });
+                html += '</div>';
+            }
+            if (loc.hourly && loc.hourly.length > 0) {
+                html += '<div class="marine-hourly-wrap">';
+                html += '<h4>Pomorska prognoza po satima (48h)</h4>';
+                html += '<div class="marine-hourly">';
+                loc.hourly.forEach(h => {
+                    const time = String(h.hour).padStart(2, '0') + 'h';
+                    const wave = h.wave_height != null ? h.wave_height.toFixed(1) : '–';
+                    const period = h.wave_period != null ? h.wave_period.toFixed(0) + 's' : '';
+                    const bft = h.beaufort != null ? h.beaufort + ' Bft' : '–';
+                    const wname = h.wind_name || '';
+                    const ws = h.wind_speed_10m != null ? h.wind_speed_10m.toFixed(0) : '';
+                    const wg = h.wind_gusts_10m != null ? h.wind_gusts_10m.toFixed(0) : '';
+                    html += `
+                    <div class="mh-cell" title="${h.sea_state_label || ''}${wname ? ' · ' + wname : ''}">
+                        <div class="mh-time">${time}</div>
+                        <div class="mh-wave">${wave}m</div>
+                        <div class="mh-period">${period}</div>
+                        <div class="mh-bft">${bft}</div>
+                        <div class="mh-wind">${ws}/${wg}${wname ? ' ' + wname.slice(0, 3) : ''}</div>
+                    </div>`;
+                });
+                html += '</div></div>';
+            }
+            html += '</div>';  // marine-panel
+        });
+
+        html += '</div>';  // marine-section
+    }
+
     html += `
     <div class="footer">
         <div style="text-align:left;margin-bottom:24px;"><p>
@@ -2228,6 +2432,18 @@ function render(data) {
             document.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
             drawChart(tab.dataset.chart);
+        });
+    });
+
+    // Marine location tabs — toggle which panel is visible.
+    document.querySelectorAll('.marine-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const locId = tab.dataset.marineLoc;
+            document.querySelectorAll('.marine-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            document.querySelectorAll('.marine-panel').forEach(p => {
+                p.classList.toggle('active', p.dataset.marinePanel === locId);
+            });
         });
     });
 
