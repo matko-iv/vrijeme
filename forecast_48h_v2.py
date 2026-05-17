@@ -2561,8 +2561,8 @@ _DOUGLAS_THRESHOLDS = [0.1, 0.5, 1.25, 2.5, 4.0, 6.0, 9.0, 14.0]
 
 DOUGLAS_LABELS = {
     0: "Bonaca", 1: "Mirno", 2: "Blagi talasi", 3: "Umjereni talasi",
-    4: "Uzburkano", 5: "Vrlo uzburkano", 6: "Talasasto",
-    7: "Vrlo talasasto", 8: "Olujni talasi", 9: "Izuzetno olujni talasi",
+    4: "Talasasto", 5: "Vrlo talasasto", 6: "Uzburkano",
+    7: "Vrlo uzburkano", 8: "Olujni talasi", 9: "Izuzetno olujni talasi",
 }
 
 

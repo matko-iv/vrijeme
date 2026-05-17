@@ -1054,8 +1054,8 @@ function msToKn(ms) {
 
 const DOUGLAS_DEGREE_BY_LABEL = {
     'Bonaca': 0, 'Mirno': 1, 'Blagi talasi': 2, 'Umjereni talasi': 3,
-    'Uzburkano': 4, 'Vrlo uzburkano': 5, 'Talasasto': 6,
-    'Vrlo talasasto': 7, 'Olujni talasi': 8, 'Izuzetno olujni talasi': 9,
+    'Talasasto': 4, 'Vrlo talasasto': 5, 'Uzburkano': 6,
+    'Vrlo uzburkano': 7, 'Olujni talasi': 8, 'Izuzetno olujni talasi': 9,
 };
 
 function douglasPill(label) {
@@ -2487,7 +2487,7 @@ function render(data) {
                         ${wname ? '<div class="m-wind-name">' + wname + '</div>' : ''}
                     </div>`;
                 });
-                html += '</div><p style="margin-top:8px">Prvi podatak ispod opisa prilika je je maksimalna visina talasa tokom dana u metrima. Druga je period talasa u sekundama (vrijeme između dva uzastopna vrha). Period je važan koliko i visina: kratki period (< 4 s) znači kratak, oštar, talas od lokalnog vjetra, što je neugodno i zahtjevno za plovidbu. Dugi period (> 6–7 s) znači swell (talasi nastali dalje od nas), mogu biti mnogo veći.</p><p style="margin-top:2px">Ispod toga je stanje mora (Douglas skala), odnosno opisna kategorija na osnovu visine talasa: Bonaca → Mirno → Blagi talasi → Umjereni talasi → Uzburkano itd. Standardna međunarodna skala za stanje površine mora.</p>';
+                html += '</div><p style="margin-top:8px">Prvi podatak ispod opisa prilika je je maksimalna visina talasa tokom dana u metrima. Druga je period talasa u sekundama (vrijeme između dva uzastopna vrha). Period je važan koliko i visina: kratki period (< 4 s) znači kratak, oštar, talas od lokalnog vjetra, što je neugodno i zahtjevno za plovidbu. Dugi period (> 6–7 s) znači swell (talasi nastali dalje od nas), mogu biti mnogo veći.</p><p style="margin-top:2px">Ispod toga je stanje mora (Douglas skala), odnosno opisna kategorija na osnovu visine talasa: Bonaca → Mirno → Blagi talasi → Umjereni talasi → Talasasto itd. Standardna međunarodna skala za stanje površine mora.</p>';
             }
             if (loc.hourly && loc.hourly.length > 0) {
                 html += '<div class="marine-hourly-wrap">';
