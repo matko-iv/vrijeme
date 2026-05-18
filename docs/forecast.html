@@ -2440,165 +2440,162 @@ function render(data) {
         html += '</div>';
     }
 
-    if (data.marine_forecast && data.marine_forecast.locations && data.marine_forecast.locations.length > 0) {
-        const locs = data.marine_forecast.locations;
+    if (data.marine_forecast && (data.marine_forecast.waves || (data.marine_forecast.wind_locations && data.marine_forecast.wind_locations.length > 0))) {
+        const marine = data.marine_forecast;
+        const waves = marine.waves;
+        const winds = marine.wind_locations || [];
         html += '<div class="marine-section">';
         html += '<h2>Pomorska prognoza</h2>';
         html += '<div class="marine-intro">' +
-            'Vjetar je znatno jači na moru nego na obali (nema trenja sa terenom). Prognoza ispod pokazuje stanje na otvorenom moru i u Bečićima tako što konstruišemo ansambl modela.' +
-            'Ocjena za plovidbu i boravak na moru: <span class="m-score-pill m-score-green">Dobro</span> <span class="m-score-pill m-score-yellow">Prihvatljivo</span> <span class="m-score-pill m-score-orange">Oprez</span> <span class="m-score-pill m-score-red">Opasno</span>' +
+            (marine.note || 'Vjetar je znatno jači na moru nego na obali (nema trenja sa terenom).') +
+            '<div style="margin-top:8px">Ocjena za plovidbu i boravak na moru: <span class="m-score-pill m-score-green">Dobro</span> <span class="m-score-pill m-score-yellow">Prihvatljivo</span> <span class="m-score-pill m-score-orange">Oprez</span> <span class="m-score-pill m-score-red">Opasno</span></div>' +
             '</div>';
 
-        html += '<div class="marine-tabs">';
-        locs.forEach((loc, idx) => {
-            html += `<button class="marine-tab${idx === 0 ? ' active' : ''}" data-marine-loc="${loc.id}">${loc.name}</button>`;
-        });
-        html += '</div>';
-
-        locs.forEach((loc, idx) => {
-            html += `<div class="marine-panel${idx === 0 ? ' active' : ''}" data-marine-panel="${loc.id}">`;
-            if (loc.desc) {
-                html += `<div class="marine-loc-desc">${loc.desc}</div>`;
-            }
-            if (loc.daily_summary && loc.daily_summary.length > 0) {
-                html += '<div class="marine-daily-grid">';
-                loc.daily_summary.forEach(d => {
-                    const dn = DAY_NAMES_SR[d.day_name] || d.day_name;
-                    const dateShort = (d.date || '').slice(5).replace('-', '.');
-                    const pillCls = 'm-score-' + (d.sailing_color || 'gray');
-                    const wave = d.wave_height_max != null ? d.wave_height_max.toFixed(1) + ' m' : '–';
-                    const period = d.wave_period_max != null ? d.wave_period_max.toFixed(0) + ' s' : '';
-                    const bft = d.beaufort_max != null ? d.beaufort_max + ' Bft' : '–';
-                    const wind = d.wind_speed_max != null ? d.wind_speed_max.toFixed(0) : '–';
-                    const gust = d.wind_gusts_max != null ? d.wind_gusts_max.toFixed(0) : '–';
-                    const wname = d.wind_name || '';
-                    const seaLabel = d.sea_state_label || '';
-                    html += `
-                    <div class="m-day">
-                        <div class="m-day-name">${dn}</div>
-                        <div class="m-day-date">${dateShort}</div>
-                        <div><span class="m-score-pill ${pillCls}">${d.sailing_score || ''}</span></div>
-                        <div class="m-day-row"><b>${wave}</b>${period ? ' · ' + period : ''}</div>
-                        <div class="m-day-row" title="${seaLabel}">${douglasPill(seaLabel)}${seaLabel}</div>
-                        <div class="m-day-row"><b>${bft}</b> ${wind}/${gust} m/s</div>
-                        ${d.wind_speed_max != null && d.wind_gusts_max != null
-                            ? `<div class="m-day-row m-knots">${msToKn(d.wind_speed_max)}/${msToKn(d.wind_gusts_max)} čv</div>`
-                            : ''}
-                        ${wname ? '<div class="m-wind-name">' + wname + '</div>' : ''}
-                    </div>`;
-                });
-                html += '</div><p style="margin-top:8px">Prvi podatak ispod opisa prilika je je maksimalna visina talasa tokom dana u metrima. Druga je period talasa u sekundama (vrijeme između dva uzastopna vrha). Period je važan koliko i visina: kratki period (< 4 s) znači kratak, oštar, talas od lokalnog vjetra, što je neugodno i zahtjevno za plovidbu. Dugi period (> 6–7 s) znači swell (talasi nastali dalje od nas), mogu biti mnogo veći.</p><p style="margin-top:2px">Ispod toga je stanje mora (Douglas skala), odnosno opisna kategorija na osnovu visine talasa: Bonaca → Mirno → Blagi talasi → Umjereni talasi → Talasasto itd. Standardna međunarodna skala za stanje površine mora.</p>';
-            }
-            if (loc.hourly && loc.hourly.length > 0) {
-                html += '<div class="marine-hourly-wrap">';
-                html += '<h4>Pomorska prognoza po satima (48h)</h4>';
-                html += '<div class="marine-hourly">';
-                loc.hourly.forEach(h => {
-                    const time = String(h.hour).padStart(2, '0') + 'h';
-                    const wave = h.wave_height != null ? h.wave_height.toFixed(1) : '–';
-                    const period = h.wave_period != null ? h.wave_period.toFixed(0) + 's' : '';
-                    const bft = h.beaufort != null ? h.beaufort + ' Bft' : '–';
-                    const wname = h.wind_name || '';
-                    const ws = h.wind_speed_10m != null ? h.wind_speed_10m.toFixed(0) : '';
-                    const wg = h.wind_gusts_10m != null ? h.wind_gusts_10m.toFixed(0) : '';
-                    html += `
-                    <div class="mh-cell" title="${h.sea_state_label || ''}${wname ? ' · ' + wname : ''}">
-                        <div class="mh-time">${time}</div>
-                        <div class="mh-wave">${wave}m</div>
-                        <div class="mh-period">${period}</div>
-                        <div class="mh-bft">${bft}</div>
-                        <div class="mh-wind">${ws}/${wg}${wname ? ' ' + wname.slice(0, 3) : ''}</div>
-                        ${h.wind_speed_10m != null && h.wind_gusts_10m != null
-                            ? `<div class="mh-wind-kn">${msToKn(h.wind_speed_10m)}/${msToKn(h.wind_gusts_10m)} čv</div>`
-                            : ''}
-                    </div>`;
-                });
-                html += '</div></div>';
+        // ----- Shared waves block (one for whole pomorska zona) -----
+        if (waves && waves.daily_summary && waves.daily_summary.length > 0) {
+            html += '<h3 class="marine-subhead">Talasi i more (jedna prognoza za cijelu pomorsku zonu)</h3>';
+            html += '<div class="marine-daily-grid">';
+            waves.daily_summary.forEach(d => {
+                const dn = DAY_NAMES_SR[d.day_name] || d.day_name;
+                const dateShort = (d.date || '').slice(5).replace('-', '.');
+                const wave = d.wave_height_max != null ? d.wave_height_max.toFixed(1) + ' m' : '–';
+                const period = d.wave_period_max != null ? d.wave_period_max.toFixed(0) + ' s' : '';
+                const seaLabel = d.sea_state_label || '';
+                const sst = d.sst_avg != null ? d.sst_avg.toFixed(1) + '°C' : '';
                 html += `
-                    <div class="douglas-scale">
-                        <h3>Daglasova skala stanja mora</h3>
-                        <p class="douglas-intro">
-                            Međunarodna skala (kap. H. P. Douglas, 1921) za opis hrapavosti mora prema visini talasa.
-                            Ima 10 stepeni — od potpunog zatišja do fenomenalnih talasa. Vrijednost <b>"Stanje mora"</b> na karticama iznad odgovara nazivu iz ove tabele.
-                        </p>
-                        <div class="douglas-table-wrap">
-                            <table class="douglas-table">
-                                <thead>
-                                    <tr>
-                                        <th>Stepen</th>
-                                        <th>Visina talasa</th>
-                                        <th>Naziv</th>
-                                        <th>Opis površine mora</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td><span class="d-deg d-0">0</span></td>
-                                        <td>0 m</td>
-                                        <td><b>Bonaca</b> <span class="d-en">(Calm — glassy)</span></td>
-                                        <td>More glatko kao ulje, bez ikakvih talasa</td>
-                                    </tr>
-                                    <tr>
-                                        <td><span class="d-deg d-0">1</span></td>
-                                        <td>0 – 0.10 m</td>
-                                        <td><b>Mirno</b> <span class="d-en">(Calm — rippled)</span></td>
-                                        <td>Sitno mreškanje površine, bez pjene</td>
-                                    </tr>
-                                    <tr>
-                                        <td><span class="d-deg d-1">2</span></td>
-                                        <td>0.10 – 0.50 m</td>
-                                        <td><b>Blagi talasi</b> <span class="d-en">(Smooth)</span></td>
-                                        <td>Mali talasi sa staklastim grebenima, bez lomljenja</td>
-                                    </tr>
-                                    <tr>
-                                        <td><span class="d-deg d-2">3</span></td>
-                                        <td>0.50 – 1.25 m</td>
-                                        <td><b>Umjereni talasi</b> <span class="d-en">(Slight)</span></td>
-                                        <td>Mali talasi sa pjenom</td>
-                                    </tr>
-                                    <tr>
-                                        <td><span class="d-deg d-3">4</span></td>
-                                        <td>1.25 – 2.50 m</td>
-                                        <td><b>Uzburkano</b> <span class="d-en">(Moderate)</span></td>
-                                        <td>Umjereni talasi izduženog oblika, mnogo pjenušavih grla</td>
-                                    </tr>
-                                    <tr>
-                                        <td><span class="d-deg d-4">5</span></td>
-                                        <td>2.50 – 4.00 m</td>
-                                        <td><b>Vrlo uzburkano</b> <span class="d-en">(Rough)</span></td>
-                                        <td>Veliki talasi, pjena se širi po cijelom grebenu, prisutno lomljenje</td>
-                                    </tr>
-                                    <tr>
-                                        <td><span class="d-deg d-5">6</span></td>
-                                        <td>4.00 – 6.00 m</td>
-                                        <td><b>Talasasto</b> <span class="d-en">(Very rough)</span></td>
-                                        <td>Vrlo veliki talasi, pjena se kreće u izraženim prugama u smjeru vjetra</td>
-                                    </tr>
-                                    <tr>
-                                        <td><span class="d-deg d-6">7</span></td>
-                                        <td>6.00 – 9.00 m</td>
-                                        <td><b>Vrlo talasasto</b> <span class="d-en">(High)</span></td>
-                                        <td>Visoki talasi sa gustom bijelom pjenom; smanjena vidljivost</td>
-                                    </tr>
-                                    <tr>
-                                        <td><span class="d-deg d-7">8</span></td>
-                                        <td>9.00 – 14.00 m</td>
-                                        <td><b>Olujni talasi</b> <span class="d-en">(Very high)</span></td>
-                                        <td>Izuzetno visoki talasi sa nadvišenim grebenima; more je gotovo bijelo od pjene</td>
-                                    </tr>
-                                    <tr>
-                                        <td><span class="d-deg d-7">9</span></td>
-                                        <td>&gt; 14.00 m</td>
-                                        <td><b>Izuzetno olujni talasi</b> <span class="d-en">(Phenomenal)</span></td>
-                                        <td>Ogromni talasi; vazduh ispunjen pjenom i prskanjem, vidljivost vrlo slaba</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div><img src="map.png" style="width:100%;max-width:600px;margin-top:12px;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.1)" loading="lazy"><p>Mapa referentnih lokacija za pomorsku prognozu. Za prognoziranje visine talase i duzine trajanja, koristim DWD EWAM i Météo-France Wave modele, dostupne preko Open-Meteo API. Finalna predikcija je rezultat korigovanja ansamblom.</p>`;
-            }
+                <div class="m-day">
+                    <div class="m-day-name">${dn}</div>
+                    <div class="m-day-date">${dateShort}</div>
+                    <div class="m-day-row"><b>${wave}</b>${period ? ' · ' + period : ''}</div>
+                    <div class="m-day-row" title="${seaLabel}">${douglasPill(seaLabel)}${seaLabel}</div>
+                    ${sst ? '<div class="m-day-row">More: ' + sst + '</div>' : ''}
+                </div>`;
+            });
             html += '</div>';
-        });
+            html += '<p style="margin-top:8px">Prvi podatak ispod datuma je maksimalna visina talasa tokom dana u metrima. Druga je period talasa u sekundama (vrijeme između dva uzastopna vrha). Period je važan koliko i visina: kratki period (< 4 s) znači kratak, oštar, talas od lokalnog vjetra, što je neugodno i zahtjevno za plovidbu. Dugi period (> 6–7 s) znači swell (talasi nastali dalje od nas), mogu biti mnogo veći.</p>';
+            html += '<p style="margin-top:2px">Ispod toga je stanje mora (Douglas skala), odnosno opisna kategorija na osnovu visine talasa: Bonaca → Mirno → Blagi talasi → Umjereni talasi → Talasasto itd. Standardna međunarodna skala za stanje površine mora.</p>';
+        }
+        if (waves && waves.hourly && waves.hourly.length > 0) {
+            html += '<div class="marine-hourly-wrap">';
+            html += '<h4>Talasi po satima (48h)</h4>';
+            html += '<div class="marine-hourly">';
+            waves.hourly.forEach(h => {
+                const time = String(h.hour).padStart(2, '0') + 'h';
+                const wave = h.wave_height != null ? h.wave_height.toFixed(1) : '–';
+                const period = h.wave_period != null ? h.wave_period.toFixed(0) + 's' : '';
+                const seaLabel = h.sea_state_label || '';
+                html += `
+                <div class="mh-cell" title="${seaLabel}">
+                    <div class="mh-time">${time}</div>
+                    <div class="mh-wave">${wave}m</div>
+                    <div class="mh-period">${period}</div>
+                </div>`;
+            });
+            html += '</div></div>';
+        }
+
+        // ----- Wind locations (with tabs) -----
+        if (winds.length > 0) {
+            html += '<h3 class="marine-subhead">Vjetar — izaberi lokaciju</h3>';
+            html += '<p class="marine-subhead-note">Wave modeli rade na ~5-10 km grid-u pa ne mogu razlikovati zaliv od otvorenog mora. Atmosferski (vjetar) modeli idu finije (~2 km) i razlika je stvarna.</p>';
+            html += '<div class="marine-tabs">';
+            winds.forEach((loc, idx) => {
+                html += `<button class="marine-tab${idx === 0 ? ' active' : ''}" data-marine-loc="${loc.id}">${loc.name}</button>`;
+            });
+            html += '</div>';
+
+            winds.forEach((loc, idx) => {
+                html += `<div class="marine-panel${idx === 0 ? ' active' : ''}" data-marine-panel="${loc.id}">`;
+                if (loc.desc) {
+                    html += `<div class="marine-loc-desc">${loc.desc}</div>`;
+                }
+                if (loc.daily_summary && loc.daily_summary.length > 0) {
+                    html += '<div class="marine-daily-grid">';
+                    loc.daily_summary.forEach(d => {
+                        const dn = DAY_NAMES_SR[d.day_name] || d.day_name;
+                        const dateShort = (d.date || '').slice(5).replace('-', '.');
+                        const pillCls = 'm-score-' + (d.sailing_color || 'gray');
+                        const bft = d.beaufort_max != null ? d.beaufort_max + ' Bft' : '–';
+                        const wind = d.wind_speed_max != null ? d.wind_speed_max.toFixed(0) : '–';
+                        const gust = d.wind_gusts_max != null ? d.wind_gusts_max.toFixed(0) : '–';
+                        const wname = d.wind_name || '';
+                        html += `
+                        <div class="m-day">
+                            <div class="m-day-name">${dn}</div>
+                            <div class="m-day-date">${dateShort}</div>
+                            <div><span class="m-score-pill ${pillCls}">${d.sailing_score || ''}</span></div>
+                            <div class="m-day-row"><b>${bft}</b> ${wind}/${gust} m/s</div>
+                            ${d.wind_speed_max != null && d.wind_gusts_max != null
+                                ? `<div class="m-day-row m-knots">${msToKn(d.wind_speed_max)}/${msToKn(d.wind_gusts_max)} čv</div>`
+                                : ''}
+                            ${wname ? '<div class="m-wind-name">' + wname + '</div>' : ''}
+                        </div>`;
+                    });
+                    html += '</div>';
+                }
+                if (loc.hourly && loc.hourly.length > 0) {
+                    html += '<div class="marine-hourly-wrap">';
+                    html += '<h4>Vjetar po satima (48h) — ' + loc.name + '</h4>';
+                    html += '<div class="marine-hourly">';
+                    loc.hourly.forEach(h => {
+                        const time = String(h.hour).padStart(2, '0') + 'h';
+                        const bft = h.beaufort != null ? h.beaufort + ' Bft' : '–';
+                        const wname = h.wind_name || '';
+                        const ws = h.wind_speed_10m != null ? h.wind_speed_10m.toFixed(0) : '';
+                        const wg = h.wind_gusts_10m != null ? h.wind_gusts_10m.toFixed(0) : '';
+                        html += `
+                        <div class="mh-cell" title="${wname}">
+                            <div class="mh-time">${time}</div>
+                            <div class="mh-bft">${bft}</div>
+                            <div class="mh-wind">${ws}/${wg}${wname ? ' ' + wname.slice(0, 3) : ''}</div>
+                            ${h.wind_speed_10m != null && h.wind_gusts_10m != null
+                                ? `<div class="mh-wind-kn">${msToKn(h.wind_speed_10m)}/${msToKn(h.wind_gusts_10m)} čv</div>`
+                                : ''}
+                        </div>`;
+                    });
+                    html += '</div></div>';
+                }
+                html += '</div>';
+            });
+        }
+
+        // Shared footer for the marine section: Douglas scale + reference map.
+        // Lives outside the wind tabs so it renders once regardless of which
+        // location is selected.
+        html += `
+            <div class="douglas-scale">
+                <h3>Daglasova skala stanja mora</h3>
+                <p class="douglas-intro">
+                    Međunarodna skala (kap. H. P. Douglas, 1921) za opis hrapavosti mora prema visini talasa.
+                    Ima 10 stepeni — od potpunog zatišja do fenomenalnih talasa. Vrijednost <b>"Stanje mora"</b> na karticama iznad odgovara nazivu iz ove tabele.
+                </p>
+                <div class="douglas-table-wrap">
+                    <table class="douglas-table">
+                        <thead>
+                            <tr>
+                                <th>Stepen</th>
+                                <th>Visina talasa</th>
+                                <th>Naziv</th>
+                                <th>Opis površine mora</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><span class="d-deg d-0">0</span></td><td>0 m</td><td><b>Bonaca</b> <span class="d-en">(Calm — glassy)</span></td><td>More glatko kao ulje, bez ikakvih talasa</td></tr>
+                            <tr><td><span class="d-deg d-0">1</span></td><td>0 – 0.10 m</td><td><b>Mirno</b> <span class="d-en">(Calm — rippled)</span></td><td>Sitno mreškanje površine, bez pjene</td></tr>
+                            <tr><td><span class="d-deg d-1">2</span></td><td>0.10 – 0.50 m</td><td><b>Blagi talasi</b> <span class="d-en">(Smooth)</span></td><td>Mali talasi sa staklastim grebenima, bez lomljenja</td></tr>
+                            <tr><td><span class="d-deg d-2">3</span></td><td>0.50 – 1.25 m</td><td><b>Umjereni talasi</b> <span class="d-en">(Slight)</span></td><td>Mali talasi sa pjenom</td></tr>
+                            <tr><td><span class="d-deg d-3">4</span></td><td>1.25 – 2.50 m</td><td><b>Uzburkano</b> <span class="d-en">(Moderate)</span></td><td>Umjereni talasi izduženog oblika, mnogo pjenušavih grla</td></tr>
+                            <tr><td><span class="d-deg d-4">5</span></td><td>2.50 – 4.00 m</td><td><b>Vrlo uzburkano</b> <span class="d-en">(Rough)</span></td><td>Veliki talasi, pjena se širi po cijelom grebenu, prisutno lomljenje</td></tr>
+                            <tr><td><span class="d-deg d-5">6</span></td><td>4.00 – 6.00 m</td><td><b>Talasasto</b> <span class="d-en">(Very rough)</span></td><td>Vrlo veliki talasi, pjena se kreće u izraženim prugama u smjeru vjetra</td></tr>
+                            <tr><td><span class="d-deg d-6">7</span></td><td>6.00 – 9.00 m</td><td><b>Vrlo talasasto</b> <span class="d-en">(High)</span></td><td>Visoki talasi sa gustom bijelom pjenom; smanjena vidljivost</td></tr>
+                            <tr><td><span class="d-deg d-7">8</span></td><td>9.00 – 14.00 m</td><td><b>Olujni talasi</b> <span class="d-en">(Very high)</span></td><td>Izuzetno visoki talasi sa nadvišenim grebenima; more je gotovo bijelo od pjene</td></tr>
+                            <tr><td><span class="d-deg d-7">9</span></td><td>&gt; 14.00 m</td><td><b>Izuzetno olujni talasi</b> <span class="d-en">(Phenomenal)</span></td><td>Ogromni talasi; vazduh ispunjen pjenom i prskanjem, vidljivost vrlo slaba</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <img src="map.png" style="width:100%;max-width:600px;margin-top:12px;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.1)" loading="lazy">
+            <p>Mapa referentnih lokacija za pomorsku prognozu. Za prognoziranje visine talasa i dužine trajanja, koristim DWD EWAM i Météo-France Wave modele, dostupne preko Open-Meteo API. Finalna predikcija je rezultat korigovanja ansamblom.</p>`;
 
         html += '</div>';
     }

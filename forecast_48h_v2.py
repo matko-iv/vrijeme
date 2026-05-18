@@ -74,7 +74,21 @@ BURST_GUST_MAX = 40.0          # absolute cap (safety)
 BURST_WIND_MAX = 25.0
 
 
-MARINE_LOCATIONS = [
+# Single wave location: at this resolution (~5km grid for DWD EWAM, ~10km for
+# MeteoFrance WAM) close coastal points snap to the same offshore grid cells,
+# so it would be dishonest to show "different" wave heights for Bečići vs
+# otvoreno more. We fetch ONE representative offshore point and reuse it.
+MARINE_WAVE_LOCATION = {
+    "lat": 42.252626,
+    "lon": 18.831183,
+    "name": "Pomorska zona Budve",
+    "desc": "Reprezentativna offshore tačka iza Sv. Nikole",
+}
+
+# Two wind locations — wind models (ICON-2I 2.2km, AROME 1.3km, ICON-EU 7km)
+# have fine enough resolution to actually distinguish sheltered bay from
+# open sea, unlike the wave models.
+MARINE_WIND_LOCATIONS = [
     {
         "id": "becici",
         "name": "Bečićki zaliv",
@@ -2624,9 +2638,9 @@ def sailing_score(bft, wave_height):
     return ("red", "Opasno")
 
 
-def _fetch_marine_one(lat, lon, label):
-    """Fetch wave + offshore wind for ONE location. Returns merged DataFrame
-    with ensemble-mean columns, or None if every wave model fails."""
+def _fetch_marine_waves(lat, lon, label):
+    """Fetch wave models for ONE point. Returns DataFrame with *_mean columns
+    or None if nothing succeeded."""
     marine_url = "https://marine-api.open-meteo.com/v1/marine"
     all_waves = {}
     for model in MARINE_MODELS:
@@ -2659,13 +2673,27 @@ def _fetch_marine_one(lat, lon, label):
         time.sleep(1.0)
 
     if not all_waves:
-        print(f"  [{label}] Marine: nijedan wave model nije fetched.")
         return None
 
-    waves = list(all_waves.values())[0]
+    df = list(all_waves.values())[0]
     for k in list(all_waves.keys())[1:]:
-        waves = waves.merge(all_waves[k], on='datetime', how='outer')
+        df = df.merge(all_waves[k], on='datetime', how='outer')
+    df.sort_values('datetime', inplace=True)
+    df.reset_index(drop=True, inplace=True)
 
+    for v in MARINE_VARS:
+        cols = [f"{m}_{v}" for m in MARINE_MODELS if f"{m}_{v}" in df.columns]
+        if cols:
+            df[f'{v}_mean'] = df[cols].apply(pd.to_numeric, errors='coerce').mean(axis=1)
+
+    now = local_now().floor('h')
+    df = df[df['datetime'] >= now].copy().reset_index(drop=True)
+    return df
+
+
+def _fetch_marine_wind(lat, lon, label):
+    """Fetch wind models for ONE point. Returns DataFrame with ensemble mean
+    columns for wind_speed_10m, wind_gusts_10m, wind_direction_10m."""
     forecast_url = "https://api.open-meteo.com/v1/forecast"
     all_winds = {}
     for model_id in MARINE_WIND_MODELS:
@@ -2690,64 +2718,71 @@ def _fetch_marine_one(lat, lon, label):
             print(f"  [{label}] Wind {model_id}: FAIL ({e})")
         time.sleep(1.0)
 
-    if all_winds:
-        winds = list(all_winds.values())[0]
-        for k in list(all_winds.keys())[1:]:
-            winds = winds.merge(all_winds[k], on='datetime', how='outer')
-        marine_df = waves.merge(winds, on='datetime', how='outer')
-    else:
-        marine_df = waves
+    if not all_winds:
+        return None
 
-    marine_df.sort_values('datetime', inplace=True)
-    marine_df.reset_index(drop=True, inplace=True)
-
-    for v in MARINE_VARS:
-        cols = [f"{m}_{v}" for m in MARINE_MODELS if f"{m}_{v}" in marine_df.columns]
-        if cols:
-            marine_df[f'{v}_mean'] = marine_df[cols].apply(pd.to_numeric, errors='coerce').mean(axis=1)
+    df = list(all_winds.values())[0]
+    for k in list(all_winds.keys())[1:]:
+        df = df.merge(all_winds[k], on='datetime', how='outer')
+    df.sort_values('datetime', inplace=True)
+    df.reset_index(drop=True, inplace=True)
 
     for v in ['wind_speed_10m', 'wind_gusts_10m']:
-        cols = [c for c in marine_df.columns
+        cols = [c for c in df.columns
                 if any(c == f"{m}_{v}" for m in MARINE_WIND_MODELS)]
         if cols:
-            marine_df[f'{v}_mean'] = marine_df[cols].apply(pd.to_numeric, errors='coerce').mean(axis=1)
+            df[f'{v}_mean'] = df[cols].apply(pd.to_numeric, errors='coerce').mean(axis=1)
 
-    dir_cols = [c for c in marine_df.columns
+    dir_cols = [c for c in df.columns
                 if any(c == f"{m}_wind_direction_10m" for m in MARINE_WIND_MODELS)]
     if dir_cols:
-        dirs = marine_df[dir_cols].apply(pd.to_numeric, errors='coerce')
+        dirs = df[dir_cols].apply(pd.to_numeric, errors='coerce')
         sin_mean = np.sin(np.radians(dirs)).mean(axis=1)
         cos_mean = np.cos(np.radians(dirs)).mean(axis=1)
-        marine_df['wind_direction_10m_mean'] = (np.degrees(np.arctan2(sin_mean, cos_mean)) % 360)
+        df['wind_direction_10m_mean'] = (np.degrees(np.arctan2(sin_mean, cos_mean)) % 360)
 
     now = local_now().floor('h')
-    marine_df = marine_df[marine_df['datetime'] >= now].copy().reset_index(drop=True)
-    return marine_df
+    df = df[df['datetime'] >= now].copy().reset_index(drop=True)
+    return df
 
 
 def fetch_live_marine():
-    """Fetch marine forecast for all MARINE_LOCATIONS. Returns list of dicts
-    [{loc_meta..., 'df': DataFrame}, ...] or empty list if nothing succeeded."""
-    print("\n[Marine] Preuzimanje pomorske prognoze (vise lokacija)...")
-    results = []
-    for loc in MARINE_LOCATIONS:
-        df = _fetch_marine_one(loc['lat'], loc['lon'], loc['name'])
-        if df is not None:
-            results.append({**loc, 'df': df})
-            print(f"  [{loc['name']}] {df.shape[0]} sati pomorske prognoze.")
-    return results
+    """Fetch ONE wave dataset + wind for each MARINE_WIND_LOCATIONS.
+
+    Returns dict {'waves': df_or_None, 'winds': [{loc_meta..., 'df': df}, ...]}
+    or None if everything failed."""
+    print("\n[Marine] Preuzimanje pomorske prognoze...")
+    print(f"  Talasi: jedna reprezentativna tačka {MARINE_WAVE_LOCATION['name']} "
+          f"({MARINE_WAVE_LOCATION['lat']}, {MARINE_WAVE_LOCATION['lon']})")
+    waves = _fetch_marine_waves(
+        MARINE_WAVE_LOCATION['lat'], MARINE_WAVE_LOCATION['lon'],
+        MARINE_WAVE_LOCATION['name']
+    )
+
+    print(f"  Vjetar: {len(MARINE_WIND_LOCATIONS)} lokacije, finija rezolucija "
+          f"({', '.join(MARINE_WIND_MODELS)})")
+    winds = []
+    for loc in MARINE_WIND_LOCATIONS:
+        wdf = _fetch_marine_wind(loc['lat'], loc['lon'], loc['name'])
+        if wdf is not None:
+            winds.append({**loc, 'df': wdf})
+
+    if waves is None and not winds:
+        print("  Marine: ništa nije fetched.")
+        return None
+    return {'waves': waves, 'winds': winds}
 
 
-def _build_marine_one(marine_df):
-    """Convert one location's marine DataFrame into hourly + daily blocks."""
-    if marine_df is None or marine_df.empty:
+def _build_wave_block(waves_df):
+    """Build the SHARED wave block (single location). Hourly + daily."""
+    if waves_df is None or waves_df.empty:
         return None
 
     now_ts = local_now().floor('h')
     cutoff_48h = now_ts + pd.Timedelta(hours=48)
 
     hourly = []
-    for _, row in marine_df.iterrows():
+    for _, row in waves_df.iterrows():
         if row['datetime'] >= cutoff_48h:
             break
         wh = row.get('wave_height_mean')
@@ -2757,13 +2792,7 @@ def _build_marine_one(marine_df):
         sw_h = row.get('swell_wave_height_mean')
         sw_p = row.get('swell_wave_period_mean')
         sst = row.get('sea_surface_temperature_mean')
-        ws = row.get('wind_speed_10m_mean')
-        wg = row.get('wind_gusts_10m_mean')
-        wdir = row.get('wind_direction_10m_mean')
-        bft = beaufort_from_wind(ws)
         sea = douglas_sea_state(wh)
-        score_color, score_label = sailing_score(bft, wh)
-        wind_name = cg_wind_name(wdir, ws)
         hourly.append({
             "datetime": row['datetime'].isoformat(),
             "hour": int(row['datetime'].hour),
@@ -2775,71 +2804,124 @@ def _build_marine_one(marine_df):
             "swell_wave_height": round(float(sw_h), 2) if pd.notna(sw_h) else None,
             "swell_wave_period": round(float(sw_p), 1) if pd.notna(sw_p) else None,
             "sea_surface_temperature": round(float(sst), 1) if pd.notna(sst) else None,
-            "wind_speed_10m": round(float(ws), 1) if pd.notna(ws) else None,
-            "wind_gusts_10m": round(float(wg), 1) if pd.notna(wg) else None,
-            "wind_direction_10m": round(float(wdir), 0) if pd.notna(wdir) else None,
-            "beaufort": bft,
             "sea_state": sea,
             "sea_state_label": DOUGLAS_LABELS.get(sea, "") if sea is not None else "",
-            "wind_name": wind_name,
-            "sailing_score": score_label,
-            "sailing_color": score_color,
         })
 
-    # Daily summary (7 days).
-    df = marine_df.copy()
+    df = waves_df.copy()
     df['_date'] = df['datetime'].dt.strftime('%Y-%m-%d')
     daily = []
     for date_str, grp in df.groupby('_date', sort=True):
         wh_max = pd.to_numeric(grp.get('wave_height_mean', pd.Series()), errors='coerce').max()
         wp_max = pd.to_numeric(grp.get('wave_period_mean', pd.Series()), errors='coerce').max()
         sst_avg = pd.to_numeric(grp.get('sea_surface_temperature_mean', pd.Series()), errors='coerce').mean()
-        ws_max = pd.to_numeric(grp.get('wind_speed_10m_mean', pd.Series()), errors='coerce').max()
-        wg_max = pd.to_numeric(grp.get('wind_gusts_10m_mean', pd.Series()), errors='coerce').max()
-        # Dominant direction at peak wind hour.
-        peak_dir = None
-        ws_series = pd.to_numeric(grp.get('wind_speed_10m_mean', pd.Series()), errors='coerce')
-        if ws_series.notna().any():
-            idx = ws_series.idxmax()
-            peak_dir = grp.loc[idx, 'wind_direction_10m_mean'] if 'wind_direction_10m_mean' in grp.columns else None
-        bft_max = beaufort_from_wind(ws_max) if pd.notna(ws_max) else None
         sea_max = douglas_sea_state(wh_max) if pd.notna(wh_max) else None
-        score_color, score_label = sailing_score(bft_max, wh_max if pd.notna(wh_max) else None)
-        wind_name = cg_wind_name(peak_dir, ws_max)
         daily.append({
             "date": date_str,
             "day_name": pd.Timestamp(date_str).strftime('%A'),
             "wave_height_max": round(float(wh_max), 2) if pd.notna(wh_max) else None,
             "wave_period_max": round(float(wp_max), 1) if pd.notna(wp_max) else None,
             "sst_avg": round(float(sst_avg), 1) if pd.notna(sst_avg) else None,
-            "wind_speed_max": round(float(ws_max), 1) if pd.notna(ws_max) else None,
-            "wind_gusts_max": round(float(wg_max), 1) if pd.notna(wg_max) else None,
-            "wind_direction_peak": round(float(peak_dir), 0) if peak_dir is not None and pd.notna(peak_dir) else None,
-            "beaufort_max": bft_max,
             "sea_state_max": sea_max,
             "sea_state_label": DOUGLAS_LABELS.get(sea_max, "") if sea_max is not None else "",
+        })
+
+    return {"hourly": hourly, "daily_summary": daily[:7]}
+
+
+def _build_wind_block(wind_df, shared_waves_by_dt, shared_waves_daily_by_date):
+    """Build a wind location block. Sailing score combines this location's
+    wind Bft with the shared wave height at the same hour/day."""
+    if wind_df is None or wind_df.empty:
+        return None
+
+    now_ts = local_now().floor('h')
+    cutoff_48h = now_ts + pd.Timedelta(hours=48)
+
+    hourly = []
+    for _, row in wind_df.iterrows():
+        if row['datetime'] >= cutoff_48h:
+            break
+        ws = row.get('wind_speed_10m_mean')
+        wg = row.get('wind_gusts_10m_mean')
+        wdir = row.get('wind_direction_10m_mean')
+        bft = beaufort_from_wind(ws)
+        wind_name = cg_wind_name(wdir, ws)
+        # Pair with shared wave height at the same hour for sailing score.
+        dt_key = row['datetime']
+        wh_here = shared_waves_by_dt.get(dt_key)
+        score_color, score_label = sailing_score(bft, wh_here)
+        hourly.append({
+            "datetime": dt_key.isoformat(),
+            "hour": int(dt_key.hour),
+            "date": dt_key.strftime('%Y-%m-%d'),
+            "wind_speed_10m": round(float(ws), 1) if pd.notna(ws) else None,
+            "wind_gusts_10m": round(float(wg), 1) if pd.notna(wg) else None,
+            "wind_direction_10m": round(float(wdir), 0) if pd.notna(wdir) else None,
+            "beaufort": bft,
             "wind_name": wind_name,
             "sailing_score": score_label,
             "sailing_color": score_color,
         })
 
-    return {
-        "hourly": hourly,
-        "daily_summary": daily[:7],
-    }
+    df = wind_df.copy()
+    df['_date'] = df['datetime'].dt.strftime('%Y-%m-%d')
+    daily = []
+    for date_str, grp in df.groupby('_date', sort=True):
+        ws_max = pd.to_numeric(grp.get('wind_speed_10m_mean', pd.Series()), errors='coerce').max()
+        wg_max = pd.to_numeric(grp.get('wind_gusts_10m_mean', pd.Series()), errors='coerce').max()
+        peak_dir = None
+        ws_series = pd.to_numeric(grp.get('wind_speed_10m_mean', pd.Series()), errors='coerce')
+        if ws_series.notna().any():
+            idx = ws_series.idxmax()
+            peak_dir = grp.loc[idx, 'wind_direction_10m_mean'] if 'wind_direction_10m_mean' in grp.columns else None
+        bft_max = beaufort_from_wind(ws_max) if pd.notna(ws_max) else None
+        wind_name = cg_wind_name(peak_dir, ws_max)
+        wh_here = shared_waves_daily_by_date.get(date_str)
+        score_color, score_label = sailing_score(bft_max, wh_here)
+        daily.append({
+            "date": date_str,
+            "day_name": pd.Timestamp(date_str).strftime('%A'),
+            "wind_speed_max": round(float(ws_max), 1) if pd.notna(ws_max) else None,
+            "wind_gusts_max": round(float(wg_max), 1) if pd.notna(wg_max) else None,
+            "wind_direction_peak": round(float(peak_dir), 0) if peak_dir is not None and pd.notna(peak_dir) else None,
+            "beaufort_max": bft_max,
+            "wind_name": wind_name,
+            "sailing_score": score_label,
+            "sailing_color": score_color,
+        })
+
+    return {"hourly": hourly, "daily_summary": daily[:7]}
 
 
 def build_marine_output(marine_results):
-    """Convert per-location fetch results into JSON-ready block with
-    'locations' array. Each location has id/name/desc + hourly/daily."""
+    """marine_results = {'waves': df_or_None, 'winds': [{loc_meta, 'df': df}]}.
+    Returns dict with shared waves block + per-location wind blocks."""
     if not marine_results:
         return None
-    locations = []
-    for loc in marine_results:
-        body = _build_marine_one(loc['df'])
+
+    waves_block = _build_wave_block(marine_results.get('waves'))
+
+    # Build lookups so wind locations can pair their sailing score with the
+    # shared wave height at the matching hour/day.
+    shared_waves_by_dt = {}
+    shared_waves_daily = {}
+    if waves_block:
+        for h in waves_block['hourly']:
+            wh = h.get('wave_height')
+            if wh is not None:
+                shared_waves_by_dt[pd.Timestamp(h['datetime'])] = wh
+        for d in waves_block['daily_summary']:
+            wh = d.get('wave_height_max')
+            if wh is not None:
+                shared_waves_daily[d['date']] = wh
+
+    wind_locations = []
+    for loc in marine_results.get('winds', []):
+        body = _build_wind_block(loc['df'], shared_waves_by_dt, shared_waves_daily)
         if body is None:
             continue
-        locations.append({
+        wind_locations.append({
             "id": loc['id'],
             "name": loc['name'],
             "desc": loc.get('desc', ''),
@@ -2848,9 +2930,26 @@ def build_marine_output(marine_results):
             "hourly": body['hourly'],
             "daily_summary": body['daily_summary'],
         })
-    if not locations:
+
+    if not waves_block and not wind_locations:
         return None
-    return {"locations": locations}
+
+    return {
+        "note": (
+            "Talasi su modelirani na ~5-10 km grid-u, pa pokazujemo jednu vrijednost "
+            "za cijelu pomorsku zonu Budve (Bečićka plaža i otvoreno more dijele isti "
+            "wave forecast). Vjetar je precizniji (~2 km rezolucija) i razlikuje se "
+            "između zaliva i otvorenog mora — biraj lokaciju klikom."
+        ),
+        "wave_location": {
+            "lat": MARINE_WAVE_LOCATION['lat'],
+            "lon": MARINE_WAVE_LOCATION['lon'],
+            "name": MARINE_WAVE_LOCATION['name'],
+            "desc": MARINE_WAVE_LOCATION['desc'],
+        },
+        "waves": waves_block,
+        "wind_locations": wind_locations,
+    }
 
 
 def correct_weather_code_row(row, raw_row=None):
