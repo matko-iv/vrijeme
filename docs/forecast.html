@@ -2318,7 +2318,7 @@ function render(data) {
         if (warnings.length > 0) {
             html += '<div class="weather-warnings">';
             warnings.forEach(w => {
-                const badge = w.active ? '<span class="w-now-badge">SADA</span>' : '';
+                const badge = w.active ? '<span class="w-now-badge">Upozorenje</span>' : '';
                 html += `
                 <div class="warning-row sev-${w.sev}">
                     <div class="w-icon">${warningIcon(w.kind)}</div>
