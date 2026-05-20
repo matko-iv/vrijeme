@@ -113,6 +113,159 @@ MARINE_VARS = [
 ]
 MARINE_WIND_MODELS = ["italia_meteo_arpae_icon_2i", "meteofrance_arpege_europe", "ecmwf_ifs", "knmi_harmonie_arome_europe", "dmi_harmonie_arome_europe", "icon_eu"]
 
+# Fallback TTL when upstream meta is unavailable (some "seamless" wrappers
+# and certain wave models don't expose /data/<id>/static/meta.json). Source:
+# open-meteo.com docs "every N hours" column.
+MODEL_UPDATE_HOURS = {
+    'arpege_europe': 1,
+    'gfs_seamless': 1,
+    'icon_seamless': 3,
+    'meteofrance_seamless': 1,
+    'ecmwf_ifs025': 6,
+    'italia_meteo_arpae_icon_2i': 12,
+    'ukmo_seamless': 1,
+    'bom_access_global': 6,
+    'ecmwf_ifs': 6,
+    'knmi_seamless': 1,
+    'dmi_seamless': 3,
+    'ewam': 12,
+    'meteofrance_wave': 12,
+    'meteofrance_arpege_europe': 1,
+    'knmi_harmonie_arome_europe': 1,
+    'dmi_harmonie_arome_europe': 3,
+    'icon_eu': 3,
+}
+DEFAULT_UPDATE_HOURS = 1
+
+# Map each model_id we use to the primary model whose /static/meta.json
+# exposes the real upstream `last_run_modification_time`. None = no meta
+# endpoint exists; fall back to TTL caching. Verified empirically on
+# 2026-05-19 against api.open-meteo.com and marine-api.open-meteo.com.
+#
+# Value format: (api_host_key, primary_model_id_or_None)
+META_PRIMARY = {
+    'arpege_europe':              ('forecast', 'meteofrance_arpege_europe'),
+    'gfs_seamless':               ('forecast', None),
+    'icon_seamless':              ('forecast', 'dwd_icon_d2'),
+    'meteofrance_seamless':       ('forecast', 'meteofrance_arpege_europe'),
+    'ecmwf_ifs025':               ('forecast', 'ecmwf_ifs025'),
+    'italia_meteo_arpae_icon_2i': ('forecast', 'italia_meteo_arpae_icon_2i'),
+    'ukmo_seamless':              ('forecast', None),
+    'bom_access_global':          ('forecast', 'bom_access_global'),
+    'ecmwf_ifs':                  ('forecast', 'ecmwf_ifs'),
+    'knmi_seamless':              ('forecast', 'knmi_harmonie_arome_europe'),
+    'dmi_seamless':               ('forecast', 'dmi_harmonie_arome_europe'),
+    'ewam':                       ('marine',   'dwd_ewam'),
+    'meteofrance_wave':           ('marine',   None),
+    'meteofrance_arpege_europe':  ('forecast', 'meteofrance_arpege_europe'),
+    'knmi_harmonie_arome_europe': ('forecast', 'knmi_harmonie_arome_europe'),
+    'dmi_harmonie_arome_europe':  ('forecast', 'dmi_harmonie_arome_europe'),
+    'icon_eu':                    ('forecast', 'dwd_icon_eu'),
+}
+META_HOSTS = {
+    'forecast': 'https://api.open-meteo.com/data/',
+    'marine':   'https://marine-api.open-meteo.com/data/',
+}
+
+_upstream_time_cache = {}  # per-process memoization, avoid double meta fetches
+
+
+def _get_upstream_update_time(model_id):
+    """Return Unix `last_run_modification_time` for the primary model that
+    backs our model_id, or None if no meta endpoint is available."""
+    if model_id in _upstream_time_cache:
+        return _upstream_time_cache[model_id]
+    primary = META_PRIMARY.get(model_id)
+    if not primary or primary[1] is None:
+        _upstream_time_cache[model_id] = None
+        return None
+    host_key, primary_id = primary
+    url = META_HOSTS[host_key] + primary_id + '/static/meta.json'
+    try:
+        r = requests.get(url, timeout=8)
+        r.raise_for_status()
+        t = r.json().get('last_run_modification_time')
+        _upstream_time_cache[model_id] = t
+        return t
+    except Exception:
+        _upstream_time_cache[model_id] = None
+        return None
+
+API_CACHE_DIR = os.path.join(MODEL_DIR, 'api_cache')
+os.makedirs(API_CACHE_DIR, exist_ok=True)
+
+
+def _cache_path(endpoint, model_id, lat, lon):
+    """Stable path on disk for a (endpoint, model, location) cache entry."""
+    safe = endpoint.replace('/', '_').replace(':', '').replace('.', '_').strip('_')
+    return os.path.join(API_CACHE_DIR, f"{safe}__{model_id}__{lat}_{lon}.json")
+
+
+def _load_fresh_cache(path, max_age_hours):
+    """Return parsed JSON if cache exists and is within max_age_hours, else None."""
+    if not os.path.exists(path):
+        return None
+    age_h = (time.time() - os.path.getmtime(path)) / 3600.0
+    if age_h > max_age_hours:
+        return None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _load_stale_cache(path):
+    """Return parsed JSON regardless of age (last-resort fallback)."""
+    if not os.path.exists(path):
+        return None, None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        age_h = (time.time() - os.path.getmtime(path)) / 3600.0
+        return data, age_h
+    except Exception:
+        return None, None
+
+
+def _save_cache(path, payload):
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"  [cache] WARN save failed: {e}")
+
+
+def _save_upstream_meta(path, upstream_time):
+    """Record the upstream model run timestamp next to the cache file."""
+    if upstream_time is None:
+        return
+    try:
+        with open(path + '.upstream', 'w') as f:
+            f.write(str(int(upstream_time)))
+    except Exception:
+        pass
+
+
+def _read_upstream_meta(path):
+    p = path + '.upstream'
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p) as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
+
+
+def _cache_current_for_upstream(path, upstream_time):
+    """True if our cache was saved for the current upstream model run."""
+    if upstream_time is None or not os.path.exists(path):
+        return False
+    cached = _read_upstream_meta(path)
+    return cached is not None and cached >= upstream_time
+
+
 MODEL_IDS = {
     "ARPEGE_EUROPE": "arpege_europe",
     "GFS_SEAMLESS": "gfs_seamless",
@@ -2432,7 +2585,38 @@ def fetch_live_forecasts():
         max_attempts = 5 if is_trusted else 3
         timeout_s = 60 if is_trusted else 30
         tag = " [TRUSTED]" if is_trusted else ""
+        update_h = MODEL_UPDATE_HOURS.get(model_id, DEFAULT_UPDATE_HOURS)
+        cache_path = _cache_path('forecast', model_id, LAT, LON)
         print(f"  {model_name}{tag}...", end=" ")
+
+        # Preferred: ask upstream meta when the model was last re-run, only
+        # refetch if our cached copy is older than the latest run.
+        upstream_time = _get_upstream_update_time(model_id)
+        use_cache = False
+        if upstream_time is not None and _cache_current_for_upstream(cache_path, upstream_time):
+            use_cache = True
+            cache_reason = f"upstream run @ {time.strftime('%H:%M UTC', time.gmtime(upstream_time))}"
+        elif upstream_time is None:
+            # Fallback: TTL check (model has no meta endpoint).
+            cached_ttl = _load_fresh_cache(cache_path, update_h)
+            if cached_ttl is not None:
+                use_cache = True
+                cache_reason = f"TTL {update_h}h fallback (no meta)"
+
+        if use_cache:
+            cached = _load_stale_cache(cache_path)[0]  # load regardless of age now
+            if cached is not None:
+                h = cached.get('hourly', {})
+                if (not is_trusted) or (h and 'precipitation' in h and h.get('precipitation')):
+                    d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+                    for v in HOURLY_VARS:
+                        if v in h:
+                            d[f"{model_name}_{v}_model"] = h[v]
+                    all_fc[model_name] = d
+                    age_h = (time.time() - os.path.getmtime(cache_path)) / 3600
+                    print(f"CACHE ({len(d)}h, {age_h:.1f}h, {cache_reason})")
+                    continue
+
         params = {
             "latitude": LAT, "longitude": LON,
             "hourly": ",".join(HOURLY_VARS),
@@ -2440,19 +2624,17 @@ def fetch_live_forecasts():
             "wind_speed_unit": "ms", "precipitation_unit": "mm",
             "models": model_id, "forecast_days": 10,
         }
+        fetched = False
         for attempt in range(max_attempts):
             try:
                 r = requests.get(URL, params=params, timeout=timeout_s)
                 if r.status_code == 429:
-                    # Exponential backoff on rate limit: 60s, 90s, 135s, ...
                     backoff = 60 * (1.5 ** attempt)
                     print(f"429 (sleep {backoff:.0f}s)", end=" ")
                     time.sleep(backoff); continue
                 r.raise_for_status()
-                h = r.json().get('hourly', {})
-                # Trusted gate: response must carry precipitation, otherwise
-                # the column never makes it into the merged DF and the gate
-                # silently fails downstream. Treat as transient and retry.
+                resp = r.json()
+                h = resp.get('hourly', {})
                 if is_trusted and (not h or 'precipitation' not in h
                                    or not h.get('precipitation')):
                     if attempt < max_attempts - 1:
@@ -2466,11 +2648,25 @@ def fetch_live_forecasts():
                     if v in h:
                         d[f"{model_name}_{v}_model"] = h[v]
                 all_fc[model_name] = d
+                _save_cache(cache_path, resp)
+                _save_upstream_meta(cache_path, upstream_time)
                 print(f"OK ({len(d)}h)")
+                fetched = True
                 break
             except Exception as e:
                 if attempt == max_attempts - 1:
-                    print(f"FAIL: {e}")
+                    # Fallback: any stale cache is better than nothing.
+                    stale, age_h = _load_stale_cache(cache_path)
+                    if stale is not None:
+                        h = stale.get('hourly', {})
+                        d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+                        for v in HOURLY_VARS:
+                            if v in h:
+                                d[f"{model_name}_{v}_model"] = h[v]
+                        all_fc[model_name] = d
+                        print(f"FAIL ({e}); STALE CACHE used ({len(d)}h, {age_h:.1f}h staro)")
+                    else:
+                        print(f"FAIL: {e}")
                 else:
                     time.sleep(5 * (attempt + 1))
         time.sleep(1.5)
@@ -2519,6 +2715,44 @@ def fetch_live_forecasts():
         if model_name not in all_fc:
             continue
         model_id = MODEL_IDS[model_name]
+        update_h = MODEL_UPDATE_HOURS.get(model_id, DEFAULT_UPDATE_HOURS)
+        pr_cache_path = _cache_path('prev_runs', model_id, LAT, LON)
+
+        def _parse_prev(h, label):
+            d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+            added = 0
+            for v in PREV_RUNS_VARS:
+                for lag in ['previous_day1', 'previous_day2']:
+                    col = f"{v}_{lag}"
+                    new_col = f"{model_name}_{v}_{lag}"
+                    if col in h:
+                        d[new_col] = h[col]
+                        added += 1
+            return d, added
+
+        upstream_time = _get_upstream_update_time(model_id)
+        use_cache = False
+        cache_reason = ""
+        if upstream_time is not None and _cache_current_for_upstream(pr_cache_path, upstream_time):
+            use_cache = True
+            cache_reason = f"upstream @ {time.strftime('%H:%M UTC', time.gmtime(upstream_time))}"
+        elif upstream_time is None:
+            cached_ttl = _load_fresh_cache(pr_cache_path, update_h)
+            if cached_ttl is not None:
+                use_cache = True
+                cache_reason = f"TTL {update_h}h"
+
+        if use_cache:
+            stale_data, _ = _load_stale_cache(pr_cache_path)
+            if stale_data is not None:
+                d, added = _parse_prev(stale_data.get('hourly', {}), 'CACHE')
+                fc_all = fc_all.merge(d[['datetime'] + [c for c in d.columns if c != 'datetime']],
+                                       on='datetime', how='left')
+                age_h = (time.time() - os.path.getmtime(pr_cache_path)) / 3600
+                print(f"    {model_name}: CACHE ({added} cols, {age_h:.1f}h, {cache_reason})")
+                time.sleep(0.3)
+                continue
+
         pr_params = {
             "latitude": LAT, "longitude": LON,
             "hourly": prev_hourly_str,
@@ -2530,21 +2764,22 @@ def fetch_live_forecasts():
                 time.sleep(60)
                 r = requests.get(PREV_RUNS_API, params=pr_params, timeout=30)
             r.raise_for_status()
-            h = r.json().get('hourly', {})
-            d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
-            added = 0
-            for v in PREV_RUNS_VARS:
-                for lag in ['previous_day1', 'previous_day2']:
-                    col = f"{v}_{lag}"
-                    new_col = f"{model_name}_{v}_{lag}"
-                    if col in h:
-                        d[new_col] = h[col]
-                        added += 1
-            fc_all = fc_all.merge(d[['datetime'] + [c for c in d.columns if c != 'datetime']], 
+            resp = r.json()
+            d, added = _parse_prev(resp.get('hourly', {}), 'OK')
+            fc_all = fc_all.merge(d[['datetime'] + [c for c in d.columns if c != 'datetime']],
                                    on='datetime', how='left')
+            _save_cache(pr_cache_path, resp)
+            _save_upstream_meta(pr_cache_path, upstream_time)
             print(f"    {model_name}: OK ({added} columns)")
         except Exception as e:
-            print(f"    {model_name}: FAIL ({e})")
+            stale, age_h = _load_stale_cache(pr_cache_path)
+            if stale is not None:
+                d, added = _parse_prev(stale.get('hourly', {}), 'STALE')
+                fc_all = fc_all.merge(d[['datetime'] + [c for c in d.columns if c != 'datetime']],
+                                       on='datetime', how='left')
+                print(f"    {model_name}: FAIL ({e}); STALE CACHE used ({added} cols, {age_h:.1f}h staro)")
+            else:
+                print(f"    {model_name}: FAIL ({e})")
         time.sleep(1.5)
 
     # Fetch SST for forecast period (PDF1 §10)
@@ -2639,11 +2874,45 @@ def sailing_score(bft, wave_height):
 
 
 def _fetch_marine_waves(lat, lon, label):
-    """Fetch wave models for ONE point. Returns DataFrame with *_mean columns
-    or None if nothing succeeded."""
+    """Fetch wave models for ONE point with disk cache. Returns DataFrame
+    with *_mean columns, or None if nothing succeeded."""
     marine_url = "https://marine-api.open-meteo.com/v1/marine"
     all_waves = {}
+
+    def _parse(h, model):
+        d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+        added = 0
+        for v in MARINE_VARS:
+            if v in h:
+                d[f"{model}_{v}"] = h[v]
+                added += 1
+        return d, added
+
     for model in MARINE_MODELS:
+        update_h = MODEL_UPDATE_HOURS.get(model, DEFAULT_UPDATE_HOURS)
+        cache_path = _cache_path('marine_wave', model, lat, lon)
+
+        upstream_time = _get_upstream_update_time(model)
+        use_cache = False
+        cache_reason = ""
+        if upstream_time is not None and _cache_current_for_upstream(cache_path, upstream_time):
+            use_cache = True
+            cache_reason = f"upstream @ {time.strftime('%H:%M UTC', time.gmtime(upstream_time))}"
+        elif upstream_time is None:
+            cached_ttl = _load_fresh_cache(cache_path, update_h)
+            if cached_ttl is not None:
+                use_cache = True
+                cache_reason = f"TTL {update_h}h"
+
+        if use_cache:
+            stale_data, _ = _load_stale_cache(cache_path)
+            if stale_data is not None:
+                d, added = _parse(stale_data.get('hourly', {}), model)
+                all_waves[model] = d
+                age_h = (time.time() - os.path.getmtime(cache_path)) / 3600
+                print(f"  [{label}] Wave {model}: CACHE ({len(d)}h, {age_h:.1f}h, {cache_reason})")
+                continue
+
         params = {
             "latitude": lat, "longitude": lon,
             "hourly": ",".join(MARINE_VARS),
@@ -2651,23 +2920,28 @@ def _fetch_marine_waves(lat, lon, label):
             "models": model,
             "forecast_days": 7,
         }
+        success = False
         for attempt in range(3):
             try:
                 r = requests.get(marine_url, params=params, timeout=30)
                 r.raise_for_status()
-                h = r.json().get('hourly', {})
-                d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
-                added = 0
-                for v in MARINE_VARS:
-                    if v in h:
-                        d[f"{model}_{v}"] = h[v]
-                        added += 1
+                resp = r.json()
+                d, added = _parse(resp.get('hourly', {}), model)
                 all_waves[model] = d
+                _save_cache(cache_path, resp)
+                _save_upstream_meta(cache_path, upstream_time)
                 print(f"  [{label}] Wave {model}: OK ({len(d)}h, {added} varijabli)")
+                success = True
                 break
             except Exception as e:
                 if attempt == 2:
-                    print(f"  [{label}] Wave {model}: FAIL ({e})")
+                    stale, age_h = _load_stale_cache(cache_path)
+                    if stale is not None:
+                        d, added = _parse(stale.get('hourly', {}), model)
+                        all_waves[model] = d
+                        print(f"  [{label}] Wave {model}: FAIL ({e}); STALE ({age_h:.1f}h staro)")
+                    else:
+                        print(f"  [{label}] Wave {model}: FAIL ({e})")
                 else:
                     time.sleep(5)
         time.sleep(1.0)
@@ -2692,11 +2966,43 @@ def _fetch_marine_waves(lat, lon, label):
 
 
 def _fetch_marine_wind(lat, lon, label):
-    """Fetch wind models for ONE point. Returns DataFrame with ensemble mean
-    columns for wind_speed_10m, wind_gusts_10m, wind_direction_10m."""
+    """Fetch wind models for ONE point with disk cache. Returns DataFrame
+    with ensemble mean columns."""
     forecast_url = "https://api.open-meteo.com/v1/forecast"
     all_winds = {}
+
+    def _parse(h, model_id):
+        d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+        for v in ['wind_speed_10m', 'wind_gusts_10m', 'wind_direction_10m']:
+            if v in h:
+                d[f"{model_id}_{v}"] = h[v]
+        return d
+
     for model_id in MARINE_WIND_MODELS:
+        update_h = MODEL_UPDATE_HOURS.get(model_id, DEFAULT_UPDATE_HOURS)
+        cache_path = _cache_path('marine_wind', model_id, lat, lon)
+
+        upstream_time = _get_upstream_update_time(model_id)
+        use_cache = False
+        cache_reason = ""
+        if upstream_time is not None and _cache_current_for_upstream(cache_path, upstream_time):
+            use_cache = True
+            cache_reason = f"upstream @ {time.strftime('%H:%M UTC', time.gmtime(upstream_time))}"
+        elif upstream_time is None:
+            cached_ttl = _load_fresh_cache(cache_path, update_h)
+            if cached_ttl is not None:
+                use_cache = True
+                cache_reason = f"TTL {update_h}h"
+
+        if use_cache:
+            stale_data, _ = _load_stale_cache(cache_path)
+            if stale_data is not None:
+                d = _parse(stale_data.get('hourly', {}), model_id)
+                all_winds[model_id] = d
+                age_h = (time.time() - os.path.getmtime(cache_path)) / 3600
+                print(f"  [{label}] Wind {model_id}: CACHE ({len(d)}h, {age_h:.1f}h, {cache_reason})")
+                continue
+
         params = {
             "latitude": lat, "longitude": lon,
             "hourly": "wind_speed_10m,wind_gusts_10m,wind_direction_10m",
@@ -2707,15 +3013,20 @@ def _fetch_marine_wind(lat, lon, label):
         try:
             r = requests.get(forecast_url, params=params, timeout=30)
             r.raise_for_status()
-            h = r.json().get('hourly', {})
-            d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
-            for v in ['wind_speed_10m', 'wind_gusts_10m', 'wind_direction_10m']:
-                if v in h:
-                    d[f"{model_id}_{v}"] = h[v]
+            resp = r.json()
+            d = _parse(resp.get('hourly', {}), model_id)
             all_winds[model_id] = d
+            _save_cache(cache_path, resp)
+            _save_upstream_meta(cache_path, upstream_time)
             print(f"  [{label}] Wind {model_id}: OK ({len(d)}h)")
         except Exception as e:
-            print(f"  [{label}] Wind {model_id}: FAIL ({e})")
+            stale, age_h = _load_stale_cache(cache_path)
+            if stale is not None:
+                d = _parse(stale.get('hourly', {}), model_id)
+                all_winds[model_id] = d
+                print(f"  [{label}] Wind {model_id}: FAIL ({e}); STALE ({age_h:.1f}h staro)")
+            else:
+                print(f"  [{label}] Wind {model_id}: FAIL ({e})")
         time.sleep(1.0)
 
     if not all_winds:
@@ -2936,10 +3247,10 @@ def build_marine_output(marine_results):
 
     return {
         "note": (
-            "Talasi su modelirani na ~5-10 km grid-u, pa pokazujemo jednu vrijednost "
-            "za cijelu pomorsku zonu Budve (Bečićka plaža i otvoreno more dijele isti "
-            "wave forecast). Vjetar je precizniji (~2 km rezolucija) i razlikuje se "
-            "između zaliva i otvorenog mora — biraj lokaciju klikom."
+            "Talasi su modelirani na rezoluciji od 5.5km, pa pokazujemo jednu vrijednost "
+            "za cijelu pomorsku zonu Budve (Bečićka plaža i otvoreno more dijele istu "
+            "prognozu). Vjetar je precizniji (~2 km rezolucija) i razlikuje se "
+            "između zaliva i otvorenog mora."
         ),
         "wave_location": {
             "lat": MARINE_WAVE_LOCATION['lat'],

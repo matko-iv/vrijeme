@@ -2451,9 +2451,8 @@ function render(data) {
             '<div style="margin-top:8px">Ocjena za plovidbu i boravak na moru: <span class="m-score-pill m-score-green">Dobro</span> <span class="m-score-pill m-score-yellow">Prihvatljivo</span> <span class="m-score-pill m-score-orange">Oprez</span> <span class="m-score-pill m-score-red">Opasno</span></div>' +
             '</div>';
 
-        // ----- Shared waves block (one for whole pomorska zona) -----
         if (waves && waves.daily_summary && waves.daily_summary.length > 0) {
-            html += '<h3 class="marine-subhead">Talasi i more (jedna prognoza za cijelu pomorsku zonu)</h3>';
+            html += '<h3 class="marine-subhead">Talasi</h3>';
             html += '<div class="marine-daily-grid">';
             waves.daily_summary.forEach(d => {
                 const dn = DAY_NAMES_SR[d.day_name] || d.day_name;
@@ -2496,8 +2495,8 @@ function render(data) {
 
         // ----- Wind locations (with tabs) -----
         if (winds.length > 0) {
-            html += '<h3 class="marine-subhead">Vjetar — izaberi lokaciju</h3>';
-            html += '<p class="marine-subhead-note">Wave modeli rade na ~5-10 km grid-u pa ne mogu razlikovati zaliv od otvorenog mora. Atmosferski (vjetar) modeli idu finije (~2 km) i razlika je stvarna.</p>';
+            html += '<h3 class="marine-subhead">Vjetar na moru</h3>';
+            html += '<p class="marine-subhead-note">Modeli za talase rade na 5.5km rezoluciji pa ne mogu razlikovati zaliv od otvorenog mora. Atmosferski (vjetar) modeli idu finije (~2 km) i razlika je stvarna.</p>';
             html += '<div class="marine-tabs">';
             winds.forEach((loc, idx) => {
                 html += `<button class="marine-tab${idx === 0 ? ' active' : ''}" data-marine-loc="${loc.id}">${loc.name}</button>`;
@@ -2526,7 +2525,7 @@ function render(data) {
                             <div><span class="m-score-pill ${pillCls}">${d.sailing_score || ''}</span></div>
                             <div class="m-day-row"><b>${bft}</b> ${wind}/${gust} m/s</div>
                             ${d.wind_speed_max != null && d.wind_gusts_max != null
-                                ? `<div class="m-day-row m-knots">${msToKn(d.wind_speed_max)}/${msToKn(d.wind_gusts_max)} čv</div>`
+                                ? `<div class="m-day-row m-knots">${msToKn(d.wind_speed_max)}/${msToKn(d.wind_gusts_max)} čvorova</div>`
                                 : ''}
                             ${wname ? '<div class="m-wind-name">' + wname + '</div>' : ''}
                         </div>`;
@@ -2549,7 +2548,7 @@ function render(data) {
                             <div class="mh-bft">${bft}</div>
                             <div class="mh-wind">${ws}/${wg}${wname ? ' ' + wname.slice(0, 3) : ''}</div>
                             ${h.wind_speed_10m != null && h.wind_gusts_10m != null
-                                ? `<div class="mh-wind-kn">${msToKn(h.wind_speed_10m)}/${msToKn(h.wind_gusts_10m)} čv</div>`
+                                ? `<div class="mh-wind-kn">${msToKn(h.wind_speed_10m)}/${msToKn(h.wind_gusts_10m)} čvorova</div>`
                                 : ''}
                         </div>`;
                     });
@@ -2584,10 +2583,10 @@ function render(data) {
                             <tr><td><span class="d-deg d-0">1</span></td><td>0 – 0.10 m</td><td><b>Mirno</b> <span class="d-en">(Calm — rippled)</span></td><td>Sitno mreškanje površine, bez pjene</td></tr>
                             <tr><td><span class="d-deg d-1">2</span></td><td>0.10 – 0.50 m</td><td><b>Blagi talasi</b> <span class="d-en">(Smooth)</span></td><td>Mali talasi sa staklastim grebenima, bez lomljenja</td></tr>
                             <tr><td><span class="d-deg d-2">3</span></td><td>0.50 – 1.25 m</td><td><b>Umjereni talasi</b> <span class="d-en">(Slight)</span></td><td>Mali talasi sa pjenom</td></tr>
-                            <tr><td><span class="d-deg d-3">4</span></td><td>1.25 – 2.50 m</td><td><b>Uzburkano</b> <span class="d-en">(Moderate)</span></td><td>Umjereni talasi izduženog oblika, mnogo pjenušavih grla</td></tr>
-                            <tr><td><span class="d-deg d-4">5</span></td><td>2.50 – 4.00 m</td><td><b>Vrlo uzburkano</b> <span class="d-en">(Rough)</span></td><td>Veliki talasi, pjena se širi po cijelom grebenu, prisutno lomljenje</td></tr>
-                            <tr><td><span class="d-deg d-5">6</span></td><td>4.00 – 6.00 m</td><td><b>Talasasto</b> <span class="d-en">(Very rough)</span></td><td>Vrlo veliki talasi, pjena se kreće u izraženim prugama u smjeru vjetra</td></tr>
-                            <tr><td><span class="d-deg d-6">7</span></td><td>6.00 – 9.00 m</td><td><b>Vrlo talasasto</b> <span class="d-en">(High)</span></td><td>Visoki talasi sa gustom bijelom pjenom; smanjena vidljivost</td></tr>
+                            <tr><td><span class="d-deg d-3">4</span></td><td>1.25 – 2.50 m</td><td><b>Talasasto</b> <span class="d-en">(Moderate)</span></td><td>Umjereni talasi izduženog oblika, mnogo pjenušavih grla</td></tr>
+                            <tr><td><span class="d-deg d-4">5</span></td><td>2.50 – 4.00 m</td><td><b>Vrlo talasasto</b> <span class="d-en">(Rough)</span></td><td>Veliki talasi, pjena se širi po cijelom grebenu, prisutno lomljenje</td></tr>
+                            <tr><td><span class="d-deg d-5">6</span></td><td>4.00 – 6.00 m</td><td><b>Uzburkano</b> <span class="d-en">(Very rough)</span></td><td>Vrlo veliki talasi, pjena se kreće u izraženim prugama u smjeru vjetra</td></tr>
+                            <tr><td><span class="d-deg d-6">7</span></td><td>6.00 – 9.00 m</td><td><b>Vrlo uzburkano</b> <span class="d-en">(High)</span></td><td>Visoki talasi sa gustom bijelom pjenom; smanjena vidljivost</td></tr>
                             <tr><td><span class="d-deg d-7">8</span></td><td>9.00 – 14.00 m</td><td><b>Olujni talasi</b> <span class="d-en">(Very high)</span></td><td>Izuzetno visoki talasi sa nadvišenim grebenima; more je gotovo bijelo od pjene</td></tr>
                             <tr><td><span class="d-deg d-7">9</span></td><td>&gt; 14.00 m</td><td><b>Izuzetno olujni talasi</b> <span class="d-en">(Phenomenal)</span></td><td>Ogromni talasi; vazduh ispunjen pjenom i prskanjem, vidljivost vrlo slaba</td></tr>
                         </tbody>
