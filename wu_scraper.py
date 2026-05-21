@@ -84,7 +84,7 @@ def scrape_day(date_str, session):
                 
             for tr in tbody.find_all('tr'):
                 tds = tr.find_all('td')
-                if len(tds) >= 11:  # Očekujemo 11 kolona
+                if len(tds) >= 11:
                     try:
                         time_text = tds[0].get_text(strip=True)
                         
