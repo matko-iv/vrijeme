@@ -12,6 +12,8 @@ import os
 import re
 import json
 
+from wu_aggregation import resample_to_hourly
+
 STATION_ID = "IBUDVA5"
 BASE_URL = f"https://www.wunderground.com/dashboard/pws/{STATION_ID}/table"
 OUTPUT_DIR = "wu_data"
@@ -84,7 +86,7 @@ def scrape_day(date_str, session):
                 
             for tr in tbody.find_all('tr'):
                 tds = tr.find_all('td')
-                if len(tds) >= 11:
+                if len(tds) >= 11:  # Očekujemo 11 kolona
                     try:
                         time_text = tds[0].get_text(strip=True)
                         
@@ -149,24 +151,14 @@ def scrape_day(date_str, session):
         print(f"   ❌ Error: {str(e)[:50]}")
         return None
 
-def resample_to_hourly(df):
-    """Resample podatke na satnu rezoluciju (prosjek)"""
-    if df is None or df.empty:
-        return None
-    
-    df['datetime'] = pd.to_datetime(df['datetime'])
-    df.set_index('datetime', inplace=True)
-    
-    numeric_cols = ['temp_c', 'dewpoint_c', 'humidity_pct', 'wind_ms', 'gust_ms', 
-                    'pressure_hpa', 'precip_rate_mm', 'uv', 'solar_wm2']
-    
-    hourly = df[numeric_cols].resample('1h').mean()
-    
-    hourly['precip_accum_mm'] = df['precip_accum_mm'].resample('1h').max()
-    
-    hourly['wind_dir'] = df['wind_dir'].resample('1h').first()
-    
-    return hourly.reset_index()
+# resample_to_hourly is now imported from wu_aggregation.py
+# Aggregation rules:
+#   gust_ms -> MAX (was bug: was mean)
+#   wind_ms -> mean (target) + adds wind_ms_max, wind_ms_p95 features
+#   gust_ms -> MAX + adds gust_ms_p95
+#   precip_rate_mm -> mean + precip_rate_max
+#   solar_wm2 -> mean + solar_wm2_max
+#   wind_dir -> vector mean by wind speed -> wind_dir_deg (0-360)
 
 def main():
     """Glavna funkcija"""
@@ -196,39 +188,48 @@ def main():
     
     progress_file = os.path.join(OUTPUT_DIR, "progress.json")
     all_data_file = os.path.join(OUTPUT_DIR, "all_data.csv")
-    
+    raw_5min_file = os.path.join(OUTPUT_DIR, "raw_5min.csv")
+
     completed_dates = set()
     if os.path.exists(progress_file):
         with open(progress_file, 'r') as f:
             progress = json.load(f)
             completed_dates = set(progress.get('completed', []))
         print(f"✅ Pronađen progress: {len(completed_dates)} dana već završeno")
-    
+
     all_data = []
     if os.path.exists(all_data_file):
         existing_df = pd.read_csv(all_data_file)
         all_data = [existing_df]
-        print(f"✅ Postojeći podaci: {len(existing_df)} redova")
-    
+        print(f"✅ Postojeći hourly podaci: {len(existing_df)} redova")
+
+    raw_chunks = []
+    if os.path.exists(raw_5min_file):
+        existing_raw = pd.read_csv(raw_5min_file)
+        raw_chunks = [existing_raw]
+        print(f"✅ Postojeći raw 5-min podaci: {len(existing_raw)} redova")
+
     session = requests.Session()
-    
+
     failed_dates = []
     new_completed = 0
-    
+
     for i, date_str in enumerate(dates):
         if date_str in completed_dates:
             continue
-        
+
         progress_pct = ((i + 1) / total_days) * 100
         print(f"[{i+1}/{total_days}] ({progress_pct:.1f}%) {date_str}...", end=" ")
-        
+
         df = scrape_day(date_str, session)
-        
+
         if df is not None and not df.empty:
+            # Save raw 5-min data first
+            raw_chunks.append(df.copy())
             hourly_df = resample_to_hourly(df)
             if hourly_df is not None:
                 all_data.append(hourly_df)
-                print(f"✅ {len(df)} → {len(hourly_df)} satnih")
+                print(f"✅ {len(df)} raw → {len(hourly_df)} hourly")
                 completed_dates.add(date_str)
                 new_completed += 1
             else:
@@ -237,12 +238,16 @@ def main():
         else:
             print(f"❌ No data")
             failed_dates.append(date_str)
-        
+
         if new_completed > 0 and new_completed % 10 == 0:
             with open(progress_file, 'w') as f:
                 json.dump({'completed': list(completed_dates)}, f)
+            # Flush raw to disk periodically (it's the irreplaceable data)
+            if raw_chunks:
+                pd.concat(raw_chunks, ignore_index=True).drop_duplicates(subset=['datetime']) \
+                    .sort_values('datetime').to_csv(raw_5min_file, index=False)
             print(f"   💾 Progress saved ({len(completed_dates)} dana)")
-        
+
         time.sleep(2)  # 2 sekunde pauza
     
     print("\n" + "=" * 70)
@@ -252,11 +257,18 @@ def main():
         final_df = pd.concat(all_data, ignore_index=True)
         final_df = final_df.drop_duplicates(subset=['datetime'])
         final_df = final_df.sort_values('datetime')
-        
+
         final_df.to_csv(all_data_file, index=False)
-        print(f"✅ Sačuvano: {all_data_file}")
+        print(f"✅ Sačuvano hourly: {all_data_file}")
         print(f"   Redova: {len(final_df)}")
         print(f"   Period: {final_df['datetime'].min()} - {final_df['datetime'].max()}")
+
+    if raw_chunks:
+        raw_df = pd.concat(raw_chunks, ignore_index=True)
+        raw_df = raw_df.drop_duplicates(subset=['datetime']).sort_values('datetime')
+        raw_df.to_csv(raw_5min_file, index=False)
+        print(f"✅ Sačuvano raw 5-min: {raw_5min_file}")
+        print(f"   Redova: {len(raw_df)}")
     
     with open(progress_file, 'w') as f:
         json.dump({

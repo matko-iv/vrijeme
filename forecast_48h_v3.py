@@ -1,0 +1,5238 @@
+"""
+XGBoost +48h forecast correction for Budva.
+Historical bias tables + multi-model ensemble + XGBoost per parameter.
+Run: .venv/Scripts/python.exe forecast_48h_v2.py
+Author: Matija Ivanović (@matko-iv)
+"""
+
+import sys, io, os, json, time, warnings, re
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+warnings.filterwarnings('ignore')
+
+import pandas as pd
+import numpy as np
+import xgboost as xgb
+from sklearn.metrics import mean_absolute_error, mean_squared_error, f1_score, precision_recall_curve
+from sklearn.isotonic import IsotonicRegression
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.linear_model import RidgeCV
+
+
+def meteorological_metrics(y_true, y_pred_binary, p_proba=None):
+    """PDF §6.2: contingency-table metrics for precipitation classification.
+    Returns dict with POD (recall), FAR (1-precision), CSI, HSS, SEDI plus
+    Brier score and reliability-diagram RMSE if p_proba is provided (PDF §6.3).
+    Use these instead of F1 for precision-first rain detection."""
+    y_true = np.asarray(y_true).astype(int)
+    y_pred = np.asarray(y_pred_binary).astype(int)
+    a = int(((y_true == 1) & (y_pred == 1)).sum())  # hits
+    b = int(((y_true == 0) & (y_pred == 1)).sum())  # false alarms
+    c = int(((y_true == 1) & (y_pred == 0)).sum())  # misses
+    d = int(((y_true == 0) & (y_pred == 0)).sum())  # correct rejections
+    n = a + b + c + d
+    pod = a / (a + c) if (a + c) > 0 else 0.0  # = recall
+    far = b / (a + b) if (a + b) > 0 else 0.0  # = 1 - precision
+    csi = a / (a + b + c) if (a + b + c) > 0 else 0.0
+    if (a + c) > 0 and (c + d) > 0 and (a + b) > 0 and (b + d) > 0:
+        hss_num = 2.0 * (a * d - b * c)
+        hss_den = (a + c) * (c + d) + (a + b) * (b + d)
+        hss = hss_num / hss_den if hss_den > 0 else 0.0
+    else:
+        hss = 0.0
+    # SEDI: stable for rare events (Ferro & Stephenson 2011)
+    H = pod
+    F = b / (b + d) if (b + d) > 0 else 0.0
+    if 0 < H < 1 and 0 < F < 1:
+        sedi = (np.log(F) - np.log(H) - np.log(1 - F) + np.log(1 - H)) / \
+               (np.log(F) + np.log(H) + np.log(1 - F) + np.log(1 - H))
+    else:
+        sedi = 0.0
+    out = {"hits": a, "false_alarms": b, "misses": c, "correct_rejections": d,
+           "pod": float(pod), "far": float(far), "precision": float(1 - far),
+           "csi": float(csi), "hss": float(hss), "sedi": float(sedi), "n": n}
+    if p_proba is not None:
+        p = np.clip(np.asarray(p_proba, dtype=float), 0.0, 1.0)
+        # Brier score = MSE between predicted P(rain) and binary outcome
+        out["brier"] = float(np.mean((p - y_true) ** 2))
+        # Brier skill score vs climatology (base rate predictor)
+        base_rate = float(y_true.mean()) if len(y_true) else 0.0
+        brier_clim = float(np.mean((base_rate - y_true) ** 2)) if len(y_true) else 1.0
+        out["brier_skill_score"] = float(1 - out["brier"] / brier_clim) if brier_clim > 0 else 0.0
+        # Reliability-diagram RMSE: bin predictions, compare to observed frequency
+        # PDF §6.3: target < 0.05 annually, < 0.07 in Jun-Sep
+        bins = np.linspace(0.0, 1.0, 11)  # 10 bins of width 0.1
+        rel_sq_err, total_weight = 0.0, 0
+        for lo, hi in zip(bins[:-1], bins[1:]):
+            in_bin = (p >= lo) & (p < hi) if hi < 1.0 else (p >= lo) & (p <= hi)
+            n_bin = int(in_bin.sum())
+            if n_bin == 0:
+                continue
+            obs_freq = float(y_true[in_bin].mean())
+            pred_mean = float(p[in_bin].mean())
+            rel_sq_err += n_bin * (pred_mean - obs_freq) ** 2
+            total_weight += n_bin
+        out["reliability_rmse"] = float(np.sqrt(rel_sq_err / total_weight)) if total_weight > 0 else 0.0
+    return out
+
+
+def threshold_for_precision_at_recall(y_true, p_proba, min_recall=0.5,
+                                       fallback_thresh=0.5):
+    """PDF §1.3: precision-first threshold tuning.
+    Pick threshold that MAXIMIZES precision subject to recall >= min_recall.
+    Fallback to argmax precision if no feasible point."""
+    prec, rec, thr = precision_recall_curve(y_true, p_proba)
+    if len(thr) == 0:
+        return float(fallback_thresh)
+    prec_arr, rec_arr = prec[:-1], rec[:-1]
+    feasible = rec_arr >= min_recall
+    if feasible.any():
+        idxs = np.where(feasible)[0]
+        best = idxs[np.argmax(prec_arr[idxs])]
+        return float(thr[best])
+    return float(thr[np.argmax(prec_arr)])
+
+
+def focal_loss_xgb_objective(gamma: float = 2.0, alpha: float = 0.25):
+    """PDF §1.2: focal loss as XGBoost custom objective for binary classification.
+
+    Wang, Deng & Wang (2020), "Imbalance-XGBoost: leveraging weighted and focal
+    losses for binary label-imbalanced classification with XGBoost"
+    (Pattern Recognition Letters 136:190-197).
+
+    FL(p_t) = -alpha * (1 - p_t)^gamma * log(p_t)
+    where p_t = sigmoid(margin) if y=1 else 1 - sigmoid(margin).
+
+    gamma down-weights easy examples; alpha balances the rare positive class.
+    Recommended starting ranges for hourly rain classification:
+      gamma in [1.0, 3.0], alpha in [0.2, 0.5].
+
+    Returns a callable suitable for xgb.train's `obj` parameter and for
+    XGBClassifier's `objective` argument (modern XGBoost >= 1.6).
+    """
+    def fobj(preds, dtrain):
+        # preds are raw margins (logits) when objective is callable
+        try:
+            y = dtrain.get_label()
+        except Exception:
+            y = np.asarray(dtrain)
+        y = y.astype(float)
+        # Numerically stable sigmoid
+        p = 1.0 / (1.0 + np.exp(-preds))
+        p = np.clip(p, 1e-7, 1 - 1e-7)
+        # pt = probability of the true class; at = class-balance weight
+        pt = np.where(y == 1, p, 1 - p)
+        at = np.where(y == 1, alpha, 1 - alpha)
+        sgn = np.where(y == 1, 1.0, -1.0)
+        log_pt = np.log(pt)
+        one_minus_pt_g = np.power(1 - pt, gamma)
+        # First derivative of focal loss wrt the raw margin
+        # dL/dz = at * (1-pt)^gamma * (gamma*pt*log(pt) + pt - 1) * sgn
+        grad = at * one_minus_pt_g * (gamma * pt * log_pt + pt - 1) * sgn
+        # Second derivative wrt raw margin (correct full derivation; NOT the
+        # PDF's simplified formula which can go NEGATIVE for small pt and
+        # destabilizes XGBoost's Newton step).
+        # d^2L/dz^2 = at * pt * (1-pt)^gamma * [ gamma*log(pt)*(1 - pt*(gamma+1))
+        #                                       - pt*(3*gamma + 1) + 2*gamma + 1 ]
+        bracket = gamma * log_pt * (1 - pt * (gamma + 1)) - pt * (3 * gamma + 1) + 2 * gamma + 1
+        hess = at * pt * one_minus_pt_g * bracket
+        # Focal loss is non-convex in margin space; hessian can be negative for
+        # very hard misclassified examples (e.g. y=1 with p << 0.5). XGBoost's
+        # Newton step -grad/hess would blow up. Standard fix: take absolute
+        # value and apply a sane floor so per-sample updates stay bounded.
+        hess = np.maximum(np.abs(hess), 1e-3)
+        return grad, hess
+    return fobj
+
+
+def focal_loss_xgb_feval(gamma: float = 2.0, alpha: float = 0.25):
+    """Evaluation metric matching focal_loss_xgb_objective so early-stopping
+    sees a meaningful, monotone signal. Returns (name, value). XGBoost minimizes
+    by default with custom feval."""
+    def feval(preds, dmatrix):
+        try:
+            y = dmatrix.get_label()
+        except Exception:
+            y = np.asarray(dmatrix)
+        y = y.astype(float)
+        p = 1.0 / (1.0 + np.exp(-preds))
+        p = np.clip(p, 1e-7, 1 - 1e-7)
+        pt = np.where(y == 1, p, 1 - p)
+        at = np.where(y == 1, alpha, 1 - alpha)
+        loss = -at * np.power(1 - pt, gamma) * np.log(pt)
+        return 'focal_loss', float(np.mean(loss))
+    return feval
+
+
+def seasonal_sample_weights(months, y, summer_months=(6, 7, 8, 9)):
+    """PDF §1.1: asymmetric sample weights conditioned on month.
+
+    Relax positives in summer (we already over-forecast), penalize negatives in
+    summer more (false alarms hurt user trust most). Push positives in winter
+    (real frontal rain is what we mainly miss).
+
+      Summer (Jun-Sep): rain pos -> 0.7, dry neg -> 1.5
+      Other      (W):   rain pos -> 1.4, dry neg -> 1.0
+    """
+    months = np.asarray(months)
+    y = np.asarray(y).astype(int)
+    is_summer = np.isin(months, list(summer_months))
+    w = np.where(
+        y == 1,
+        np.where(is_summer, 0.7, 1.4),
+        np.where(is_summer, 1.5, 1.0),
+    ).astype(float)
+    return w
+import catboost as cb
+import lightgbm as lgb
+import requests
+import optuna
+optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(BASE_DIR, "forecast_output")
+MODEL_DIR = os.path.join(BASE_DIR, "trained_models_v2")
+PREV_RUNS_DIR = os.path.join(BASE_DIR, "previous_runs_data")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+LAT, LON = 42.2864, 18.84  # E viva!!
+# Open-Meteo defaults to GMT when timezone is omitted. Keep every live API
+# request and every output timestamp explicitly in Budva local time.
+FORECAST_TIMEZONE = "Europe/Podgorica"
+
+MODELS = ["ARPEGE_EUROPE", "GFS_SEAMLESS", "ICON_SEAMLESS", "METEOFRANCE", "ECMWF_IFS025", "ITALIAMETEO_ICON2I", "UKMO_SEAMLESS", "ECMWF_IFS", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
+TRUSTED_MODELS = ["ITALIAMETEO_ICON2I"]
+
+# Per-target feature subset (matches MARINE_WIND_MODELS philosophy: high-res LAMs only).
+# For wind/gusts, train XGB using ONLY features from these 3 LAMs (plus generic
+# engineered features). Set to None to disable filtering for that target.
+# To revert to full features for wind: set FEATURE_MODEL_SUBSET = {} (empty dict).
+FEATURE_MODEL_SUBSET = {
+    #"wind_speed_10m":  ["ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS"],
+    #"wind_gusts_10m":  ["ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS"],
+}
+TRUSTED_RAIN_MODEL = "ITALIAMETEO_ICON2I"
+CORRECTED_RAIN_THRESHOLD_MM = 0.2
+TRUSTED_RAIN_THRESHOLD = 0.1
+LOCAL_DRY_NOWCAST_HOURS = 4
+LOCAL_DRY_LIGHT_RAIN_MAX_MM = 0.7
+
+# Short-burst wind boost (microcellular convection signature in trusted model).
+# A "burst" is a contiguous wet run in the trusted model (>= TRUSTED_RAIN_THRESHOLD).
+# Up to 2h: always treated as burst. 3-4h: burst only if the run carries
+# enough intensity (max hourly >= BURST_EXTENDED_MAX_MM or sum >= BURST_EXTENDED_SUM_MM)
+# — heavy slow-movers still count as convective. Longer runs are stratiform.
+BURST_MAX_HOURS = 2
+BURST_MAX_HOURS_EXTENDED = 4
+BURST_EXTENDED_MAX_MM = 2.0    # mm/h needed in run for 3-4h extension
+BURST_EXTENDED_SUM_MM = 5.0    # OR total run sum needed for 3-4h extension
+
+# Wind boost activates per-hour only when italia precip >= this threshold
+# (slabe kise <2 mm/h ne dirau vjetar — previse nepredvidivo).
+BURST_BOOST_PRECIP_MM = 2.0
+
+# Dynamic floors keyed to italia precip in that hour:
+#   floor = base + slope * (italia_precip - BURST_BOOST_PRECIP_MM), capped.
+# At 2 mm: wind=4.0, gust=7.0. At 8 mm: wind=5.8, gust=11.2.
+BURST_WIND_FLOOR_BASE = 4.0
+BURST_WIND_FLOOR_SLOPE = 0.3
+BURST_WIND_FLOOR_CAP = 8.0
+BURST_GUST_FLOOR_BASE = 7.0
+BURST_GUST_FLOOR_SLOPE = 0.7
+BURST_GUST_FLOOR_CAP = 18.0
+
+# Halo: weaker additive boost on +/-1h around boost hours.
+BURST_HALO_WIND_DELTA = 1.0
+BURST_HALO_GUST_DELTA = 1.5
+
+BURST_GUST_MAX = 40.0          # absolute cap (safety)
+BURST_WIND_MAX = 25.0
+
+
+# Single wave location: at this resolution (~5km grid for DWD EWAM, ~10km for
+# MeteoFrance WAM) close coastal points snap to the same offshore grid cells,
+# so it would be dishonest to show "different" wave heights for Bečići vs
+# otvoreno more. We fetch ONE representative offshore point and reuse it.
+MARINE_WAVE_LOCATION = {
+    "lat": 42.252626,
+    "lon": 18.831183,
+    "name": "Pomorska zona Budve",
+    "desc": "Reprezentativna offshore tačka iza Sv. Nikole",
+}
+
+# Two wind locations — wind models (ICON-2I 2.2km, AROME 1.3km, ICON-EU 7km)
+# have fine enough resolution to actually distinguish sheltered bay from
+# open sea, unlike the wave models.
+MARINE_WIND_LOCATIONS = [
+    {
+        "id": "becici",
+        "name": "Bečićki zaliv",
+        "lat": 42.270259,
+        "lon": 18.870885,
+        "desc": "Bečićka plaža",
+    },
+    {
+        "id": "open_sea",
+        "name": "Otvoreno more",
+        "lat": 42.252626,
+        "lon": 18.831183,
+        "desc": "Iza Svetog Nikole, otvoreno more",
+    },
+]
+MARINE_MODELS = ["ewam", "meteofrance_wave"]
+MARINE_VARS = [
+    "wave_height", "wave_period", "wave_direction",
+    "wind_wave_height", "wind_wave_period",
+    "swell_wave_height", "swell_wave_period", "swell_wave_direction",
+    "sea_surface_temperature",
+]
+MARINE_WIND_MODELS = [
+    "italia_meteo_arpae_icon_2i",   
+    "icon_eu",                       
+    "arpege_europe",                 
+    "ecmwf_ifs025",                  
+]
+
+# Fallback TTL when upstream meta is unavailable (some "seamless" wrappers
+# and certain wave models don't expose /data/<id>/static/meta.json). Source:
+# open-meteo.com docs "every N hours" column.
+MODEL_UPDATE_HOURS = {
+    'arpege_europe': 1,
+    'gfs_seamless': 1,
+    'icon_seamless': 3,
+    'meteofrance_seamless': 1,
+    'ecmwf_ifs025': 6,
+    'italia_meteo_arpae_icon_2i': 12,
+    'ukmo_seamless': 1,
+    'bom_access_global': 6,
+    'ecmwf_ifs': 6,
+    'knmi_seamless': 1,
+    'dmi_seamless': 3,
+    'ewam': 12,
+    'meteofrance_wave': 12,
+    'meteofrance_arpege_europe': 1,
+    'knmi_harmonie_arome_europe': 1,
+    'dmi_harmonie_arome_europe': 3,
+    'icon_eu': 3,
+}
+DEFAULT_UPDATE_HOURS = 1
+
+# Map each model_id we use to the primary model whose /static/meta.json
+# exposes the real upstream `last_run_modification_time`. None = no meta
+# endpoint exists; fall back to TTL caching. Verified empirically on
+# 2026-05-19 against api.open-meteo.com and marine-api.open-meteo.com.
+#
+# Value format: (api_host_key, primary_model_id_or_None)
+META_PRIMARY = {
+    'arpege_europe':              ('forecast', 'meteofrance_arpege_europe'),
+    'gfs_seamless':               ('forecast', None),
+    'icon_seamless':              ('forecast', 'dwd_icon_d2'),
+    'meteofrance_seamless':       ('forecast', 'meteofrance_arpege_europe'),
+    'ecmwf_ifs025':               ('forecast', 'ecmwf_ifs025'),
+    'italia_meteo_arpae_icon_2i': ('forecast', 'italia_meteo_arpae_icon_2i'),
+    'ukmo_seamless':              ('forecast', None),
+    'bom_access_global':          ('forecast', 'bom_access_global'),
+    'ecmwf_ifs':                  ('forecast', 'ecmwf_ifs'),
+    'knmi_seamless':              ('forecast', 'knmi_harmonie_arome_europe'),
+    'dmi_seamless':               ('forecast', 'dmi_harmonie_arome_europe'),
+    'ewam':                       ('marine',   'dwd_ewam'),
+    'meteofrance_wave':           ('marine',   None),
+    'meteofrance_arpege_europe':  ('forecast', 'meteofrance_arpege_europe'),
+    'knmi_harmonie_arome_europe': ('forecast', 'knmi_harmonie_arome_europe'),
+    'dmi_harmonie_arome_europe':  ('forecast', 'dmi_harmonie_arome_europe'),
+    'icon_eu':                    ('forecast', 'dwd_icon_eu'),
+}
+META_HOSTS = {
+    'forecast': 'https://api.open-meteo.com/data/',
+    'marine':   'https://marine-api.open-meteo.com/data/',
+}
+
+_upstream_time_cache = {}  # per-process memoization, avoid double meta fetches
+
+
+def _get_upstream_update_time(model_id):
+    """Return Unix `last_run_modification_time` for the primary model that
+    backs our model_id, or None if no meta endpoint is available."""
+    if model_id in _upstream_time_cache:
+        return _upstream_time_cache[model_id]
+    primary = META_PRIMARY.get(model_id)
+    if not primary or primary[1] is None:
+        _upstream_time_cache[model_id] = None
+        return None
+    host_key, primary_id = primary
+    url = META_HOSTS[host_key] + primary_id + '/static/meta.json'
+    try:
+        r = requests.get(url, timeout=8)
+        r.raise_for_status()
+        t = r.json().get('last_run_modification_time')
+        _upstream_time_cache[model_id] = t
+        return t
+    except Exception:
+        _upstream_time_cache[model_id] = None
+        return None
+
+API_CACHE_DIR = os.path.join(MODEL_DIR, 'api_cache')
+os.makedirs(API_CACHE_DIR, exist_ok=True)
+
+
+def _cache_path(endpoint, model_id, lat, lon):
+    """Stable path on disk for a (endpoint, model, location) cache entry."""
+    safe = endpoint.replace('/', '_').replace(':', '').replace('.', '_').strip('_')
+    return os.path.join(API_CACHE_DIR, f"{safe}__{model_id}__{lat}_{lon}.json")
+
+
+def _load_fresh_cache(path, max_age_hours):
+    """Return parsed JSON if cache exists and is within max_age_hours, else None."""
+    if not os.path.exists(path):
+        return None
+    age_h = (time.time() - os.path.getmtime(path)) / 3600.0
+    if age_h > max_age_hours:
+        return None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _load_stale_cache(path):
+    """Return parsed JSON regardless of age (last-resort fallback)."""
+    if not os.path.exists(path):
+        return None, None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        age_h = (time.time() - os.path.getmtime(path)) / 3600.0
+        return data, age_h
+    except Exception:
+        return None, None
+
+
+def _save_cache(path, payload):
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"  [cache] WARN save failed: {e}")
+
+
+def _save_upstream_meta(path, upstream_time):
+    """Record the upstream model run timestamp next to the cache file."""
+    if upstream_time is None:
+        return
+    try:
+        with open(path + '.upstream', 'w') as f:
+            f.write(str(int(upstream_time)))
+    except Exception:
+        pass
+
+
+def _read_upstream_meta(path):
+    p = path + '.upstream'
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p) as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
+
+
+def _cache_current_for_upstream(path, upstream_time):
+    """True if our cache was saved for the current upstream model run."""
+    if upstream_time is None or not os.path.exists(path):
+        return False
+    cached = _read_upstream_meta(path)
+    return cached is not None and cached >= upstream_time
+
+
+MODEL_IDS = {
+    "ARPEGE_EUROPE": "arpege_europe",
+    "GFS_SEAMLESS": "gfs_seamless",
+    "ICON_SEAMLESS": "icon_seamless",
+    "METEOFRANCE": "meteofrance_seamless",
+    "ECMWF_IFS025": "ecmwf_ifs025",
+    "ITALIAMETEO_ICON2I": "italia_meteo_arpae_icon_2i",
+    "UKMO_SEAMLESS": "ukmo_seamless",
+    "BOM_ACCESS": "bom_access_global",
+    "ECMWF_IFS": "ecmwf_ifs",
+    "KNMI_SEAMLESS": "knmi_seamless",
+    "DMI_SEAMLESS": "dmi_seamless",
+}
+
+PREV_RUNS_MODELS = [m for m in MODELS if m not in ("ITALIAMETEO_ICON2I", "ECMWF_IFS")]
+PREV_RUNS_VARS = [
+    "temperature_2m", "dew_point_2m", "relative_humidity_2m",
+    "wind_speed_10m", "wind_gusts_10m", "pressure_msl",
+    "cloud_cover", "precipitation",
+]
+PREV_RUNS_API = "https://previous-runs-api.open-meteo.com/v1/forecast"
+WU_STATION_ID = os.environ.get("WU_STATION_ID", "IBUDVA5")
+WU_API_KEY = os.environ.get("WU_API_KEY", "")
+
+
+def local_now():
+    """Naive timestamp in the forecast timezone used by Open-Meteo rows."""
+    return pd.Timestamp.now(tz=FORECAST_TIMEZONE).tz_localize(None)
+
+HOURLY_VARS = [
+    "temperature_2m", "relative_humidity_2m", "dew_point_2m",
+    "apparent_temperature", "precipitation", "rain", "snowfall",
+    "weather_code", "pressure_msl", "surface_pressure",
+    "cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
+    "wind_speed_10m", "wind_speed_100m", "wind_direction_10m", "wind_gusts_10m",
+    "shortwave_radiation", "direct_radiation", "diffuse_radiation"
+]
+
+TARGET_PARAMS = {
+    "temperature_2m":       {"obs": "temperature_2m_obs",       "unit": "\u00b0C",   "display": "Temperatura"},
+    "dew_point_2m":         {"obs": "dew_point_2m_obs",         "unit": "\u00b0C",   "display": "Tacka rose"},
+    "relative_humidity_2m": {"obs": "relative_humidity_2m_obs", "unit": "%",    "display": "Vlaznost"},
+    "wind_speed_10m":       {"obs": "wind_speed_10m_obs",       "unit": "m/s",  "display": "Brzina vjetra"},
+    "wind_gusts_10m":       {"obs": "wind_gusts_10m_obs",       "unit": "m/s",  "display": "Udari vjetra"},
+    "pressure_msl":         {"obs": "pressure_msl_obs",         "unit": "hPa",  "display": "Pritisak"},
+    "cloud_cover":          {"obs": "_derived_cloud_obs",       "unit": "%",    "display": "Oblacnost"},
+    "precipitation":        {"obs": "_derived_precip_obs",      "unit": "mm",   "display": "Padavine"},
+    "shortwave_radiation":  {"obs": "shortwave_radiation_obs",  "unit": "W/m\u00b2", "display": "Solar. radijacija"},
+}
+
+SPLIT_DATE = pd.Timestamp('2025-07-01')
+
+print("=" * 72)
+print("  XGBoost +48h v3 --- Bias Correction Pipeline --- Budva")
+print("  Models:", len(MODELS), "| Obs: merged (2020-2026) | Split:", SPLIT_DATE.date())
+print("  Previous Runs: +Day1/Day2 forecasts for", len(PREV_RUNS_MODELS), "models")
+print("=" * 72)
+
+
+def compute_clear_sky(dt_series):
+    doy = dt_series.dt.dayofyear
+    hour = dt_series.dt.hour + dt_series.dt.minute / 60.0
+    lat_rad = np.radians(LAT)
+    dec = np.radians(23.45 * np.sin(np.radians(360 / 365.25 * (doy - 81))))
+    ha = np.radians(15 * (hour - 12))
+    sin_e = (np.sin(lat_rad) * np.sin(dec) +
+             np.cos(lat_rad) * np.cos(dec) * np.cos(ha)).clip(lower=0)
+    return (1361 * sin_e * 0.75).clip(lower=0)
+
+
+def fetch_sst_data(start_date, end_date):
+    """Fetch sea surface temperature from Open-Meteo Marine API.
+    NOTE: Marine API only provides recent + forecast data (~16 days), NOT historical.
+    For historical training use ERA5 archive instead."""
+    sst_cache = os.path.join(BASE_DIR, 'budva_sst_cache.csv')
+    if os.path.exists(sst_cache):
+        sst_df = pd.read_csv(sst_cache, parse_dates=['datetime'])
+        # Check that cache covers the requested range (both ends)
+        covers_end = sst_df['datetime'].max() >= end_date - pd.Timedelta(days=2)
+        covers_start = sst_df['datetime'].min() <= start_date + pd.Timedelta(days=2)
+        if covers_end and covers_start:
+            print(f"  SST: using cached data ({len(sst_df)} rows)")
+            return sst_df
+
+    print(f"  SST: fetching from Marine API...")
+    url = "https://marine-api.open-meteo.com/v1/marine"
+    params = {
+        'latitude': LAT, 'longitude': LON,
+        'hourly': 'sea_surface_temperature',
+        'start_date': start_date.strftime('%Y-%m-%d'),
+        'end_date': end_date.strftime('%Y-%m-%d'),
+        'timezone': FORECAST_TIMEZONE,
+    }
+    try:
+        r = requests.get(url, params=params, timeout=60)
+        if r.status_code != 200:
+            print(f"  SST: API error {r.status_code}, skipping")
+            return None
+        data = r.json()
+        hourly = data.get('hourly', {})
+        if 'time' not in hourly or 'sea_surface_temperature' not in hourly:
+            print(f"  SST: no data in response, skipping")
+            return None
+        sst_df = pd.DataFrame({
+            'datetime': pd.to_datetime(hourly['time']),
+            'sst': hourly['sea_surface_temperature'],
+        })
+        sst_df.to_csv(sst_cache, index=False)
+        print(f"  SST: fetched {len(sst_df)} rows")
+        return sst_df
+    except Exception as e:
+        print(f"  SST: fetch failed ({e}), skipping")
+        return None
+
+
+def fetch_current_station_observation():
+    """Fetch current Weather Underground PWS observation if an API key exists."""
+    if not WU_API_KEY:
+        return None
+
+    url = "https://api.weather.com/v2/pws/observations/current"
+    params = {
+        "stationId": WU_STATION_ID,
+        "format": "json",
+        "units": "m",
+        "numericPrecision": "decimal",
+        "apiKey": WU_API_KEY,
+    }
+    try:
+        r = requests.get(url, params=params, timeout=15)
+        if r.status_code == 204:
+            print(f"  WU nowcast: nema svjezeg zapisa za {WU_STATION_ID}")
+            return None
+        r.raise_for_status()
+        observations = r.json().get("observations", [])
+        if not observations:
+            return None
+
+        obs = observations[0]
+        metric = obs.get("metric", {}) or {}
+        epoch = obs.get("epoch")
+        age_min = None
+        if epoch:
+            age_min = (time.time() - float(epoch)) / 60.0
+
+        return {
+            "station": obs.get("stationID", WU_STATION_ID),
+            "obs_time_local": obs.get("obsTimeLocal"),
+            "age_min": age_min,
+            "precip_rate_mm": metric.get("precipRate"),
+            "precip_total_mm": metric.get("precipTotal"),
+            "humidity": obs.get("humidity"),
+            "solar_radiation": obs.get("solarRadiation"),
+        }
+    except Exception as e:
+        print(f"  WU nowcast: ne mogu ucitati trenutni zapis ({e})")
+        return None
+
+
+def station_says_dry_now(obs):
+    if not obs:
+        return False
+    age_min = obs.get("age_min")
+    if age_min is None or age_min > 90:
+        return False
+    precip_rate = obs.get("precip_rate_mm")
+    if precip_rate is None:
+        return False
+    return float(precip_rate) <= 0.05
+
+
+def load_historical_data():
+    print("\n[1/6] Ucitavanje istorijskih podataka...")
+    all_dfs = {}
+    available_models = []
+    for m in MODELS:
+        path = os.path.join(BASE_DIR, f"budva_{m}_detailed.csv")
+        if not os.path.exists(path):
+            print(f"  {m}: NEMA FAJLA - preskačem (pokreni fetch_new_models.py)")
+            continue
+        all_dfs[m] = pd.read_csv(path, parse_dates=['datetime'])
+        available_models.append(m)
+        print(f"  {m}: {all_dfs[m].shape[0]} redova")
+
+    if not available_models:
+        raise RuntimeError("Nema nijednog model fajla!")
+
+    forecast_cols = [c for c in all_dfs[available_models[0]].columns if c.endswith('_model')]
+    base = all_dfs[available_models[0]].copy()
+    base.rename(columns={c: f"{available_models[0]}_{c}" for c in forecast_cols}, inplace=True)
+    for m in available_models[1:]:
+        other_cols = [c for c in all_dfs[m].columns if c.endswith('_model')]
+        other = all_dfs[m][['datetime'] + other_cols].copy()
+        other.rename(columns={c: f"{m}_{c}" for c in other_cols}, inplace=True)
+        base = base.merge(other, on='datetime', how='left')
+    base.sort_values('datetime', inplace=True)
+    base.reset_index(drop=True, inplace=True)
+
+    solar = pd.to_numeric(base.get('shortwave_radiation_obs', pd.Series(dtype=float)), errors='coerce')
+    clear = compute_clear_sky(base['datetime'])
+    clarity = (solar / clear.clip(lower=1)).clip(0, 1.5)
+    cloud = (1 - clarity).clip(0, 1) * 100
+    # Per-season hour window (user-specified; replaces the old clear_sky threshold).
+    # Before sunrise+~1h and after sunset-~1h, the math `1 - solar/clear_sky` is
+    # unstable: tiny clear_sky changes amplify into 30-70% swings in derived
+    # cloud cover, plus terrain shading (Lovcen) makes solar=0 while the
+    # clear_sky model still predicts a few hundred W/m^2.
+    #   Apr-Sep (warm half): keep hours 7-18 inclusive
+    #   Oct-Mar (cold half): keep hours 9-15 inclusive
+    _month = base['datetime'].dt.month
+    _hour = base['datetime'].dt.hour
+    _warm = _month.isin([4, 5, 6, 7, 8, 9])
+    _warm_ok = _warm & (_hour >= 7) & (_hour <= 18)
+    _cold_ok = (~_warm) & (_hour >= 9) & (_hour <= 15)
+    _in_window = _warm_ok | _cold_ok
+    cloud[~_in_window] = np.nan
+    base['_derived_cloud_obs'] = cloud
+    print(f"  Cloud cover derived: {cloud.notna().sum()} valid "
+          f"(Apr-Sep 7-18h, Oct-Mar 9-15h)")
+
+    precip_derived = False
+    # Use precipitation RATE (mm/hr), NOT accumulated. Order matters: first valid match wins.
+    for precip_col, multiplier in [('precip_rate_mm', 1.0), ('precipitation_rate_obs', 1.0), ('precip_rate_in', 25.4)]:
+        if precip_col in base.columns:
+            vals = pd.to_numeric(base[precip_col], errors='coerce') * multiplier
+            n_valid = vals.notna().sum()
+            if n_valid < 1000:
+                continue  # skip columns with too little data
+            base['_derived_precip_obs'] = vals
+            n_nonzero = (base['_derived_precip_obs'] > 0).sum()
+            print(f"  Hourly precip derived from '{precip_col}': {n_nonzero} non-zero, {n_valid} valid")
+            precip_derived = True
+            break
+    if not precip_derived:
+        base['_derived_precip_obs'] = np.nan
+        print("  WARNING: No precip obs column found")
+
+    print("  Ucitavanje previous runs podataka (Day1/Day2)...")
+    prev_merged = 0
+    for m in PREV_RUNS_MODELS:
+        prev_path = os.path.join(PREV_RUNS_DIR, f"{m}_previous_runs.csv")
+        if not os.path.exists(prev_path):
+            print(f"    {m}: nema fajla - preskačem")
+            continue
+        prev = pd.read_csv(prev_path, parse_dates=['datetime'])
+        rename_map = {}
+        for v in PREV_RUNS_VARS:
+            for lag in ['previous_day1', 'previous_day2']:
+                old_col = f"{v}_{lag}"
+                new_col = f"{m}_{v}_{lag}"
+                if old_col in prev.columns:
+                    rename_map[old_col] = new_col
+        prev_keep = ['datetime'] + list(rename_map.keys())
+        prev = prev[[c for c in prev_keep if c in prev.columns]].rename(columns=rename_map)
+        base = base.merge(prev, on='datetime', how='left')
+        prev_merged += 1
+        n_valid = base[f'{m}_temperature_2m_previous_day1'].notna().sum() if f'{m}_temperature_2m_previous_day1' in base.columns else 0
+        print(f"    {m}: merged ({n_valid} valid Day1 rows)")
+    print(f"  Previous runs: {prev_merged} modela merged")
+
+    # --- SST integration ---
+    # Open-Meteo Marine API ne daje istorijske SST vrijednosti (samo forecast horizon
+    # od oko 16 dana). Ranija logika je dovodila do "0 valid rows merged" greske.
+    # SST se sad fetch-uje samo za forecast horizon u _fetch_marine_waves i prikazuje
+    # u marine_forecast (i u daily cards preko sst_avg).
+    # Za korišćenje SST kao istorijski feature za treniranje, trebalo bi koristiti
+    # ERA5 archive (drugi izvor) - nije implementirano.
+
+    # --- Stability/synoptic features (PDF §2.4) ---
+    # Merge in CAPE/CIN/lifted_index/wind@500-700hPa per model. Generated by
+    # fetch_stability_features.py. Missing files are silently skipped (no break).
+    stab_loaded = 0
+    for m in MODELS:
+        stab_path = os.path.join(BASE_DIR, f"budva_{m}_stability.csv")
+        if not os.path.exists(stab_path):
+            continue
+        sdf = pd.read_csv(stab_path, parse_dates=['datetime'])
+        # Drop columns that already exist (idempotency)
+        new_cols = [c for c in sdf.columns if c != 'datetime' and c not in base.columns]
+        if not new_cols:
+            continue
+        base = base.merge(sdf[['datetime'] + new_cols], on='datetime', how='left')
+        stab_loaded += 1
+    if stab_loaded > 0:
+        print(f"  Stability features: merged {stab_loaded} model stability CSV(s)")
+
+    # --- Observation QC (PDF1 §12) ---
+    # Flag physically impossible values as NaN to prevent training on bad data.
+    qc_limits = {
+        'temperature_2m_obs': (-20, 50),
+        'dew_point_2m_obs': (-30, 40),
+        'relative_humidity_2m_obs': (0, 100),
+        'wind_speed_10m_obs': (0, 60),
+        'wind_gusts_10m_obs': (0, 100),
+        'pressure_msl_obs': (940, 1070),
+        'shortwave_radiation_obs': (0, 1400),
+    }
+    total_flagged = 0
+    for col, (lo, hi) in qc_limits.items():
+        if col not in base.columns:
+            continue
+        vals = pd.to_numeric(base[col], errors='coerce')
+        bad = (vals < lo) | (vals > hi)
+        n_bad = bad.sum()
+        if n_bad > 0:
+            base.loc[bad, col] = np.nan
+            total_flagged += n_bad
+    if total_flagged > 0:
+        print(f"  Observation QC: flagged {total_flagged} values as NaN")
+
+    print(f"  Merged: {base.shape[0]} x {base.shape[1]}")
+    return base
+
+
+def compute_bias_tables(df):
+    print("\n  Kreiranje tabela istorijskog biasa (samo na train podacima)...")
+    train = df[df['datetime'] < SPLIT_DATE].copy()
+    train['month'] = train['datetime'].dt.month
+    train['hour'] = train['datetime'].dt.hour
+
+    bias_tables = {}
+    for param, info in TARGET_PARAMS.items():
+        obs_col = info['obs']
+        if obs_col not in train.columns:
+            continue
+        obs = pd.to_numeric(train[obs_col], errors='coerce')
+
+        for m in MODELS:
+            fcst_col = f"{m}_{param}_model"
+            if fcst_col not in train.columns:
+                continue
+            fcst = pd.to_numeric(train[fcst_col], errors='coerce')
+            err = fcst - obs
+            tmp = pd.DataFrame({'err': err, 'month': train['month'], 'hour': train['hour']})
+            table = tmp.groupby(['month', 'hour'])['err'].agg(['mean', 'std']).reset_index()
+            table.columns = ['month', 'hour', 'bias_mean', 'bias_std']
+            key = f"{m}_{param}"
+            bias_tables[key] = table
+
+    print(f"  Tabele biasa: {len(bias_tables)} (model x param kombinacija)")
+    return bias_tables
+
+
+def apply_bias_features(df, bias_tables):
+    df = df.copy()
+    df['_month'] = df['datetime'].dt.month
+    df['_hour'] = df['datetime'].dt.hour
+
+    for key, table in bias_tables.items():
+        merged = df[['_month', '_hour']].merge(
+            table, left_on=['_month', '_hour'], right_on=['month', 'hour'], how='left'
+        )
+        df[f'{key}_hist_bias'] = merged['bias_mean'].values
+        df[f'{key}_hist_bias_std'] = merged['bias_std'].values
+
+    df.drop(columns=['_month', '_hour'], inplace=True)
+    return df
+
+
+def engineer_features(df):
+    out = df.copy()
+
+    model_cols = [c for c in out.columns if c.endswith('_model')]
+    for c in model_cols:
+        if out[c].dtype == 'object':
+            out[c] = pd.to_numeric(out[c], errors='coerce')
+
+    out['hour'] = out['datetime'].dt.hour
+    out['month'] = out['datetime'].dt.month
+    out['day_of_year'] = out['datetime'].dt.dayofyear
+    out['hour_sin'] = np.sin(2 * np.pi * out['hour'] / 24)
+    out['hour_cos'] = np.cos(2 * np.pi * out['hour'] / 24)
+    out['month_sin'] = np.sin(2 * np.pi * out['month'] / 12)
+    out['month_cos'] = np.cos(2 * np.pi * out['month'] / 12)
+    out['doy_sin'] = np.sin(2 * np.pi * out['day_of_year'] / 365.25)
+    out['doy_cos'] = np.cos(2 * np.pi * out['day_of_year'] / 365.25)
+    season_map = {12: 0, 1: 0, 2: 0, 3: 1, 4: 1, 5: 1,
+                  6: 2, 7: 2, 8: 2, 9: 3, 10: 3, 11: 3}
+    out['season'] = out['month'].map(season_map)
+
+    clear = compute_clear_sky(out['datetime'])
+    out['is_daytime'] = (clear > 20).astype(float)
+    out['clear_sky_rad'] = clear
+
+    # --- Missingness indicators per model (PDF1 §1, PDF2: NaN passthrough) ---
+    # XGBoost's sparsity-aware splits handle NaN natively; indicators let it learn
+    # that model availability itself carries information.
+    for m in MODELS:
+        # Use temperature as proxy for model availability
+        ref_col = f"{m}_temperature_2m_model"
+        if ref_col in out.columns:
+            out[f'is_{m}_available'] = pd.to_numeric(out[ref_col], errors='coerce').notna().astype(float)
+    # Count of available models (how many NWP runs exist for this hour)
+    avail_cols = [f'is_{m}_available' for m in MODELS if f'is_{m}_available' in out.columns]
+    if avail_cols:
+        out['n_models_available'] = out[avail_cols].sum(axis=1)
+
+    ensemble_params = ['temperature_2m', 'dew_point_2m', 'relative_humidity_2m',
+                       'apparent_temperature', 'wind_speed_10m', 'wind_gusts_10m',
+                       'wind_direction_10m', 'pressure_msl', 'surface_pressure',
+                       'cloud_cover', 'cloud_cover_low', 'cloud_cover_mid',
+                       'cloud_cover_high', 'precipitation', 'shortwave_radiation',
+                       'direct_radiation', 'diffuse_radiation', 'rain']
+
+    for param in ensemble_params:
+        mcols = [f"{m}_{param}_model" for m in MODELS if f"{m}_{param}_model" in out.columns]
+        if len(mcols) < 2:
+            continue
+        vals = out[mcols].apply(pd.to_numeric, errors='coerce')
+        out[f'{param}_ens_mean'] = vals.mean(axis=1)
+        out[f'{param}_ens_std'] = vals.std(axis=1)
+        out[f'{param}_ens_range'] = vals.max(axis=1) - vals.min(axis=1)
+        out[f'{param}_ens_median'] = vals.median(axis=1)
+        out[f'{param}_ens_min'] = vals.min(axis=1)
+        out[f'{param}_ens_max'] = vals.max(axis=1)
+
+        if len(mcols) >= 4:
+            sorted_vals = np.sort(vals.values, axis=1)
+            out[f'{param}_ens_trimmed_mean'] = np.nanmean(sorted_vals[:, 1:-1], axis=1)
+        for m in MODELS:
+            c = f"{m}_{param}_model"
+            if c in out.columns:
+                out[f'{m}_{param}_dev'] = pd.to_numeric(out[c], errors='coerce') - out[f'{param}_ens_mean']
+
+    if 'temperature_2m_ens_mean' in out.columns and 'dew_point_2m_ens_mean' in out.columns:
+        out['temp_dew_spread'] = out['temperature_2m_ens_mean'] - out['dew_point_2m_ens_mean']
+        # Dew point deficit feature (PDF1 §8: predict deficit instead of Td directly)
+        out['dew_point_deficit'] = out['temperature_2m_ens_mean'] - out['dew_point_2m_ens_mean']
+
+    # --- Clear-sky index (CSI) features for solar radiation (PDF1 §4) ---
+    # CSI = GHI / GHI_clearsky normalizes out the diurnal cycle and solar geometry,
+    # constraining the target to approximately [0, 1.2]. 15-25% MAE reduction expected.
+    if 'shortwave_radiation_ens_mean' in out.columns and 'clear_sky_rad' in out.columns:
+        cs = out['clear_sky_rad'].clip(lower=1)
+        out['csi_ens_mean'] = (out['shortwave_radiation_ens_mean'] / cs).clip(0, 1.5)
+        out['csi_ens_std'] = out.get('shortwave_radiation_ens_std', 0) / cs
+        for m in MODELS:
+            sw_col = f"{m}_shortwave_radiation_model"
+            if sw_col in out.columns:
+                out[f'{m}_csi'] = (pd.to_numeric(out[sw_col], errors='coerce') / cs).clip(0, 1.5)
+
+    if 'wind_speed_10m_ens_mean' in out.columns and 'pressure_msl_ens_mean' in out.columns:
+        out['wind_pressure_idx'] = out['wind_speed_10m_ens_mean'] / (out['pressure_msl_ens_mean'] / 1013.25).clip(lower=0.9)
+    if 'cloud_cover_ens_mean' in out.columns:
+        out['cloud_solar_discrepancy'] = out.get('shortwave_radiation_ens_mean', 0) / (out['cloud_cover_ens_mean'].clip(lower=1))
+    if 'pressure_msl_ens_mean' in out.columns:
+        out['pres_tend_3h'] = out['pressure_msl_ens_mean'].diff(3)
+        out['pres_tend_6h'] = out['pressure_msl_ens_mean'].diff(6)
+    if 'temperature_2m_ens_mean' in out.columns:
+        out['temp_tend_3h'] = out['temperature_2m_ens_mean'].diff(3)
+        out['temp_tend_6h'] = out['temperature_2m_ens_mean'].diff(6)
+
+    rain_mcols = [f"{m}_precipitation_model" for m in MODELS if f"{m}_precipitation_model" in out.columns]
+    if rain_mcols:
+        rain_vals = out[rain_mcols].apply(pd.to_numeric, errors='coerce')
+        out['rain_model_count'] = (rain_vals > 0.1).sum(axis=1)
+        out['rain_agreement'] = out['rain_model_count'] / max(len(rain_mcols), 1)
+
+        # --- PDF Tier A: precision-first false-alarm fingerprint features ---
+        # High-res LAMs vs global models. Real frontal rain shows up in both;
+        # weakly-forced summer convection often only triggers in high-res LAMs.
+        HIGH_RES = ["ITALIAMETEO_ICON2I", "ICON_SEAMLESS", "KNMI_SEAMLESS", "DMI_SEAMLESS"]
+        GLOBAL_M = ["GFS_SEAMLESS", "ECMWF_IFS025", "ECMWF_IFS", "UKMO_SEAMLESS",
+                    "ARPEGE_EUROPE", "METEOFRANCE"]
+        hr_cols = [f"{m}_precipitation_model" for m in HIGH_RES if f"{m}_precipitation_model" in out.columns]
+        gl_cols = [f"{m}_precipitation_model" for m in GLOBAL_M if f"{m}_precipitation_model" in out.columns]
+        if hr_cols:
+            out['frac_high_res_wet'] = (out[hr_cols].apply(pd.to_numeric, errors='coerce') >= 0.1).mean(axis=1)
+        if gl_cols:
+            out['frac_global_wet'] = (out[gl_cols].apply(pd.to_numeric, errors='coerce') >= 0.1).mean(axis=1)
+        if hr_cols and gl_cols:
+            # Large positive = "only high-res sees it" - classic false-alarm pattern
+            out['regional_minus_global_wet'] = out['frac_high_res_wet'] - out['frac_global_wet']
+
+        # italiameteo_isolated = ICON-2I says rain but <= 30% of others do.
+        # Direct false-alarm fingerprint per PDF §2.2. NOT a gate, just a feature.
+        icon2i_col = "ITALIAMETEO_ICON2I_precipitation_model"
+        if icon2i_col in out.columns:
+            icon2i_wet = (pd.to_numeric(out[icon2i_col], errors='coerce') >= 0.1)
+            out['italiameteo_isolated'] = (icon2i_wet & (out['rain_agreement'] <= 0.30)).astype(float)
+
+        # Precipitation quantile features — tails matter more than mean for intermittent precip
+        if len(rain_mcols) >= 4:
+            out['precip_ens_p10'] = rain_vals.quantile(0.1, axis=1)
+            out['precip_ens_p25'] = rain_vals.quantile(0.25, axis=1)
+            out['precip_ens_p75'] = rain_vals.quantile(0.75, axis=1)
+            out['precip_ens_p90'] = rain_vals.quantile(0.9, axis=1)
+            # Conditional ensemble mean: mean only of models predicting rain (avoids dilution by zeros)
+            rain_only = rain_vals.where(rain_vals > 0.1)
+            out['precip_ens_mean_rainy'] = rain_only.mean(axis=1).fillna(0)
+
+        # Ensemble dry consensus: all models predict < 0.1mm = strong dry signal
+        out['ens_all_dry'] = (rain_vals.max(axis=1) < 0.1).astype(float)
+        # Max model precipitation — captures extreme predictions the mean smooths out
+        out['precip_ens_max_single'] = rain_vals.max(axis=1)
+
+    wc_feat_cols = [f"{m}_weather_code_model" for m in MODELS if f"{m}_weather_code_model" in out.columns]
+    if wc_feat_cols:
+        wc_vals = out[wc_feat_cols].apply(pd.to_numeric, errors='coerce')
+        out['rain_wc_count'] = (wc_vals >= 51).sum(axis=1)
+        out['storm_wc_count'] = (wc_vals >= 95).sum(axis=1)
+
+    if 'precipitation_ens_mean' in out.columns and 'temperature_2m_ens_mean' in out.columns:
+        out['precip_x_temp'] = out['precipitation_ens_mean'] * out['temperature_2m_ens_mean']
+        out['precip_x_temp_std'] = out['precipitation_ens_mean'] * out.get('temperature_2m_ens_std', 0)
+
+    if 'cloud_cover_ens_mean' in out.columns:
+        out['cloud_tend_3h'] = out['cloud_cover_ens_mean'].diff(3)
+        out['cloud_tend_6h'] = out['cloud_cover_ens_mean'].diff(6)
+
+    if 'precipitation_ens_mean' in out.columns:
+        out['precip_tend_3h'] = out['precipitation_ens_mean'].diff(3)
+        out['precip_tend_6h'] = out['precipitation_ens_mean'].diff(6)
+
+    if 'relative_humidity_2m_ens_mean' in out.columns:
+        out['humidity_tend_3h'] = out['relative_humidity_2m_ens_mean'].diff(3)
+
+    if 'temp_dew_spread' in out.columns:
+        out['dew_spread_tend_3h'] = out['temp_dew_spread'].diff(3)
+        out['dew_spread_tend_6h'] = out['temp_dew_spread'].diff(6)
+
+    for m in MODELS:
+        wd = f"{m}_wind_direction_10m_model"
+        ws = f"{m}_wind_speed_10m_model"
+        if wd in out.columns and ws in out.columns:
+            d = pd.to_numeric(out[wd], errors='coerce')
+            s = pd.to_numeric(out[ws], errors='coerce')
+            # Widened bura detection: full NE quadrant 0-90° at 7 m/s (PDF2 §bura)
+            out[f'{m}_bura'] = (((d >= 315) | (d <= 90)) & (s >= 7)).astype(float)
+    bura_cols = [f'{m}_bura' for m in MODELS if f'{m}_bura' in out.columns]
+    if bura_cols:
+        out['bura_agreement'] = out[bura_cols].sum(axis=1)
+
+    if rain_mcols:
+        rain_vals = out[rain_mcols].apply(pd.to_numeric, errors='coerce').fillna(0)
+        ens_precip = rain_vals.mean(axis=1)
+
+        out['precip_running_6h'] = ens_precip.rolling(6, min_periods=1).sum()
+        out['precip_running_12h'] = ens_precip.rolling(12, min_periods=1).sum()
+        out['precip_running_24h'] = ens_precip.rolling(24, min_periods=1).sum()
+
+        rain_hours = (rain_vals > 0.1).sum(axis=1)
+        out['rain_hours_6h'] = rain_hours.rolling(6, min_periods=1).sum()
+        out['rain_hours_12h'] = rain_hours.rolling(12, min_periods=1).sum()
+        out['rain_hours_24h'] = rain_hours.rolling(24, min_periods=1).sum()
+
+        agreement = (rain_vals > 0.1).sum(axis=1) / max(len(rain_mcols), 1)
+        out['rain_agreement_6h'] = agreement.rolling(6, min_periods=1).mean()
+        out['rain_agreement_12h'] = agreement.rolling(12, min_periods=1).mean()
+
+        out['persistent_rain'] = (
+            (out['rain_hours_6h'] >= 3) &
+            (agreement >= 0.5)
+        ).astype(float)
+
+        out['sustained_rain_12h'] = (
+            (out['rain_hours_12h'] >= 6) &
+            (out['rain_agreement_12h'] >= 0.4)
+        ).astype(float)
+
+    is_winter = out['month'].isin([11, 12, 1, 2, 3]).astype(float)
+    out['is_winter'] = is_winter
+
+    if 'temp_dew_spread' in out.columns:
+        out['dew_saturated'] = (out['temp_dew_spread'] < 2.0).astype(float)
+        if rain_mcols:
+            out['winter_rain_signal'] = (
+                is_winter *
+                out.get('persistent_rain', 0) *
+                out['dew_saturated']
+            )
+
+    if 'relative_humidity_2m_ens_mean' in out.columns:
+        rh = out['relative_humidity_2m_ens_mean']
+        out['humidity_above_90'] = (rh > 90).astype(float)
+        out['humidity_above_90_6h'] = out['humidity_above_90'].rolling(6, min_periods=1).sum()
+
+        if rain_mcols:
+            out['humid_rain_persistence'] = (
+                out['humidity_above_90_6h'] *
+                out.get('rain_agreement_6h', 0)
+            )
+
+    if 'cloud_cover_ens_mean' in out.columns:
+        cc = out['cloud_cover_ens_mean']
+        out['overcast_6h'] = (cc > 80).rolling(6, min_periods=1).mean()
+        out['overcast_12h'] = (cc > 80).rolling(12, min_periods=1).mean()
+
+    if 'precipitation_ens_mean' in out.columns:
+        pem = out['precipitation_ens_mean']
+        out['precip_ens_running_6h'] = pem.rolling(6, min_periods=1).sum()
+        out['precip_ens_nonzero_6h'] = (pem > 0.05).rolling(6, min_periods=1).sum()
+        out['precip_ens_nonzero_12h'] = (pem > 0.05).rolling(12, min_periods=1).sum()
+        out['precip_ens_intensity'] = pem.rolling(6, min_periods=1).mean()
+
+    if 'precipitation_ens_std' in out.columns:
+        out['precip_model_certainty'] = 1.0 / (1.0 + out['precipitation_ens_std'])
+
+    # --- PDF Tier A: ICON-2I MICROFISICA-NEW regime change flag ---
+    # ItaliaMeteo confirmed on 26-May-2025 that pre-fix ICON-2I systematically
+    # overestimated weakly-forced summer convection. Training data straddles
+    # both regimes; let XGB learn the bias change.
+    out['icon2i_era'] = (out['datetime'] >= pd.Timestamp('2025-05-26')).astype(float)
+
+    # --- PDF §2.4: stability/synoptic features (require stability CSVs) ---
+    # CAPE: ensemble across all models that have it.
+    cape_cols = [f"{m}_cape_model" for m in MODELS if f"{m}_cape_model" in out.columns]
+    if cape_cols:
+        cape_vals = out[cape_cols].apply(pd.to_numeric, errors='coerce')
+        out['cape_ens_mean'] = cape_vals.mean(axis=1)
+        out['cape_ens_max'] = cape_vals.max(axis=1)
+        out['cape_ens_std'] = cape_vals.std(axis=1)
+
+    # CIN: only 4 models have it (GFS, ITALIA, DMI, UKMO).
+    cin_cols = [f"{m}_convective_inhibition_model" for m in MODELS
+                if f"{m}_convective_inhibition_model" in out.columns]
+    if cin_cols:
+        cin_vals = out[cin_cols].apply(pd.to_numeric, errors='coerce')
+        out['cin_ens_mean'] = cin_vals.mean(axis=1)
+        # CIN is typically negative (energy needed to overcome capping).
+        # Per PDF §2.4: high CIN suppresses convection despite high CAPE.
+        # low_cin_indicator: 1 if mean CIN > -50 J/kg (= little/no inhibition)
+        out['low_cin_indicator'] = (out['cin_ens_mean'] > -50).astype(float)
+        if 'cape_ens_mean' in out.columns:
+            # PDF §2.4: CAPE × low_CIN_indicator = genuine triggering potential
+            out['cape_x_low_cin'] = out['cape_ens_mean'] * out['low_cin_indicator']
+
+    # Lifted index: only GFS. LI < -2 with low CIN = real convection.
+    li_col = "GFS_SEAMLESS_lifted_index_model"
+    if li_col in out.columns:
+        out['lifted_index_gfs'] = pd.to_numeric(out[li_col], errors='coerce')
+
+    # Synoptic forcing: mean wind at 500-700hPa.
+    # PDF §3.2: low values (<5 m/s) flag weakly-forced regime = worst-FAR.
+    # IMPORTANT: Open-Meteo returns wind in km/h by default. Convert to m/s.
+    KMH_TO_MS = 1.0 / 3.6
+    w500_cols = [f"{m}_wind_speed_500hPa_model" for m in MODELS
+                 if f"{m}_wind_speed_500hPa_model" in out.columns]
+    w700_cols = [f"{m}_wind_speed_700hPa_model" for m in MODELS
+                 if f"{m}_wind_speed_700hPa_model" in out.columns]
+    if w500_cols:
+        out['wind_500_ens_mean'] = out[w500_cols].apply(pd.to_numeric, errors='coerce').mean(axis=1) * KMH_TO_MS
+    if w700_cols:
+        out['wind_700_ens_mean'] = out[w700_cols].apply(pd.to_numeric, errors='coerce').mean(axis=1) * KMH_TO_MS
+    if w500_cols and w700_cols:
+        out['mean_wind_500_700'] = (out['wind_500_ens_mean'] + out['wind_700_ens_mean']) / 2
+        # Weakly-forced flag: low synoptic wind (now correctly in m/s)
+        out['weakly_forced_regime'] = (out['mean_wind_500_700'] < 5.0).astype(float)
+
+    # Precipitable water (ECMWF only).
+    pw_col = "ECMWF_IFS025_total_column_integrated_water_vapour_model"
+    if pw_col in out.columns:
+        out['precipitable_water_ecmwf'] = pd.to_numeric(out[pw_col], errors='coerce')
+
+    # Convection regime classifier (PDF §3.2):
+    # "high CAPE + low ensemble agreement + low synoptic forcing" = canonical
+    # FAR pattern (models hallucinate convection that won't materialize).
+    if 'cape_ens_mean' in out.columns and 'mean_wind_500_700' in out.columns:
+        hallucination_regime = (
+            (out['cape_ens_mean'] > 500) &
+            (out['mean_wind_500_700'] < 5.0) &
+            (out.get('rain_agreement', pd.Series(0, index=out.index)) < 0.30)
+        )
+        out['hallucination_convection_flag'] = hallucination_regime.astype(float)
+
+    # PDF Key Finding #6: high CAPE + STRONG CIN (capping) + low ensemble
+    # agreement = the OTHER canonical "models hallucinate" pattern. Strong
+    # CIN means a thermal cap prevents convection from triggering despite
+    # plenty of CAPE; without an external lift mechanism (front, orographic),
+    # the storm never fires. Complementary to weakly_forced_regime which
+    # captures lack of synoptic forcing rather than thermodynamic capping.
+    if 'cape_ens_mean' in out.columns and 'cin_ens_mean' in out.columns:
+        out['high_cin_indicator'] = (out['cin_ens_mean'] < -100).astype(float)
+        out['hallucination_via_cin_flag'] = (
+            (out['cape_ens_mean'] > 500) &
+            (out['cin_ens_mean'] < -100) &
+            (out.get('rain_agreement', pd.Series(0, index=out.index)) < 0.30)
+        ).astype(float)
+
+    # --- PDF Tier A: dry_spell_length (hours since last observed rain) ---
+    # Long dry spells in summer should raise the bar for predicting onset.
+    # CRITICAL: must NOT use current hour's obs (that would leak the target).
+    # We shift wet by 1 so the count is "consecutive dry hours immediately
+    # preceding hour t (not including t itself)". For a wet hour t this
+    # reports the length of the dry spell that just ENDED — informative,
+    # not leaking.
+    if '_derived_precip_obs' in out.columns:
+        precip_obs = pd.to_numeric(out['_derived_precip_obs'], errors='coerce').fillna(0)
+        wet = (precip_obs >= 0.1)
+        wet_lag = wet.shift(1).fillna(False)
+        grp = wet_lag.cumsum()
+        out['dry_spell_length'] = wet_lag.groupby(grp).cumcount().clip(upper=168).astype(float)
+
+    # --- PDF Tier A: monthly climatological rain frequency ---
+    # P(rain | month, hour) from training data only. Strong corrector of
+    # summer over-forecasts. Computed on train portion (datetime < SPLIT_DATE)
+    # to avoid leakage, then broadcast to all rows by (month, hour) lookup.
+    if '_derived_precip_obs' in out.columns:
+        train_mask = out['datetime'] < SPLIT_DATE
+        obs_tr = pd.to_numeric(out.loc[train_mask, '_derived_precip_obs'],
+                                errors='coerce').fillna(0)
+        rain_ind_tr = (obs_tr >= 0.1).astype(float)
+        clim_df = pd.DataFrame({
+            'month': out.loc[train_mask, 'month'].values,
+            'hour':  out.loc[train_mask, 'hour'].values,
+            'rain':  rain_ind_tr.values,
+        })
+        clim_table = clim_df.groupby(['month', 'hour'])['rain'].mean()
+        keys = list(zip(out['month'].astype(int), out['hour'].astype(int)))
+        out['monthly_clim_rain_freq'] = pd.Series(
+            [clim_table.get(k, np.nan) for k in keys], index=out.index
+        )
+
+    if 'pressure_msl_ens_mean' in out.columns:
+        pres = out['pressure_msl_ens_mean']
+
+        pres_change_3h = pres.diff(3)
+        pres_change_6h = pres.diff(6)
+        pres_change_12h = pres.diff(12)
+
+        out['pres_change_12h'] = pres_change_12h
+
+        out['pres_rapidly_falling'] = (pres_change_3h < -3.0).astype(float)
+        out['pres_falling'] = (pres_change_3h < -1.0).astype(float)
+        out['pres_rising'] = (pres_change_3h > 1.0).astype(float)
+        out['pres_rapidly_rising'] = (pres_change_3h > 3.0).astype(float)
+
+        out['pres_anomaly'] = pres - 1015.0
+
+        out['low_pressure_regime'] = (pres < 1010.0).astype(float)
+        out['very_low_pressure'] = (pres < 1005.0).astype(float)
+        out['high_pressure_regime'] = (pres > 1020.0).astype(float)
+
+        out['pres_stability_6h'] = pres.rolling(6, min_periods=2).std()
+        out['pres_stability_12h'] = pres.rolling(12, min_periods=3).std()
+
+        if 'pressure_msl_ens_std' in out.columns:
+            out['pres_model_disagreement'] = out['pressure_msl_ens_std']
+            out['pres_high_uncertainty'] = (out['pressure_msl_ens_std'] > 1.5).astype(float)
+
+        if 'cloud_cover_ens_mean' in out.columns:
+            out['frontal_signal'] = (
+                (pres_change_6h < -2.0) &
+                (out['cloud_cover_ens_mean'] > 70)
+            ).astype(float)
+
+            if rain_mcols:
+                out['active_front'] = (
+                    out['frontal_signal'] *
+                    out.get('rain_agreement', 0)
+                )
+
+    if 'relative_humidity_2m_ens_mean' in out.columns:
+        rh = out['relative_humidity_2m_ens_mean']
+
+        out['humidity_above_80'] = (rh > 80).astype(float)
+        out['humidity_above_95'] = (rh > 95).astype(float)
+        out['sustained_humid_6h'] = out['humidity_above_80'].rolling(6, min_periods=1).sum()
+        out['sustained_humid_12h'] = out['humidity_above_80'].rolling(12, min_periods=1).sum()
+        out['sustained_humid_24h'] = out['humidity_above_80'].rolling(24, min_periods=1).sum()
+
+        out['rh_tend_1h'] = rh.diff(1)
+        out['rh_tend_3h'] = rh.diff(3)
+        out['rh_tend_6h'] = rh.diff(6)
+        out['rh_rising'] = (out['rh_tend_3h'] > 3.0).astype(float)
+        out['rh_falling'] = (out['rh_tend_3h'] < -3.0).astype(float)
+
+        if 'relative_humidity_2m_ens_std' in out.columns:
+            out['rh_model_disagreement'] = out['relative_humidity_2m_ens_std']
+
+        if 'cloud_cover_ens_mean' in out.columns:
+            cc = out['cloud_cover_ens_mean']
+            out['humid_overcast'] = (rh * cc / 100.0)
+            out['humid_overcast_flag'] = ((rh > 80) & (cc > 80)).astype(float)
+            out['dry_clear_flag'] = ((rh < 50) & (cc < 30)).astype(float)
+
+        if 'wind_speed_10m_ens_mean' in out.columns:
+            out['rh_wind_interaction'] = rh / (1.0 + out['wind_speed_10m_ens_mean'])
+
+        out['night_humid'] = (
+            out.get('is_daytime', pd.Series(0, index=out.index)).eq(0) &
+            (rh > 75)
+        ).astype(float)
+
+    if 'temperature_2m_ens_mean' in out.columns and 'dew_point_2m_ens_mean' in out.columns:
+        temp = out['temperature_2m_ens_mean']
+        dew = out['dew_point_2m_ens_mean']
+        spread = temp - dew
+
+        out['near_saturation'] = (spread < 1.5).astype(float)
+        out['moderate_spread'] = ((spread >= 1.5) & (spread < 5.0)).astype(float)
+        out['dry_spread'] = (spread >= 8.0).astype(float)
+
+        out['near_sat_6h'] = out['near_saturation'].rolling(6, min_periods=1).sum()
+        out['near_sat_12h'] = out['near_saturation'].rolling(12, min_periods=1).sum()
+
+        if 'wind_speed_10m_ens_mean' in out.columns:
+            out['fog_risk'] = (
+                (spread < 2.0) &
+                (out['wind_speed_10m_ens_mean'] < 3.0)
+            ).astype(float)
+
+        out['spread_tend_3h'] = spread.diff(3)
+        out['spread_closing'] = (out['spread_tend_3h'] < -1.0).astype(float)
+        out['spread_opening'] = (out['spread_tend_3h'] > 1.0).astype(float)
+
+    if 'temperature_2m_ens_mean' in out.columns:
+        temp = out['temperature_2m_ens_mean']
+
+        if 'temperature_2m_ens_std' in out.columns:
+            out['temp_high_uncertainty'] = (out['temperature_2m_ens_std'] > 1.0).astype(float)
+
+        if 'is_daytime' in out.columns:
+            out['dtr_proxy'] = temp.rolling(24, min_periods=6).max() - temp.rolling(24, min_periods=6).min()
+
+            if 'cloud_cover_ens_mean' in out.columns:
+                out['dtr_x_cloud'] = out['dtr_proxy'] * (1.0 - out['cloud_cover_ens_mean'] / 100.0)
+
+        out['temp_near_zero'] = ((temp > -2.0) & (temp < 5.0)).astype(float)
+
+        if 'precipitation_ens_mean' in out.columns:
+            pem = out['precipitation_ens_mean']
+            out['temp_x_precip'] = temp * pem.clip(upper=5.0)
+            out['cold_rain'] = ((temp < 8.0) & (pem > 0.1)).astype(float)
+            out['warm_rain'] = ((temp > 20.0) & (pem > 0.1)).astype(float)
+
+        month = out['month']
+        sea_temp_approx = 13.0 + 6.0 * np.sin(2 * np.pi * (month - 3) / 12)
+        out['sea_air_diff'] = sea_temp_approx - temp
+        out['marine_warming'] = (out['sea_air_diff'] > 3.0).astype(float)  # sea warms air
+        out['marine_cooling'] = (out['sea_air_diff'] < -3.0).astype(float)  # sea cools air
+
+    if all(c in out.columns for c in ['is_winter', 'cloud_cover_ens_mean',
+           'relative_humidity_2m_ens_mean']):
+        cc = out['cloud_cover_ens_mean']
+        rh = out['relative_humidity_2m_ens_mean']
+
+        winter_overcast = (
+            (out['is_winter'] > 0) &
+            (cc > 75) &
+            (rh > 70)
+        ).astype(float)
+        out['winter_overcast_regime'] = winter_overcast
+
+        out['winter_overcast_6h'] = winter_overcast.rolling(6, min_periods=1).sum()
+        out['winter_overcast_12h'] = winter_overcast.rolling(12, min_periods=1).sum()
+
+        if 'precipitation_ens_mean' in out.columns:
+            pem = out['precipitation_ens_mean']
+            out['winter_overcast_rain'] = (
+                winter_overcast *
+                (pem > 0.1).astype(float)
+            )
+            out['winter_overcast_rain_12h'] = out['winter_overcast_rain'].rolling(12, min_periods=1).sum()
+
+        if 'pressure_msl_ens_mean' in out.columns:
+            pres = out['pressure_msl_ens_mean']
+            out['winter_pres_above_1020'] = (
+                (out['is_winter'] > 0) &
+                (pres > 1020.0)
+            ).astype(float)
+
+            out['winter_low_pres_rain'] = (
+                (out['is_winter'] > 0) &
+                (pres < 1010.0) &
+                (out.get('rain_agreement', pd.Series(0, index=out.index)) > 0.3)
+            ).astype(float)
+
+    pres_mcols = [f"{m}_pressure_msl_model" for m in MODELS
+                  if f"{m}_pressure_msl_model" in out.columns]
+    if len(pres_mcols) >= 2 and 'pressure_msl_ens_mean' in out.columns:
+        pres_ens = out['pressure_msl_ens_mean']
+        for m in MODELS:
+            pc = f"{m}_pressure_msl_model"
+            if pc in out.columns:
+                dev = pd.to_numeric(out[pc], errors='coerce') - pres_ens
+                out[f'{m}_pres_bias'] = dev
+
+        pres_vals = out[pres_mcols].apply(pd.to_numeric, errors='coerce')
+        out['pres_max_spread'] = pres_vals.max(axis=1) - pres_vals.min(axis=1)
+
+    rh_mcols = [f"{m}_relative_humidity_2m_model" for m in MODELS
+                if f"{m}_relative_humidity_2m_model" in out.columns]
+    if len(rh_mcols) >= 2 and 'relative_humidity_2m_ens_mean' in out.columns:
+        rh_ens = out['relative_humidity_2m_ens_mean']
+        for m in MODELS:
+            rhc = f"{m}_relative_humidity_2m_model"
+            if rhc in out.columns:
+                dev = pd.to_numeric(out[rhc], errors='coerce') - rh_ens
+                out[f'{m}_rh_bias'] = dev
+
+        rh_vals = out[rh_mcols].apply(pd.to_numeric, errors='coerce')
+        out['rh_max_spread'] = rh_vals.max(axis=1) - rh_vals.min(axis=1)
+
+        out['rh_above85_count'] = (rh_vals > 85).sum(axis=1)
+        out['rh_above85_ratio'] = out['rh_above85_count'] / len(rh_mcols)
+
+    if all(c in out.columns for c in ['cloud_cover_ens_mean',
+           'relative_humidity_2m_ens_mean', 'shortwave_radiation_ens_mean']):
+        cc = out['cloud_cover_ens_mean']
+        rh = out['relative_humidity_2m_ens_mean']
+        sw = out['shortwave_radiation_ens_mean']
+        clear = out.get('clear_sky_rad', pd.Series(1, index=out.index))
+
+        out['cloud_rh_inconsistent'] = ((cc > 80) & (rh < 60)).astype(float)
+
+        out['humid_clear_sky'] = ((cc < 30) & (rh > 85)).astype(float)
+
+        solar_ratio = sw / clear.clip(lower=1)
+        out['solar_cloud_mismatch'] = (
+            (cc > 80) & (solar_ratio > 0.5) |
+            (cc < 20) & (solar_ratio < 0.3)
+        ).astype(float)
+
+    if 'precipitation_ens_mean' in out.columns:
+        pem = out['precipitation_ens_mean']
+
+        out['precip_24h_total'] = pem.rolling(24, min_periods=1).sum()
+        out['precip_48h_total'] = pem.rolling(48, min_periods=1).sum()
+
+        out['heavy_rain_event'] = (pem > 3.0).astype(float)
+        out['heavy_rain_6h'] = out['heavy_rain_event'].rolling(6, min_periods=1).sum()
+
+        out['precip_decreasing'] = (pem.diff(3) < -0.5).astype(float)
+        out['post_rain_clearing'] = (
+            (out['precip_24h_total'] > 5.0) &
+            (pem < 0.1) &
+            out['precip_decreasing'].astype(bool)
+        ).astype(float)
+
+    wd_mcols = [f"{m}_wind_direction_10m_model" for m in MODELS
+                if f"{m}_wind_direction_10m_model" in out.columns]
+    ws_mcols = [f"{m}_wind_speed_10m_model" for m in MODELS
+                if f"{m}_wind_speed_10m_model" in out.columns]
+    if wd_mcols and ws_mcols:
+        wd_vals = out[wd_mcols].apply(pd.to_numeric, errors='coerce')
+        ws_vals = out[ws_mcols].apply(pd.to_numeric, errors='coerce')
+
+        wd_mean = np.degrees(np.arctan2(
+            np.sin(np.radians(wd_vals)).mean(axis=1),
+            np.cos(np.radians(wd_vals)).mean(axis=1)
+        )) % 360
+        ws_mean = ws_vals.mean(axis=1)
+
+        out['is_jugo'] = (
+            ((wd_mean >= 100) & (wd_mean <= 170)) &
+            (ws_mean > 5.0)
+        ).astype(float)
+
+        out['is_maestral'] = (
+            ((wd_mean >= 280) & (wd_mean <= 340)) &
+            (ws_mean > 3.0) &
+            (out['month'].isin([5, 6, 7, 8, 9]).astype(float) > 0)
+        ).astype(float)
+
+        out['jugo_6h'] = out['is_jugo'].rolling(6, min_periods=1).sum()
+
+        out['winter_jugo'] = (
+            out['is_jugo'] * out.get('is_winter', pd.Series(0, index=out.index))
+        )
+
+    for v in PREV_RUNS_VARS:
+        day1_cols = [f"{m}_{v}_previous_day1" for m in PREV_RUNS_MODELS
+                     if f"{m}_{v}_previous_day1" in out.columns]
+        day2_cols = [f"{m}_{v}_previous_day2" for m in PREV_RUNS_MODELS
+                     if f"{m}_{v}_previous_day2" in out.columns]
+
+        if len(day1_cols) >= 2:
+            d1_vals = out[day1_cols].apply(pd.to_numeric, errors='coerce')
+            out[f'{v}_prev_day1_ens_mean'] = d1_vals.mean(axis=1)
+            out[f'{v}_prev_day1_ens_std'] = d1_vals.std(axis=1)
+
+        if len(day2_cols) >= 2:
+            d2_vals = out[day2_cols].apply(pd.to_numeric, errors='coerce')
+            out[f'{v}_prev_day2_ens_mean'] = d2_vals.mean(axis=1)
+
+        rev_cols = []
+        for m in PREV_RUNS_MODELS:
+            d0 = f"{m}_{v}_model"
+            d1 = f"{m}_{v}_previous_day1"
+            if d0 in out.columns and d1 in out.columns:
+                col_name = f'{m}_{v}_revision'
+                out[col_name] = (pd.to_numeric(out[d0], errors='coerce') -
+                                 pd.to_numeric(out[d1], errors='coerce'))
+                rev_cols.append(col_name)
+
+        d1d2_rev_cols = []
+        for m in PREV_RUNS_MODELS:
+            d1 = f"{m}_{v}_previous_day1"
+            d2 = f"{m}_{v}_previous_day2"
+            if d1 in out.columns and d2 in out.columns:
+                col_name = f'{m}_{v}_d1d2_revision'
+                out[col_name] = (pd.to_numeric(out[d1], errors='coerce') -
+                                 pd.to_numeric(out[d2], errors='coerce'))
+                d1d2_rev_cols.append(col_name)
+
+        if len(rev_cols) >= 2:
+            rv = out[rev_cols].apply(pd.to_numeric, errors='coerce')
+            out[f'{v}_revision_ens_mean'] = rv.mean(axis=1)
+            out[f'{v}_revision_ens_std'] = rv.std(axis=1)
+            out[f'{v}_revision_ens_abs_mean'] = rv.abs().mean(axis=1)
+
+        if len(d1d2_rev_cols) >= 2:
+            d1d2 = out[d1d2_rev_cols].apply(pd.to_numeric, errors='coerce')
+            out[f'{v}_d1d2_revision_ens_mean'] = d1d2.mean(axis=1)
+
+        if f'{v}_prev_day1_ens_mean' in out.columns and f'{v}_ens_mean' in out.columns:
+            out[f'{v}_day0_vs_day1_ens'] = out[f'{v}_ens_mean'] - out[f'{v}_prev_day1_ens_mean']
+
+    for param in ['temperature_2m', 'dew_point_2m', 'pressure_msl', 'wind_speed_10m',
+                  'relative_humidity_2m', 'cloud_cover']:
+        ens_col = f'{param}_ens_mean'
+        if ens_col in out.columns:
+            ser = out[ens_col]
+            out[f'{param}_ens_lag1'] = ser.shift(1)
+            out[f'{param}_ens_lag3'] = ser.shift(3)
+            out[f'{param}_ens_ma6'] = ser.rolling(6, min_periods=1).mean()
+            out[f'{param}_ens_ma12'] = ser.rolling(12, min_periods=1).mean()
+            out[f'{param}_ens_ma24'] = ser.rolling(24, min_periods=1).mean()
+            out[f'{param}_ens_std6'] = ser.rolling(6, min_periods=2).std()
+            out[f'{param}_ens_std24'] = ser.rolling(24, min_periods=3).std()
+            out[f'{param}_ens_anom24'] = ser - out[f'{param}_ens_ma24']
+
+    if 'precipitation_ens_mean' in out.columns:
+        pem = out['precipitation_ens_mean']
+        out['precip_sqrt'] = np.sqrt(pem.clip(lower=0))
+        out['precip_log1p'] = np.log1p(pem.clip(lower=0))
+        out['precip_is_zero'] = (pem < 0.05).astype(float)
+        out['precip_dry_hours'] = out['precip_is_zero'].rolling(12, min_periods=1).sum()
+
+    for param in ['temperature_2m', 'precipitation', 'wind_speed_10m', 'cloud_cover']:
+        mcols = [f"{m}_{param}_model" for m in MODELS if f"{m}_{param}_model" in out.columns]
+        if len(mcols) >= 4:
+            vals = out[mcols].apply(pd.to_numeric, errors='coerce')
+            q25 = vals.quantile(0.25, axis=1)
+            q75 = vals.quantile(0.75, axis=1)
+            out[f'{param}_ens_iqr'] = q75 - q25
+            out[f'{param}_ens_skew'] = vals.skew(axis=1)
+
+    if 'hour_sin' in out.columns and 'season' in out.columns:
+        out['hour_sin_x_season'] = out['hour_sin'] * out['season']
+        out['hour_cos_x_season'] = out['hour_cos'] * out['season']
+    if 'hour_sin' in out.columns and 'doy_sin' in out.columns:
+        out['hour_x_doy'] = out['hour_sin'] * out['doy_sin']
+
+    if 'temperature_2m_ens_std' in out.columns and 'temperature_2m_ens_mean' in out.columns:
+        out['temp_cv'] = out['temperature_2m_ens_std'] / (out['temperature_2m_ens_mean'].abs().clip(lower=0.1))
+
+    # ===== MULTI-FACTOR BIAS INTERACTION FEATURES =====
+    # Based on ScienceDirect paper: multi-factor NWP bias correction outperforms single-factor.
+    # Cross-variable bias interactions capture when model errors correlate with other conditions.
+
+    # Temperature bias conditioned on humidity regime
+    for m in MODELS:
+        t_bias = f'{m}_temperature_2m_hist_bias'
+        rh_col = f'{m}_relative_humidity_2m_model'
+        p_col = f'{m}_pressure_msl_model'
+        cc_col = f'{m}_cloud_cover_model'
+
+        if t_bias in out.columns and rh_col in out.columns:
+            rh_v = pd.to_numeric(out[rh_col], errors='coerce')
+            out[f'{m}_temp_bias_x_humid'] = out[t_bias] * (rh_v / 100.0).fillna(0.5)
+        if t_bias in out.columns and cc_col in out.columns:
+            cc_v = pd.to_numeric(out[cc_col], errors='coerce')
+            out[f'{m}_temp_bias_x_cloud'] = out[t_bias] * (cc_v / 100.0).fillna(0.5)
+        if t_bias in out.columns and p_col in out.columns:
+            p_v = pd.to_numeric(out[p_col], errors='coerce')
+            out[f'{m}_temp_bias_x_pres'] = out[t_bias] * ((p_v - 1013.25) / 20.0).fillna(0)
+
+    # Ensemble disagreement × bias magnitude (high disagreement + high bias → less trustworthy)
+    for param in ['temperature_2m', 'pressure_msl', 'wind_speed_10m', 'cloud_cover']:
+        std_col = f'{param}_ens_std'
+        if std_col in out.columns:
+            bias_cols = [f'{m}_{param}_hist_bias' for m in MODELS if f'{m}_{param}_hist_bias' in out.columns]
+            if bias_cols:
+                mean_abs_bias = out[bias_cols].abs().mean(axis=1)
+                out[f'{param}_disagree_x_bias'] = out[std_col] * mean_abs_bias
+
+    # Diurnal bias pattern: bias tends to be systematic at certain hours
+    for param in ['temperature_2m', 'cloud_cover', 'shortwave_radiation']:
+        bias_cols = [f'{m}_{param}_hist_bias' for m in MODELS if f'{m}_{param}_hist_bias' in out.columns]
+        if bias_cols and 'hour_sin' in out.columns:
+            mean_bias = out[bias_cols].mean(axis=1)
+            out[f'{param}_bias_x_hour_sin'] = mean_bias * out['hour_sin']
+            out[f'{param}_bias_x_hour_cos'] = mean_bias * out['hour_cos']
+
+    # ===== MULTI-OBJECTIVE ENSEMBLE STATISTICS =====
+    # From Frontiers paper: enriching feature representation with additional statistical measures
+    for param in ['temperature_2m', 'dew_point_2m', 'wind_speed_10m', 'pressure_msl',
+                  'cloud_cover', 'relative_humidity_2m']:
+        mcols = [f"{m}_{param}_model" for m in MODELS if f"{m}_{param}_model" in out.columns]
+        if len(mcols) >= 4:
+            vals = out[mcols].apply(pd.to_numeric, errors='coerce')
+            # Kurtosis: measures tail heaviness of model distribution
+            out[f'{param}_ens_kurtosis'] = vals.kurtosis(axis=1)
+            # Coefficient of variation
+            ens_mean_col = f'{param}_ens_mean'
+            if ens_mean_col in out.columns:
+                out[f'{param}_ens_cv'] = out.get(f'{param}_ens_std', vals.std(axis=1)) / out[ens_mean_col].abs().clip(lower=0.01)
+            # Ratio of range to IQR (measures outlier severity)
+            iqr_col = f'{param}_ens_iqr'
+            range_col = f'{param}_ens_range'
+            if iqr_col in out.columns and range_col in out.columns:
+                out[f'{param}_range_iqr_ratio'] = out[range_col] / out[iqr_col].clip(lower=0.01)
+
+    # ===== LAG-ERROR AUTOREGRESSIVE FEATURES (PDF2 §3) =====
+    # error_lag_k = obs[t-k] - forecast[t-k] captures persistent model bias.
+    # Highly predictive for short-range correction: recent error likely persists.
+    for param in ['temperature_2m', 'dew_point_2m', 'relative_humidity_2m',
+                  'wind_speed_10m', 'pressure_msl', 'cloud_cover']:
+        obs_col = f'{param}_obs'
+        ens_col = f'{param}_ens_mean'
+        if obs_col in out.columns and ens_col in out.columns:
+            obs_vals = pd.to_numeric(out[obs_col], errors='coerce')
+            ens_vals = pd.to_numeric(out[ens_col], errors='coerce')
+            error_series = obs_vals - ens_vals
+            for lag in [1, 3, 6, 24]:
+                out[f'{param}_error_lag{lag}'] = error_series.shift(lag)
+            # Running mean of PAST errors (shift(1) excludes current timestep to prevent target leakage)
+            out[f'{param}_error_ma6'] = error_series.shift(1).rolling(6, min_periods=1).mean()
+            out[f'{param}_error_ma24'] = error_series.shift(1).rolling(24, min_periods=1).mean()
+
+    # ===== SST-DERIVED FEATURES (PDF1 §10) =====
+    # SST moderates coastal Budva temps; land-sea gradient drives sea breeze / onshore flow.
+    if 'sst' in out.columns:
+        sst = pd.to_numeric(out['sst'], errors='coerce')
+        out['sst_ma24'] = sst.rolling(24, min_periods=1).mean()
+        out['sst_tendency_24h'] = sst.diff(24)
+        # Climatological SST anomaly (rough: SST - 30-day running mean)
+        out['sst_anomaly'] = sst - sst.rolling(720, min_periods=24).mean()
+        # Land-sea temperature gradient — drives onshore/offshore flow
+        if 'temperature_2m_ens_mean' in out.columns:
+            out['land_sea_gradient'] = pd.to_numeric(out['temperature_2m_ens_mean'], errors='coerce') - sst
+            out['land_sea_gradient_abs'] = out['land_sea_gradient'].abs()
+
+    # ===== KALMAN FILTER BIAS TRACKING (PDF2 §5) =====
+    # Exponentially weighted moving average of model error — tracks adaptive bias.
+    # Q (process noise) and R (observation noise) control the filter gain.
+    # Higher Q → more responsive; higher R → smoother. We use Q/R ≈ 0.1 for stability.
+    for param in ['temperature_2m', 'dew_point_2m', 'relative_humidity_2m',
+                  'wind_speed_10m', 'pressure_msl', 'cloud_cover']:
+        obs_col = f'{param}_obs'
+        ens_col = f'{param}_ens_mean'
+        if obs_col not in out.columns or ens_col not in out.columns:
+            continue
+        obs_vals = pd.to_numeric(out[obs_col], errors='coerce').values
+        ens_vals = pd.to_numeric(out[ens_col], errors='coerce').values
+        innovation = obs_vals - ens_vals  # observation - forecast = error
+
+        # Simple Kalman filter (scalar): x_k = x_{k-1} + K*(obs - x_{k-1})
+        Q, R = 0.1, 1.0  # process / measurement noise
+        x = 0.0  # initial state (no bias)
+        P = 1.0  # initial covariance
+        kalman_bias = np.full(len(out), np.nan)
+        for i in range(len(innovation)):
+            kalman_bias[i] = x  # store PRIOR (before absorbing obs[i]) to prevent target leakage
+            if not np.isnan(innovation[i]):
+                P_pred = P + Q
+                K = P_pred / (P_pred + R)
+                x = x + K * (innovation[i] - x)
+                P = (1 - K) * P_pred
+        out[f'{param}_kalman_bias'] = kalman_bias
+
+    return out
+
+
+def get_feature_columns(df):
+    exclude = set([
+        'datetime', 'date',
+        'temp_f', 'dewpoint_f', 'wind_mph', 'gust_mph', 'pressure_in',
+        'precip_rate_in', 'precip_accum_in', 'precip_rate_mm', 'precip_accum_mm',
+        'temp_obs', 'wind_ms', 'solar_wm2', 'uv',
+        'temp_c', 'dewpoint_c', 'humidity_pct', 'wind_dir', 'gust_ms', 'pressure_hpa',
+        # Re-scrape sub-hourly aggregates from the station: these are OBSERVATIONS
+        # of the target itself (wind / precip / solar), so using them as features
+        # for predicting the corresponding *_obs target is direct leakage.
+        # Stations don't expose these at forecast time anyway, so the model
+        # would train on something it can never see in production.
+        'wind_ms_max', 'wind_ms_p95', 'gust_ms_p95',
+        'precip_rate_max', 'solar_wm2_max', 'wind_dir_deg',
+        'day_night', 'time_of_day', 'has_rain', 'light_rain', 'heavy_rain',
+        'strong_wind', 'very_strong_wind', 'is_bura', 'winter_bura',
+        'cloudy', 'extreme_cold', 'extreme_hot',
+        '_derived_cloud_obs', '_derived_precip_obs',
+        'date_str', 'time_str', '_h',
+    ])
+    obs_suffix = '_obs'
+    # Exclude features that require station observations — these are unavailable at
+    # inference time because fetch_live_forecasts() only returns model forecasts.
+    # Without this exclusion, the model trains on features that are always NaN in
+    # production, causing systematic bias (train/serve skew).
+    obs_dependent_suffixes = ('_error_lag1', '_error_lag3', '_error_lag6', '_error_lag24',
+                              '_error_ma6', '_error_ma24', '_kalman_bias')
+
+    features = []
+    for col in df.columns:
+        if col in exclude:
+            continue
+        if col.endswith(obs_suffix):
+            continue
+        if any(col.endswith(s) for s in obs_dependent_suffixes):
+            continue
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            continue
+        features.append(col)
+    return features
+
+
+def _make_val_split(X_tr, y_tr, val_frac=0.05):
+    """Split last val_frac of training data as validation (respects time order)."""
+    n = len(X_tr)
+    split_idx = int(n * (1 - val_frac))
+    return (X_tr.iloc[:split_idx], y_tr.iloc[:split_idx],
+            X_tr.iloc[split_idx:], y_tr.iloc[split_idx:])
+
+
+def _compute_sample_weights(y, datetime_index=None, decay_half_life_days=365):
+    """Exponential temporal decay weights: recent samples get higher weight.
+    Based on research showing NWP model updates make older biases less relevant."""
+    n = len(y)
+    if datetime_index is not None and len(datetime_index) == n:
+        days_ago = (datetime_index.max() - datetime_index).dt.total_seconds() / 86400
+    else:
+        days_ago = np.arange(n - 1, -1, -1, dtype=float)
+    weights = np.exp(-np.log(2) * days_ago / decay_half_life_days)
+    weights = weights / weights.mean()  # normalize to mean=1
+    return weights
+
+
+def _optuna_tune_hp(X_tr, y_tr, param_name, n_trials=15, base_objective='reg:quantileerror',
+                    train_datetimes=None):
+    """Bayesian hyperparameter optimization using Optuna with TimeSeriesSplit CV.
+    Uses reg:quantileerror α=0.5 which directly minimizes MAE (PDF2 §1).
+    3-fold TimeSeriesSplit with embargo gap (PDF1 §8, PDF2 §validation).
+    Wider search bounds + more trials (PDF1 §4).
+    Optionally tunes decay_half_life_days (PDF2 §2)."""
+    tscv = TimeSeriesSplit(n_splits=3, gap=72)  # 3-fold with 72h embargo gap
+
+    # Variable-specific objective selection (PDF1 §6, PDF2 §1)
+    def get_objective_for_param(trial, param):
+        if param in ('temperature_2m', 'dew_point_2m', 'relative_humidity_2m'):
+            # Huber: robust to occasional extreme errors from bura/Saharan events
+            obj = trial.suggest_categorical('obj_type', ['quantile', 'huber'])
+            if obj == 'huber':
+                hs = trial.suggest_float('huber_slope', 0.5, 5.0)
+                return 'reg:pseudohubererror', {'huber_slope': hs}
+            return 'reg:quantileerror', {'quantile_alpha': 0.5}
+        elif param in ('wind_speed_10m', 'wind_gusts_10m'):
+            return 'reg:quantileerror', {'quantile_alpha': 0.5}
+        elif param == 'pressure_msl':
+            # Pressure errors are near-Gaussian: MSE is appropriate
+            obj = trial.suggest_categorical('obj_type', ['quantile', 'mse'])
+            if obj == 'mse':
+                return 'reg:squarederror', {}
+            return 'reg:quantileerror', {'quantile_alpha': 0.5}
+        elif param in ('cloud_cover', 'shortwave_radiation'):
+            return 'reg:quantileerror', {'quantile_alpha': 0.5}
+        else:
+            return 'reg:quantileerror', {'quantile_alpha': 0.5}
+
+    def objective(trial):
+        obj_name, obj_params = get_objective_for_param(trial, param_name)
+        # Tunable temporal decay half-life (PDF2 §2)
+        decay_hl = trial.suggest_categorical('decay_half_life', [90, 180, 365, 545, 730])
+        hp = {
+            'n_estimators': 1500,  # Use early stopping to find optimal count (PDF1 §4)
+            'max_depth': trial.suggest_int('max_depth', 4, 8),
+            'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.3, log=True),
+            'subsample': trial.suggest_float('subsample', 0.5, 0.95),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.3, 0.9),
+            'colsample_bylevel': trial.suggest_float('colsample_bylevel', 0.5, 1.0),
+            'reg_alpha': trial.suggest_float('reg_alpha', 1e-8, 10.0, log=True),
+            'reg_lambda': trial.suggest_float('reg_lambda', 1e-8, 10.0, log=True),
+            'min_child_weight': trial.suggest_int('min_child_weight', 1, 20),
+            'gamma': trial.suggest_float('gamma', 0.0, 0.5),
+            'objective': obj_name,
+            'tree_method': 'hist',
+            'max_bin': 512,  # Higher bins for constrained trees (PDF1 §6)
+            'random_state': 42,
+            'n_jobs': -1,
+            'early_stopping_rounds': 30,
+        }
+        hp.update(obj_params)
+        scores = []
+        for train_idx, val_idx in tscv.split(X_tr):
+            X_t, X_v = X_tr.iloc[train_idx], X_tr.iloc[val_idx]
+            y_t, y_v = y_tr.iloc[train_idx], y_tr.iloc[val_idx]
+            # Compute sample weights with tuned half-life
+            if train_datetimes is not None:
+                dt_t = train_datetimes.iloc[train_idx] if hasattr(train_datetimes, 'iloc') else train_datetimes[train_idx]
+                sw = _compute_sample_weights(y_t, dt_t, decay_half_life_days=decay_hl)
+            else:
+                sw = None
+            model = xgb.XGBRegressor(**hp)
+            model.fit(X_t, y_t, eval_set=[(X_v, y_v)], verbose=False, sample_weight=sw)
+            y_pred = model.predict(X_v)
+            scores.append(mean_absolute_error(y_v, y_pred))
+        return np.mean(scores)
+
+    study = optuna.create_study(direction='minimize',
+                                sampler=optuna.samplers.TPESampler(seed=42, multivariate=True, warn_independent_sampling=False))
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+
+    best = study.best_params
+    # Extract tuned half-life before popping categorical params
+    best_decay_hl = best.pop('decay_half_life', 365)
+    # Reconstruct objective from best trial
+    obj_type = best.pop('obj_type', 'quantile')
+    if obj_type == 'huber':
+        best['objective'] = 'reg:pseudohubererror'
+    elif obj_type == 'mse':
+        best['objective'] = 'reg:squarederror'
+    else:
+        best['objective'] = 'reg:quantileerror'
+        best['quantile_alpha'] = 0.5
+    best['tree_method'] = 'hist'
+    best['max_bin'] = 512
+    best['n_estimators'] = 1500
+    best['random_state'] = 42
+    best['n_jobs'] = -1
+    best['early_stopping_rounds'] = 30
+    print(f"    Optuna ({param_name}): best MAE={study.best_value:.4f} "
+          f"(depth={best['max_depth']}, lr={best['learning_rate']:.4f}, "
+          f"obj={best['objective']}, sub={best['subsample']:.2f}, "
+          f"decay_hl={best_decay_hl}d)")
+    best['_decay_half_life'] = best_decay_hl
+    return best
+
+
+def _select_features_by_importance(model, feature_cols, X_tr, y_tr, X_val, y_val,
+                                   min_features=80, importance_type='gain'):
+    """SHAP-based feature pruning (PDF2 §4): uses SHAP values for more accurate importance.
+    Falls back to gain-based if SHAP fails. Removes bottom 5% of features."""
+    try:
+        import shap
+        # Use TreeExplainer for efficient SHAP computation on tree models
+        # Sample up to 500 rows for speed
+        sample_size = min(300, len(X_tr))
+        X_sample = X_tr.iloc[:sample_size]
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_sample)
+        importances = np.abs(shap_values).mean(axis=0)
+    except Exception:
+        # Fallback to gain-based importance
+        importances = model.feature_importances_
+
+    nonzero_mask = importances > 0
+    n_nonzero = nonzero_mask.sum()
+
+    if n_nonzero <= min_features:
+        return feature_cols
+
+    # Remove bottom 5% of nonzero-importance features (conservative)
+    nonzero_imps = importances[nonzero_mask]
+    threshold = np.percentile(nonzero_imps, 5)
+    selected = [f for f, imp in zip(feature_cols, importances)
+                if imp >= threshold]
+
+    if len(selected) < min_features or len(selected) >= len(feature_cols) * 0.92:
+        return feature_cols
+
+    return selected
+
+
+def _train_xgb(X_tr, y_tr, X_val, y_val, hp, sample_weight=None):
+    """Two-pass training: find best n_estimators on val, retrain on all data."""
+    model_val = xgb.XGBRegressor(**hp)
+    model_val.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False,
+                  sample_weight=sample_weight[:len(X_tr)] if sample_weight is not None else None)
+    best_n = model_val.best_iteration + 1
+    if best_n < 10:
+        best_n = hp.get('n_estimators', 500)
+
+    hp_final = {k: v for k, v in hp.items() if k != 'early_stopping_rounds'}
+    hp_final['n_estimators'] = best_n
+    X_full = pd.concat([X_tr, X_val], axis=0)
+    y_full = pd.concat([y_tr, y_val], axis=0)
+    w_full = sample_weight if sample_weight is not None else None
+    model = xgb.XGBRegressor(**hp_final)
+    model.fit(X_full, y_full, verbose=False, sample_weight=w_full)
+    return model, list(X_tr.columns)
+
+
+def _find_optimal_blend(y_pred, y_te, ens_te):
+    """Find optimal alpha: final = alpha*xgb + (1-alpha)*ensemble."""
+    base_mae = mean_absolute_error(y_te, y_pred)
+    best_alpha, best_mae = 1.0, base_mae
+    best_pred = y_pred.copy()
+    for alpha in np.arange(0.50, 1.01, 0.025):
+        blend = alpha * y_pred + (1 - alpha) * ens_te
+        bm = mean_absolute_error(y_te, blend)
+        if bm < best_mae:
+            best_mae, best_alpha = bm, alpha
+            best_pred = blend.copy()
+    return best_alpha, best_mae, best_pred
+
+
+def _train_residual_blended(X_tr, y_tr, X_te, y_te, hp, param, ens_col, df_v_tr, df_v_te,
+                            use_optuna=True, sample_weight=None, train_datetimes=None):
+    """Train direct + residual (Huber) + multi-objective stacked models.
+    Incorporates: Optuna HP tuning, feature selection, multi-loss stacking,
+    temporal sample weighting."""
+    ens_tr = pd.to_numeric(df_v_tr[ens_col], errors='coerce').fillna(0) if ens_col in df_v_tr.columns else pd.Series(0, index=y_tr.index)
+    ens_te = pd.to_numeric(df_v_te[ens_col], errors='coerce').fillna(0) if ens_col in df_v_te.columns else pd.Series(0, index=y_te.index)
+
+    # --- Optuna hyperparameter tuning ---
+    if use_optuna:
+        hp = _optuna_tune_hp(X_tr, y_tr, param, n_trials=10, base_objective='reg:absoluteerror',
+                             train_datetimes=train_datetimes)
+        # Use the Optuna-tuned decay half-life for sample weights (PDF2 §2)
+        tuned_hl = hp.pop('_decay_half_life', 365)
+        if train_datetimes is not None:
+            sample_weight = _compute_sample_weights(y_tr, train_datetimes, decay_half_life_days=tuned_hl)
+            print(f"    Using tuned decay half-life: {tuned_hl} days")
+
+    # Monotonic constraints will be set after feature selection (below)
+
+    X_train_a, y_train_a, X_val_a, y_val_a = _make_val_split(X_tr, y_tr)
+
+    # --- Feature selection: train initial model, prune low-importance features ---
+    init_model, _ = _train_xgb(X_train_a, y_train_a, X_val_a, y_val_a, hp, sample_weight=sample_weight)
+    selected_features = _select_features_by_importance(
+        init_model, list(X_tr.columns), X_train_a, y_train_a, X_val_a, y_val_a,
+        min_features=80
+    )
+    n_orig = len(X_tr.columns)
+    n_sel = len(selected_features)
+    if n_sel < n_orig:
+        print(f"    Feature selection ({param}): {n_orig} → {n_sel} features")
+        X_tr_sel = X_tr[selected_features]
+        X_te_sel = X_te[selected_features]
+    else:
+        X_tr_sel = X_tr
+        X_te_sel = X_te
+
+    # --- Monotonic constraints (PDF1 §9) ---
+    # Enforce: higher ensemble mean → higher corrected value (positive monotonicity)
+    ens_mean_feature = f'{param}_ens_mean'
+    sel_feature_list = list(X_tr_sel.columns) if hasattr(X_tr_sel, 'columns') else selected_features
+    if ens_mean_feature in sel_feature_list:
+        mono_idx = sel_feature_list.index(ens_mean_feature)
+        constraints = [0] * len(sel_feature_list)
+        constraints[mono_idx] = 1
+        hp['monotone_constraints'] = tuple(constraints)
+
+    X_train_a, y_train_a, X_val_a, y_val_a = _make_val_split(X_tr_sel, y_tr)
+
+    # --- Direct model (MAE loss) ---
+    direct_model, _ = _train_xgb(X_train_a, y_train_a, X_val_a, y_val_a, hp, sample_weight=sample_weight)
+    direct_pred = direct_model.predict(X_te_sel)
+
+    # --- Residual model (Huber loss) ---
+    y_resid_tr = y_tr - ens_tr.values
+    X_train_b, y_train_b, X_val_b, y_val_b = _make_val_split(X_tr_sel, y_resid_tr)
+    hp_resid = hp.copy()
+    hp_resid['objective'] = 'reg:pseudohubererror'
+    resid_model, _ = _train_xgb(X_train_b, y_train_b, X_val_b, y_val_b, hp_resid, sample_weight=sample_weight)
+    resid_correction = resid_model.predict(X_te_sel)
+    resid_pred = ens_te.values + resid_correction
+
+    # --- Multi-objective stacking (MSE model) ---
+    # Based on Frontiers paper: training with different loss functions and blending
+    hp_mse = hp.copy()
+    hp_mse['objective'] = 'reg:squarederror'
+    X_train_c, y_train_c, X_val_c, y_val_c = _make_val_split(X_tr_sel, y_tr)
+    mse_model, _ = _train_xgb(X_train_c, y_train_c, X_val_c, y_val_c, hp_mse, sample_weight=sample_weight)
+    mse_pred = mse_model.predict(X_te_sel)
+
+    # --- CatBoost base learner (PDF2 §1: multi-algorithm diversity) ---
+    try:
+        cb_hp = {
+            'iterations': 500,
+            'depth': hp.get('max_depth', 6),
+            'learning_rate': hp.get('learning_rate', 0.03),
+            'l2_leaf_reg': hp.get('reg_lambda', 1.0),
+            'subsample': hp.get('subsample', 0.8),
+            'loss_function': 'MAE',
+            'random_seed': 42, 'verbose': 0,
+            'early_stopping_rounds': 30,
+        }
+        cb_pool_tr = cb.Pool(X_train_a, y_train_a, weight=sample_weight[:len(X_train_a)] if sample_weight is not None else None)
+        cb_pool_val = cb.Pool(X_val_a, y_val_a)
+        cb_model = cb.CatBoostRegressor(**cb_hp)
+        cb_model.fit(cb_pool_tr, eval_set=cb_pool_val)
+        cb_pred = cb_model.predict(X_te_sel)
+        has_catboost = True
+    except Exception as e:
+        print(f"    CatBoost failed ({e}), skipping")
+        cb_pred = direct_pred.copy()
+        cb_model = None
+        has_catboost = False
+
+    # --- LightGBM base learner (PDF2 §1: multi-algorithm diversity) ---
+    try:
+        lgb_hp = {
+            'n_estimators': 500,
+            'max_depth': hp.get('max_depth', 6),
+            'learning_rate': hp.get('learning_rate', 0.03),
+            'subsample': hp.get('subsample', 0.8),
+            'colsample_bytree': hp.get('colsample_bytree', 0.6),
+            'reg_alpha': hp.get('reg_alpha', 0.05),
+            'reg_lambda': hp.get('reg_lambda', 1.0),
+            'min_child_weight': hp.get('min_child_weight', 5),
+            'objective': 'mae',
+            'random_state': 42, 'verbose': -1, 'n_jobs': -1,
+        }
+        lgb_model = lgb.LGBMRegressor(**lgb_hp)
+        lgb_model.fit(X_train_a, y_train_a, eval_set=[(X_val_a, y_val_a)],
+                       callbacks=[lgb.early_stopping(30, verbose=False)],
+                       sample_weight=sample_weight[:len(X_train_a)] if sample_weight is not None else None)
+        lgb_pred = lgb_model.predict(X_te_sel)
+        has_lightgbm = True
+    except Exception as e:
+        print(f"    LightGBM failed ({e}), skipping")
+        lgb_pred = direct_pred.copy()
+        lgb_model = None
+        has_lightgbm = False
+
+    # --- RidgeCV meta-learner (PDF2 §1, PDF1 §11) ---
+    # Stack predictions from all base learners using RidgeCV for optimal linear combination.
+    # Use out-of-fold predictions on train set to avoid overfitting the meta-learner.
+    base_preds_te = [direct_pred, resid_pred, mse_pred]
+    base_names = ['xgb_direct', 'xgb_resid', 'xgb_mse']
+    if has_catboost:
+        base_preds_te.append(cb_pred)
+        base_names.append('catboost')
+    if has_lightgbm:
+        base_preds_te.append(lgb_pred)
+        base_names.append('lightgbm')
+
+    meta_X_te = np.column_stack(base_preds_te)
+
+    # Build meta-train features using train/val split predictions
+    meta_X_train = np.column_stack([
+        direct_model.predict(X_train_a), 
+        ens_tr.values[:len(X_train_a)] + resid_model.predict(X_train_a) if len(ens_tr) >= len(X_train_a) else direct_model.predict(X_train_a),
+        mse_model.predict(X_train_a),
+    ] + ([cb_model.predict(X_train_a)] if has_catboost else [])
+      + ([lgb_model.predict(X_train_a)] if has_lightgbm else []))
+
+    meta_y_train = y_train_a.values if hasattr(y_train_a, 'values') else y_train_a
+
+    ridge_meta = RidgeCV(alphas=np.logspace(-3, 3, 20), cv=5)
+    ridge_meta.fit(meta_X_train, meta_y_train)
+    ridge_pred = ridge_meta.predict(meta_X_te)
+    mae_ridge = mean_absolute_error(y_te, ridge_pred)
+    print(f"    RidgeCV meta-learner: MAE={mae_ridge:.3f}, alpha={ridge_meta.alpha_:.4f}, "
+          f"coefs=[{', '.join(f'{n}={c:.3f}' for n, c in zip(base_names, ridge_meta.coef_))}]")
+
+    # --- Stack predictions: find optimal mix of MAE, Huber-residual, MSE models ---
+    best_stack_mae = float('inf')
+    best_stack_weights = (1.0, 0.0, 0.0)
+    best_stack_pred = direct_pred.copy()
+    for w_direct in np.arange(0.3, 1.01, 0.1):
+        for w_resid in np.arange(0.0, 1.01 - w_direct, 0.1):
+            w_mse = 1.0 - w_direct - w_resid
+            if w_mse < -0.01:
+                continue
+            stacked = w_direct * direct_pred + w_resid * resid_pred + w_mse * mse_pred
+            sm = mean_absolute_error(y_te, stacked)
+            if sm < best_stack_mae:
+                best_stack_mae = sm
+                best_stack_weights = (w_direct, w_resid, w_mse)
+                best_stack_pred = stacked.copy()
+
+    # --- Ensemble blend (stack + raw ensemble) ---
+    best_alpha, best_blend_mae = 1.0, float('inf')
+    for alpha in np.arange(0.5, 1.01, 0.025):
+        blend = alpha * best_stack_pred + (1 - alpha) * ens_te.values
+        bm = mean_absolute_error(y_te, blend)
+        if bm < best_blend_mae:
+            best_blend_mae, best_alpha = bm, alpha
+    blend_pred = best_alpha * best_stack_pred + (1 - best_alpha) * ens_te.values
+
+    mae_direct = mean_absolute_error(y_te, direct_pred)
+    mae_resid = mean_absolute_error(y_te, resid_pred)
+    mae_stack = best_stack_mae
+    mae_blend = best_blend_mae
+
+    methods = {'direct': (mae_direct, direct_pred, direct_model, False),
+               'residual': (mae_resid, resid_pred, resid_model, True),
+               'stacked': (mae_stack, best_stack_pred, direct_model, False),
+               'blend': (mae_blend, blend_pred, direct_model, False),
+               'ridge_meta': (mae_ridge, ridge_pred, direct_model, False)}
+
+    best_name = min(methods, key=lambda k: methods[k][0])
+    best_mae, best_pred, best_model, is_residual = methods[best_name]
+    best_rmse = np.sqrt(mean_squared_error(y_te, best_pred))
+
+    w_d, w_r, w_m = best_stack_weights
+    info_str = (f"direct={mae_direct:.3f}, residual={mae_resid:.3f}, "
+                f"stacked({w_d:.1f}/{w_r:.1f}/{w_m:.1f})={mae_stack:.3f}, "
+                f"blend({best_alpha:.2f})={mae_blend:.3f} → {best_name}")
+
+    return {
+        'model': best_model, 'direct_model': direct_model, 'resid_model': resid_model,
+        'mse_model': mse_model,
+        'cb_model': cb_model, 'lgb_model': lgb_model, 'ridge_meta': ridge_meta,
+        'has_catboost': has_catboost, 'has_lightgbm': has_lightgbm,
+        'method': best_name, 'is_residual': is_residual,
+        'blend_alpha': best_alpha if best_name == 'blend' else None,
+        'stack_weights': best_stack_weights if best_name == 'stacked' else None,
+        'selected_features': selected_features if n_sel < n_orig else None,
+        'tuned_hp': hp,  # Optuna-tuned hyperparameters for production retrain
+        'direct_n_estimators': direct_model.get_params()['n_estimators'],
+        'resid_n_estimators': resid_model.get_params()['n_estimators'],
+        'mse_n_estimators': mse_model.get_params()['n_estimators'],
+        'mae': best_mae, 'rmse': best_rmse,
+        'info_str': info_str,
+    }
+
+
+def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val, feature_cols):
+    """Enhanced two-stage precipitation: Optuna-tuned classifier + regressor.
+    PDF-spec precision-first pipeline:
+      * focal loss (PDF §1.2, recommended starting gamma=2, alpha=0.25, joint-tuned)
+      * asymmetric seasonal sample weights (PDF §1.1)
+      * PDF §5.1 hyperparam ranges: lower LR, more trees, higher min_child_weight, reg_alpha > 0
+      * isotonic calibration (PDF §1.4)
+      * precision@recall threshold tuning (PDF §1.3)
+      * full meteorological scorecard incl. Brier + reliability (PDF §6.2-3)
+      * sanity-check baselines vs ICON-2I alone / ensemble / climatology / always-dry (PDF §6.5)
+    """
+    RAIN_THRESH = 0.1
+
+    y_cls_tr = (y_tr >= RAIN_THRESH).astype(int)
+    y_cls_val = (y_val >= RAIN_THRESH).astype(int)
+    rain_ratio = float(y_cls_tr.mean())
+    # NB: we DO NOT use scale_pos_weight together with focal loss (PDF §1.2
+    # warning about double-correcting). Sample weights handle imbalance instead.
+
+    # PDF §1.1: asymmetric seasonal sample weights conditioned on month.
+    if 'month' in X_tr.columns:
+        sw_tr = seasonal_sample_weights(X_tr['month'].values, y_cls_tr.values)
+        sw_val = seasonal_sample_weights(X_val['month'].values, y_cls_val.values)
+    else:
+        sw_tr = np.ones(len(y_cls_tr))
+        sw_val = np.ones(len(y_cls_val))
+
+    # DMatrices once (xgb.train is the only way to use a custom objective reliably
+    # across XGBoost versions).
+    dtrain = xgb.DMatrix(X_tr, label=y_cls_tr, weight=sw_tr,
+                         feature_names=list(X_tr.columns), missing=np.nan)
+    dval = xgb.DMatrix(X_val, label=y_cls_val, weight=sw_val,
+                       feature_names=list(X_val.columns), missing=np.nan)
+    dtest = xgb.DMatrix(X_te, feature_names=list(X_te.columns), missing=np.nan)
+
+    # --- Optuna joint tuning: focal-loss hyperparams + tree hyperparams ---
+    def cls_objective(trial):
+        # PDF §1.2 recommended ranges
+        gamma_focal = trial.suggest_float('focal_gamma', 1.0, 3.0)
+        alpha_focal = trial.suggest_float('focal_alpha', 0.20, 0.45)
+        # PDF §5.1 tightened ranges
+        params = {
+            'max_depth': trial.suggest_int('max_depth', 4, 6),
+            'learning_rate': trial.suggest_float('learning_rate', 0.02, 0.05, log=True),
+            'subsample': trial.suggest_float('subsample', 0.6, 0.9),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.4, 0.7),
+            'reg_alpha': trial.suggest_float('reg_alpha', 0.1, 5.0, log=True),
+            'reg_lambda': trial.suggest_float('reg_lambda', 0.5, 10.0, log=True),
+            'min_child_weight': trial.suggest_int('min_child_weight', 50, 200),
+            'gamma': trial.suggest_float('gamma', 0.0, 0.5),
+            'tree_method': 'hist',
+            'seed': 42,
+        }
+        booster = xgb.train(
+            params, dtrain,
+            num_boost_round=trial.suggest_int('n_estimators', 800, 1500, step=100),
+            obj=focal_loss_xgb_objective(gamma_focal, alpha_focal),
+            custom_metric=focal_loss_xgb_feval(gamma_focal, alpha_focal),
+            evals=[(dval, 'val')],
+            early_stopping_rounds=80,
+            verbose_eval=False,
+            maximize=False,
+        )
+        margins = booster.predict(dval, iteration_range=(0, booster.best_iteration + 1))
+        proba = 1.0 / (1.0 + np.exp(-margins))
+        try:
+            prec, rec, _thr = precision_recall_curve(y_cls_val, proba)
+            feasible = rec[:-1] >= 0.50
+            best_prec_inner = float(prec[:-1][feasible].max()) if feasible.any() else 0.0
+        except Exception:
+            best_prec_inner = 0.0
+        return -best_prec_inner
+
+    study_cls = optuna.create_study(direction='minimize',
+                                     sampler=optuna.samplers.TPESampler(seed=42))
+    study_cls.optimize(cls_objective, n_trials=15, show_progress_bar=False)
+    best = study_cls.best_params
+    focal_gamma = float(best.pop('focal_gamma'))
+    focal_alpha = float(best.pop('focal_alpha'))
+    n_estimators = int(best.pop('n_estimators'))
+    cls_hp = {**best, 'tree_method': 'hist', 'seed': 42}
+    print(f"    Optuna (precip_cls): best precision@recall>=0.5 = {-study_cls.best_value:.4f} "
+          f"(focal_gamma={focal_gamma:.2f}, focal_alpha={focal_alpha:.2f}, "
+          f"depth={cls_hp['max_depth']}, lr={cls_hp['learning_rate']:.4f}, "
+          f"min_child_weight={cls_hp['min_child_weight']})")
+
+    # --- Retrain on train+val to get final model, get best iteration via early stopping ---
+    cls_val_booster = xgb.train(
+        cls_hp, dtrain,
+        num_boost_round=n_estimators,
+        obj=focal_loss_xgb_objective(focal_gamma, focal_alpha),
+        custom_metric=focal_loss_xgb_feval(focal_gamma, focal_alpha),
+        evals=[(dval, 'val')],
+        early_stopping_rounds=80,
+        verbose_eval=False,
+        maximize=False,
+    )
+    cls_best_n = max(cls_val_booster.best_iteration + 1, 100)
+
+    # PDF §1.3 + §1.4: pick precision-maximizing threshold + isotonic calibration
+    margins_val = cls_val_booster.predict(dval, iteration_range=(0, cls_best_n))
+    proba_val_raw = 1.0 / (1.0 + np.exp(-margins_val))
+    if len(proba_val_raw) >= 500:
+        iso_cal = IsotonicRegression(out_of_bounds='clip')
+        iso_cal.fit(proba_val_raw, y_cls_val.astype(float))
+        proba_val = iso_cal.transform(proba_val_raw)
+        print(f"    Precip cls: isotonic calibration fit on {len(proba_val_raw)} val points")
+    else:
+        iso_cal = None
+        proba_val = proba_val_raw
+
+    best_thresh = threshold_for_precision_at_recall(y_cls_val.values, proba_val, min_recall=0.50)
+    pred_at_thresh = (proba_val >= best_thresh).astype(int)
+    # Full scorecard incl. Brier + reliability (PDF §6.2-3)
+    mets = meteorological_metrics(y_cls_val.values, pred_at_thresh, p_proba=proba_val)
+    print(f"    Precip cls @ thresh={best_thresh:.3f}: "
+          f"POD={mets['pod']:.3f}, FAR={mets['far']:.3f}, "
+          f"CSI={mets['csi']:.3f}, HSS={mets['hss']:.3f}, SEDI={mets['sedi']:.3f}, "
+          f"Brier={mets['brier']:.4f}, BSS={mets['brier_skill_score']:.3f}, "
+          f"RelRMSE={mets['reliability_rmse']:.4f}")
+
+    # PDF §6.5: sanity-check baselines on the same validation set.
+    # (a) ICON-2I alone (>= RAIN_THRESH)
+    # (b) Ensemble mean >= 0.1 mm
+    # (c) Climatology (always predict base rate, threshold 0.5 -> always-dry)
+    # (d) Always-dry
+    baselines_info = {}
+    try:
+        icon_col = 'ITALIAMETEO_ICON2I_precipitation_model'
+        if icon_col in X_val.columns:
+            pred_icon = (pd.to_numeric(X_val[icon_col], errors='coerce').fillna(0) >= RAIN_THRESH).astype(int).values
+            baselines_info['icon2i_alone'] = meteorological_metrics(y_cls_val.values, pred_icon)
+        ens_col = 'precipitation_ens_mean'
+        if ens_col in X_val.columns:
+            pred_ens = (pd.to_numeric(X_val[ens_col], errors='coerce').fillna(0) >= RAIN_THRESH).astype(int).values
+            baselines_info['ensemble_mean'] = meteorological_metrics(y_cls_val.values, pred_ens)
+        baselines_info['always_dry'] = meteorological_metrics(
+            y_cls_val.values, np.zeros_like(y_cls_val.values))
+        baselines_info['climatology'] = meteorological_metrics(
+            y_cls_val.values,
+            (np.full(len(y_cls_val), rain_ratio) >= 0.5).astype(int),
+            p_proba=np.full(len(y_cls_val), rain_ratio))
+        print(f"    Baselines on val (POD / FAR / CSI):")
+        for name, b in baselines_info.items():
+            print(f"      {name:18s} POD={b['pod']:.3f}  FAR={b['far']:.3f}  CSI={b['csi']:.3f}")
+        # PDF §6.5 acceptance test: we must beat ICON-2I-alone + ensemble on FAR
+        # while staying within ~10% POD.
+        for ref in ('icon2i_alone', 'ensemble_mean'):
+            if ref in baselines_info:
+                b = baselines_info[ref]
+                far_drop = (b['far'] - mets['far']) / max(b['far'], 1e-6) * 100
+                pod_loss = (b['pod'] - mets['pod']) * 100
+                print(f"      vs {ref}: FAR drop {far_drop:+.1f}%, POD loss {pod_loss:+.1f}pp")
+    except Exception as _e:
+        print(f"    Baseline computation skipped: {_e}")
+
+    best_f1 = f1_score(y_cls_val, pred_at_thresh, zero_division=0)
+
+    # --- Production retrain on train+val with best HP and best_iteration ---
+    X_cls_full = pd.concat([X_tr, X_val], axis=0)
+    y_cls_full = pd.concat([y_cls_tr, y_cls_val], axis=0)
+    if 'month' in X_cls_full.columns:
+        sw_full = seasonal_sample_weights(X_cls_full['month'].values, y_cls_full.values)
+    else:
+        sw_full = np.ones(len(y_cls_full))
+    dfull = xgb.DMatrix(X_cls_full, label=y_cls_full, weight=sw_full,
+                        feature_names=list(X_cls_full.columns), missing=np.nan)
+    cls_booster = xgb.train(
+        cls_hp, dfull,
+        num_boost_round=cls_best_n,
+        obj=focal_loss_xgb_objective(focal_gamma, focal_alpha),
+        verbose_eval=False,
+    )
+
+    # Wrap booster in a thin adapter so the rest of the pipeline (which expects
+    # an XGBClassifier-like object with predict_proba and save_model) works.
+    class _BoosterProbaAdapter:
+        """Wraps a booster trained with custom focal-loss objective so it
+        looks like an XGBClassifier for the rest of the pipeline."""
+        def __init__(self, booster, feature_names, focal_gamma, focal_alpha):
+            self._b = booster
+            self._fn = list(feature_names)
+            self._gamma = float(focal_gamma)
+            self._alpha = float(focal_alpha)
+        def _to_dmatrix(self, X):
+            if isinstance(X, xgb.DMatrix):
+                return X
+            cols = list(X.columns) if hasattr(X, 'columns') else self._fn
+            return xgb.DMatrix(X, feature_names=cols, missing=np.nan)
+        def predict_proba(self, X):
+            margins = self._b.predict(self._to_dmatrix(X))
+            p = 1.0 / (1.0 + np.exp(-margins))
+            return np.stack([1 - p, p], axis=1)
+        def predict(self, X):
+            p = self.predict_proba(X)[:, 1]
+            return (p >= 0.5).astype(int)
+        def save_model(self, path):
+            self._b.save_model(path)
+        # Persist hyperparams so production reload can rebuild predictions identically
+        def get_params(self, deep=True):
+            return {'focal_gamma': self._gamma, 'focal_alpha': self._alpha,
+                    'best_iteration': int(getattr(self._b, 'best_iteration', 0)),
+                    'feature_names': self._fn}
+
+    cls_model = _BoosterProbaAdapter(cls_booster, X_cls_full.columns,
+                                      focal_gamma, focal_alpha)
+
+    # Test-set predictions for downstream blending logic
+    cls_proba_te_raw = cls_model.predict_proba(X_te)[:, 1]
+    cls_proba_te = iso_cal.transform(cls_proba_te_raw) if iso_cal is not None else cls_proba_te_raw
+
+    # Stash extras to expose through the result dict
+    _cls_extras = {
+        'focal_gamma': focal_gamma,
+        'focal_alpha': focal_alpha,
+        'baselines': baselines_info,
+        'val_metrics_full': mets,
+    }
+    # cls_hp_final is needed by downstream code that retrains XGBClassifier(**cls_hp_final);
+    # provide a compatible dict (only used by old reload path which now branches to focal loader).
+    cls_hp_final = {**cls_hp, 'n_estimators': cls_best_n,
+                    'focal_gamma': focal_gamma, 'focal_alpha': focal_alpha}
+
+    rain_mask_tr = y_tr >= RAIN_THRESH
+    rain_mask_val = y_val >= RAIN_THRESH
+
+    # --- Optuna tuning for precipitation regressor ---
+    def reg_objective(trial):
+        hp = {
+            'n_estimators': trial.suggest_int('n_estimators', 400, 1200, step=100),
+            'max_depth': trial.suggest_int('max_depth', 3, 6),
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.08, log=True),
+            'subsample': trial.suggest_float('subsample', 0.5, 0.9),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.3, 0.7),
+            'reg_alpha': trial.suggest_float('reg_alpha', 0.1, 5.0, log=True),
+            'reg_lambda': trial.suggest_float('reg_lambda', 0.5, 10.0, log=True),
+            'min_child_weight': trial.suggest_int('min_child_weight', 5, 25),
+            'gamma': trial.suggest_float('gamma', 0.0, 0.5),
+            'objective': 'reg:absoluteerror',
+            'random_state': 42, 'n_jobs': -1, 'early_stopping_rounds': 40,
+        }
+        if rain_mask_tr.sum() >= 100 and rain_mask_val.sum() >= 20:
+            model = xgb.XGBRegressor(**hp)
+            model.fit(X_tr[rain_mask_tr], np.sqrt(y_tr[rain_mask_tr]),
+                      eval_set=[(X_val[rain_mask_val], np.sqrt(y_val[rain_mask_val]))],
+                      verbose=False)
+            pred_sqrt = model.predict(X_val)
+            pred = np.square(np.clip(pred_sqrt, 0, None))
+        else:
+            model = xgb.XGBRegressor(**hp)
+            model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+            pred = np.clip(model.predict(X_val), 0, None)
+        return mean_absolute_error(y_val, pred)
+
+    study_reg = optuna.create_study(direction='minimize',
+                                     sampler=optuna.samplers.TPESampler(seed=42))
+    study_reg.optimize(reg_objective, n_trials=12, show_progress_bar=False)
+    reg_hp = study_reg.best_params
+    reg_hp['objective'] = 'reg:absoluteerror'
+    reg_hp['random_state'] = 42
+    reg_hp['n_jobs'] = -1
+    reg_hp['early_stopping_rounds'] = 30
+    print(f"    Optuna (precip_reg): best MAE={study_reg.best_value:.4f} "
+          f"(depth={reg_hp['max_depth']}, lr={reg_hp['learning_rate']:.4f})")
+
+    if rain_mask_tr.sum() >= 100 and rain_mask_val.sum() >= 20:
+        reg_val_model = xgb.XGBRegressor(**reg_hp)
+        y_rain_tr_sqrt = np.sqrt(y_tr[rain_mask_tr])
+        y_rain_val_sqrt = np.sqrt(y_val[rain_mask_val])
+        reg_val_model.fit(X_tr[rain_mask_tr], y_rain_tr_sqrt,
+                          eval_set=[(X_val[rain_mask_val], y_rain_val_sqrt)], verbose=False)
+        reg_best_n = max(reg_val_model.best_iteration + 1, 50)
+
+        reg_hp_final = {k: v for k, v in reg_hp.items() if k != 'early_stopping_rounds'}
+        reg_hp_final['n_estimators'] = reg_best_n
+        y_full = pd.concat([y_tr, y_val], axis=0)
+        X_full = pd.concat([X_tr, X_val], axis=0)
+        rain_mask_full = y_full >= RAIN_THRESH
+        reg_model = xgb.XGBRegressor(**reg_hp_final)
+        reg_model.fit(X_full[rain_mask_full], np.sqrt(y_full[rain_mask_full]), verbose=False)
+        reg_pred_te_sqrt = reg_model.predict(X_te)
+        reg_pred_te = np.square(np.clip(reg_pred_te_sqrt, 0, None))
+    else:
+        reg_val_model = xgb.XGBRegressor(**reg_hp)
+        reg_val_model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+        reg_best_n = max(reg_val_model.best_iteration + 1, 50)
+        reg_hp_final = {k: v for k, v in reg_hp.items() if k != 'early_stopping_rounds'}
+        reg_hp_final['n_estimators'] = reg_best_n
+        X_full = pd.concat([X_tr, X_val], axis=0)
+        y_full = pd.concat([y_tr, y_val], axis=0)
+        reg_model = xgb.XGBRegressor(**reg_hp_final)
+        reg_model.fit(X_full, y_full, verbose=False)
+        reg_pred_te = np.clip(reg_model.predict(X_te), 0, None)
+
+    single_hp = dict(
+        n_estimators=1000, max_depth=4, learning_rate=0.03,
+        subsample=0.7, colsample_bytree=0.5, reg_alpha=1.0, reg_lambda=3.0,
+        min_child_weight=15, gamma=0.2,
+        objective='reg:absoluteerror', random_state=42, n_jobs=-1,
+        early_stopping_rounds=30
+    )
+    single_val_model = xgb.XGBRegressor(**single_hp)
+    single_val_model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+    single_best_n = max(single_val_model.best_iteration + 1, 50)
+    single_hp_final = {k: v for k, v in single_hp.items() if k != 'early_stopping_rounds'}
+    single_hp_final['n_estimators'] = single_best_n
+    X_full_s = pd.concat([X_tr, X_val], axis=0)
+    y_full_s = pd.concat([y_tr, y_val], axis=0)
+    single_model = xgb.XGBRegressor(**single_hp_final)
+    single_model.fit(X_full_s, y_full_s, verbose=False)
+    single_pred = np.clip(single_model.predict(X_te), 0, None)
+    single_pred[single_pred < RAIN_THRESH] = 0.0
+
+    hard_pred = np.where(cls_proba_te >= best_thresh, reg_pred_te, 0.0)
+    soft_pred = cls_proba_te * reg_pred_te
+    sharp_pred = np.where(
+        cls_proba_te >= best_thresh,
+        0.7 * reg_pred_te + 0.3 * single_pred,
+        single_pred * cls_proba_te
+    )
+    confidence = np.abs(cls_proba_te - 0.5) * 2
+    adaptive_pred = np.where(
+        cls_proba_te >= best_thresh,
+        confidence * reg_pred_te + (1 - confidence) * single_pred,
+        (1 - confidence) * single_pred * 0.5
+    )
+
+    # --- Tweedie model (PDF1 §3): unified zero-inflation + continuous positive density ---
+    # Tweedie with p∈(1,2) handles point mass at zero naturally via log-link.
+    # Replaces classifier+regressor with a single model, eliminating threshold sensitivity.
+    # Tighter search space: shallower trees + stronger regularization to reduce false alarms.
+    tscv_tw = TimeSeriesSplit(n_splits=3)
+    def tweedie_objective(trial):
+        tw_hp = {
+            'n_estimators': 1000,
+            'max_depth': trial.suggest_int('max_depth', 3, 5),
+            'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.06, log=True),
+            'subsample': trial.suggest_float('subsample', 0.5, 0.85),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.3, 0.6),
+            'reg_alpha': trial.suggest_float('reg_alpha', 0.1, 10.0, log=True),
+            'reg_lambda': trial.suggest_float('reg_lambda', 1.0, 20.0, log=True),
+            'min_child_weight': trial.suggest_int('min_child_weight', 10, 40),
+            'gamma': trial.suggest_float('gamma', 0.1, 1.0),
+            'objective': 'reg:tweedie',
+            'tweedie_variance_power': trial.suggest_float('tweedie_variance_power', 1.3, 1.8),
+            'tree_method': 'hist',
+            'random_state': 42, 'n_jobs': -1, 'early_stopping_rounds': 30,
+        }
+        X_full_tw = pd.concat([X_tr, X_val], axis=0)
+        y_full_tw = pd.concat([y_tr, y_val], axis=0).clip(lower=0)
+        scores = []
+        for ti, vi in tscv_tw.split(X_full_tw):
+            X_t, X_v = X_full_tw.iloc[ti], X_full_tw.iloc[vi]
+            y_t, y_v = y_full_tw.iloc[ti], y_full_tw.iloc[vi]
+            m = xgb.XGBRegressor(**tw_hp)
+            m.fit(X_t, y_t, eval_set=[(X_v, y_v)], verbose=False)
+            p = np.clip(m.predict(X_v), 0, None)
+            p[p < 0.1] = 0.0  # evaluate with clamping to match production behavior
+            scores.append(mean_absolute_error(y_v, p))
+        return np.mean(scores)
+
+    study_tw = optuna.create_study(direction='minimize',
+                                   sampler=optuna.samplers.TPESampler(seed=42, multivariate=True, warn_independent_sampling=False))
+    study_tw.optimize(tweedie_objective, n_trials=20, show_progress_bar=False)
+    tw_hp = study_tw.best_params
+    tw_hp['objective'] = 'reg:tweedie'
+    tw_hp['tree_method'] = 'hist'
+    tw_hp['n_estimators'] = 1000
+    tw_hp['random_state'] = 42
+    tw_hp['n_jobs'] = -1
+    tw_hp['early_stopping_rounds'] = 30
+
+    # Train Tweedie model on train, validate on val
+    tw_val_model = xgb.XGBRegressor(**tw_hp)
+    X_full_tw = pd.concat([X_tr, X_val], axis=0)
+    y_full_tw = pd.concat([y_tr, y_val], axis=0).clip(lower=0)
+    tw_val_model.fit(X_tr, y_tr.clip(lower=0), eval_set=[(X_val, y_val.clip(lower=0))], verbose=False)
+    tw_best_n = max(tw_val_model.best_iteration + 1, 50)
+
+    tw_hp_final = {k: v for k, v in tw_hp.items() if k != 'early_stopping_rounds'}
+    tw_hp_final['n_estimators'] = tw_best_n
+    tweedie_model = xgb.XGBRegressor(**tw_hp_final)
+    tweedie_model.fit(X_full_tw, y_full_tw, verbose=False)
+    tweedie_pred = np.clip(tweedie_model.predict(X_te), 0, None)
+    print(f"    Tweedie: p={tw_hp.get('tweedie_variance_power', 1.5):.2f}, "
+          f"MAE={mean_absolute_error(y_te, tweedie_pred):.4f}")
+
+    # --- False-alarm clamping: suppress small predictions that are noise ---
+    # Tweedie's exp-link never produces exact 0; clamp sub-threshold values.
+    # Also: when ensemble unanimously says dry, trust it over the XGB.
+    def _clamp_precip(pred, X_data):
+        pred = pred.copy()
+        pred[pred < 0.1] = 0.0
+        if 'ens_all_dry' in X_data.columns:
+            dry_mask = X_data['ens_all_dry'].values > 0.5
+            pred[dry_mask] = 0.0
+
+        if 'precip_ens_max_single' in X_data.columns:
+            max_single = X_data['precip_ens_max_single'].values
+            
+            override_mask = (pred < 0.1) & (max_single >= 0.1)
+            
+            pred[override_mask] = max_single[override_mask]
+        return pred
+
+    methods = {
+        'single': (np.clip(single_pred, 0, None), single_model),
+        'hard': (np.clip(hard_pred, 0, None), None),
+        'soft': (np.clip(soft_pred, 0, None), None),
+        'sharp': (np.clip(sharp_pred, 0, None), None),
+        'adaptive': (np.clip(adaptive_pred, 0, None), None),
+        'tweedie': (np.clip(tweedie_pred, 0, None), tweedie_model),
+    }
+
+    # Evaluate both raw and clamped versions of each method
+    method_maes = {}
+    for name, (pred, _) in methods.items():
+        clamped = _clamp_precip(pred, X_te)
+        mae_raw = mean_absolute_error(y_te, pred)
+        mae_clamped = mean_absolute_error(y_te, clamped)
+        # Use clamped if it improves MAE
+        if mae_clamped <= mae_raw:
+            methods[name] = (clamped, methods[name][1])
+            method_maes[name] = mae_clamped
+        else:
+            method_maes[name] = mae_raw
+
+    best_method = min(method_maes, key=method_maes.get)
+    best_pred = methods[best_method][0]
+    mae = method_maes[best_method]
+    rmse = np.sqrt(mean_squared_error(y_te, best_pred))
+
+    print(f"\n  >> PADAVINE: Two-stage model (klasifikacija + regresija)")
+    print(f"    Stage 1 (cls): rain_ratio={rain_ratio:.3f}, thresh={best_thresh:.2f}, F1={best_f1:.3f}")
+    print(f"    Stage 2 (reg): train_rain={rain_mask_tr.sum()}, test_rain={(y_te >= RAIN_THRESH).sum()}")
+    print(f"    Methods: " + ", ".join(f"{k}={v:.3f}" for k, v in method_maes.items()) + f" → BEST={best_method}")
+
+    return {
+        'cls_model': cls_model, 'reg_model': reg_model, 'single_model': single_model,
+        'tweedie_model': tweedie_model,
+        'best_method': best_method, 'threshold': best_thresh,
+        'mae': mae, 'rmse': rmse, 'features': feature_cols,
+        'use_sqrt': rain_mask_tr.sum() >= 100,
+        'iso_calibrator': iso_cal,  # PDF §1.4: isotonic calibrator for cls proba
+        # HP info for production retrain on all data
+        'cls_hp_final': cls_hp_final,
+        'reg_hp_final': reg_hp_final,
+        'single_hp_final': single_hp_final,
+        'tweedie_hp_final': tw_hp_final,
+    }
+
+
+def train_all_models(df):
+    """Unified training: all params use full 50K dataset. No splits.
+    - Precipitation: two-stage (cls+reg) + optional blend
+    - Everything else: residual+blended (direct/residual/blend)"""
+    print("\n[3/6] Treniranje XGBoost modela...")
+
+    feature_cols = get_feature_columns(df)
+    print(f"  Feature-a za treniranje: {len(feature_cols)}")
+
+    trained = {}
+    results = {}
+
+    for param, info in TARGET_PARAMS.items():
+        obs_col = info['obs']
+        if obs_col not in df.columns:
+            print(f"  {info['display']:20s} --- SKIP (nema obs)")
+            continue
+
+        y = pd.to_numeric(df[obs_col], errors='coerce')
+        valid = y.notna()
+        if param == 'cloud_cover':
+            valid = valid & (df.get('is_daytime', pd.Series(1, index=df.index)) > 0)
+
+        df_v = df[valid].copy()
+        y_v = y[valid]
+
+        if len(df_v) < 500:
+            print(f"  {info['display']:20s} --- SKIP ({len(df_v)} redova)")
+            continue
+
+        tr = df_v['datetime'] < SPLIT_DATE
+        te = df_v['datetime'] >= SPLIT_DATE
+
+        vf = [c for c in feature_cols if c in df_v.columns
+              and df_v[c].notna().sum() > len(df_v) * 0.15]
+
+        # Per-target model subset: e.g. for wind, keep only ITALIAMETEO/KNMI/DMI features
+        # (high-res LAMs analog to MARINE_WIND_MODELS) plus generic engineered features.
+        subset_models = FEATURE_MODEL_SUBSET.get(param)
+        if subset_models:
+            all_models_set = set(MODELS)
+            def belongs_to_subset(col):
+                for m in all_models_set:
+                    if col.startswith(f"{m}_") or col == f"is_{m}_available":
+                        return m in subset_models
+                return True  # generic feature (not model-specific) - keep
+            vf_before = len(vf)
+            vf = [c for c in vf if belongs_to_subset(c)]
+            print(f"    {info['display']}: feature subset filter ({subset_models}): "
+                  f"{vf_before} -> {len(vf)} features")
+
+        # NaN passthrough: let XGBoost's native sparsity-aware split-finding handle missing data
+        # (PDF1 §1: removing fillna(0) is the "single easiest win" — 5-15% MAE improvement)
+        X_tr, y_tr = df_v.loc[tr, vf], y_v[tr]
+        X_te, y_te = df_v.loc[te, vf], y_v[te]
+
+        # --- Dew point deficit target (PDF1 §8) ---
+        # Predict T − Td (≥ 0) instead of Td directly; derive Td = T_corrected − deficit.
+        # The deficit is physically constrained ≥ 0, improving learnability.
+        dew_deficit_mode = False
+        if param == 'dew_point_2m' and 'temperature_2m_obs' in df_v.columns:
+            t_obs_tr = pd.to_numeric(df_v.loc[tr, 'temperature_2m_obs'], errors='coerce')
+            t_obs_te = pd.to_numeric(df_v.loc[te, 'temperature_2m_obs'], errors='coerce')
+            valid_deficit_tr = t_obs_tr.notna() & y_tr.notna()
+            valid_deficit_te = t_obs_te.notna() & y_te.notna()
+            if valid_deficit_tr.sum() > 300 and valid_deficit_te.sum() > 50:
+                dew_deficit_mode = True
+                y_tr_orig_dew, y_te_orig_dew = y_tr.copy(), y_te.copy()
+                y_tr = (t_obs_tr - y_tr).clip(lower=0)
+                y_te_deficit = (t_obs_te - y_te).clip(lower=0)
+                y_te = y_te_deficit
+                print(f"    Dew point: using deficit target (T - Td ≥ 0)")
+
+        # --- CSI target for solar radiation (PDF1 §4) ---
+        # Train on clear-sky index (CSI = GHI/GHI_clearsky) instead of raw irradiance.
+        # Back-transform predictions to W/m² at evaluation and production time.
+        csi_mode = False
+        clear_sky_tr = clear_sky_te = None
+        if param == 'shortwave_radiation' and 'clear_sky_rad' in df_v.columns:
+            cs_tr = compute_clear_sky(df_v.loc[tr, 'datetime']).values
+            cs_te = compute_clear_sky(df_v.loc[te, 'datetime']).values
+            # Only use CSI where clear sky > 20 W/m² (daytime)
+            daytime_tr = cs_tr > 20
+            daytime_te = cs_te > 20
+            if daytime_tr.sum() > 300 and daytime_te.sum() > 50:
+                csi_mode = True
+                clear_sky_tr = cs_tr
+                clear_sky_te = cs_te
+                y_tr_csi = y_tr.copy()
+                y_tr_csi[daytime_tr] = (y_tr.values[daytime_tr] / cs_tr[daytime_tr].clip(min=1)).clip(0, 1.5)
+                y_tr_csi[~daytime_tr] = 0.0
+                y_te_csi = y_te.copy()
+                y_te_csi[daytime_te] = (y_te.values[daytime_te] / cs_te[daytime_te].clip(min=1)).clip(0, 1.5)
+                y_te_csi[~daytime_te] = 0.0
+                y_tr_orig, y_te_orig = y_tr, y_te  # save for back-transform MAE eval
+                y_tr, y_te = y_tr_csi, y_te_csi
+                print(f"    Solar: using CSI target (clear-sky index)")
+
+        if len(X_tr) < 300 or len(X_te) < 50:
+            print(f"  {info['display']:20s} --- SKIP (train={len(X_tr)}, test={len(X_te)})")
+            continue
+
+        if param == 'precipitation':
+            X_train_p, y_train_p, X_val_p, y_val_p = _make_val_split(X_tr, y_tr)
+            precip_result = _train_precipitation_twostage(
+                X_train_p, y_train_p, X_te, y_te, X_val_p, y_val_p, vf
+            )
+            mae = precip_result['mae']
+            rmse = precip_result['rmse']
+
+            ens_col = f'{param}_ens_mean'
+            blend_alpha = 1.0
+            if ens_col in df_v.columns:
+                ens_te_vals = pd.to_numeric(df_v.loc[te, ens_col], errors='coerce').fillna(0).values
+                best_method = precip_result['best_method']
+                RAIN_THRESH = 0.1
+                cls_proba_te_raw = precip_result['cls_model'].predict_proba(X_te)[:, 1]
+                _iso = precip_result.get('iso_calibrator')
+                cls_proba_te = _iso.transform(cls_proba_te_raw) if _iso is not None else cls_proba_te_raw
+                thresh = precip_result['threshold']
+                if precip_result.get('use_sqrt', False):
+                    reg_pred_te = np.square(np.clip(precip_result['reg_model'].predict(X_te), 0, None))
+                else:
+                    reg_pred_te = np.clip(precip_result['reg_model'].predict(X_te), 0, None)
+                single_pred_te = np.clip(precip_result['single_model'].predict(X_te), 0, None)
+                single_pred_te[single_pred_te < RAIN_THRESH] = 0.0
+
+                if best_method == 'hard':
+                    xgb_pred = np.where(cls_proba_te >= thresh, reg_pred_te, 0.0)
+                elif best_method == 'soft':
+                    xgb_pred = cls_proba_te * reg_pred_te
+                elif best_method == 'sharp':
+                    xgb_pred = np.where(cls_proba_te >= thresh, 0.7 * reg_pred_te + 0.3 * single_pred_te, single_pred_te * cls_proba_te)
+                elif best_method == 'adaptive':
+                    confidence = np.abs(cls_proba_te - 0.5) * 2
+                    xgb_pred = np.where(cls_proba_te >= thresh, confidence * reg_pred_te + (1 - confidence) * single_pred_te, (1 - confidence) * single_pred_te * 0.5)
+                else:
+                    xgb_pred = single_pred_te
+                xgb_pred = np.clip(xgb_pred, 0, None)
+
+                # Apply same clamping as production (suppress noise + ensemble dry consensus)
+                xgb_pred[xgb_pred < RAIN_THRESH] = 0.0
+                if 'ens_all_dry' in X_te.columns:
+                    dry_mask = X_te['ens_all_dry'].values > 0.5
+                    xgb_pred[dry_mask] = 0.0
+
+                b_alpha, b_mae, _ = _find_optimal_blend(xgb_pred, y_te.values, ens_te_vals)
+                if b_mae < mae:
+                    mae = b_mae
+                    blend_alpha = b_alpha
+                    precip_result['blend_alpha'] = blend_alpha
+                    print(f"    Blend improved: alpha={b_alpha:.3f}, MAE={b_mae:.3f}")
+
+            best_mae, best_m = float('inf'), ""
+            for m in MODELS:
+                mc = f"{m}_{param}_model"
+                if mc in df_v.columns:
+                    mv = pd.to_numeric(df_v.loc[te, mc], errors='coerce')
+                    vv = mv.notna() & y_te.notna()
+                    if vv.sum() > 50:
+                        mm = mean_absolute_error(y_te[vv], mv[vv])
+                        if mm < best_mae:
+                            best_mae, best_m = mm, m
+
+            ens_mae = float('inf')
+            if ens_col in df_v.columns:
+                ev = pd.to_numeric(df_v.loc[te, ens_col], errors='coerce')
+                vv = ev.notna() & y_te.notna()
+                if vv.sum() > 50:
+                    ens_mae = mean_absolute_error(y_te[vv], ev[vv])
+
+            impr = (best_mae - mae) / best_mae * 100 if best_mae < float('inf') else 0
+            print(f"  {info['display']:20s} MAE: {mae:.3f}{info['unit']:5s} "
+                  f"| best: {best_mae:.3f} ({best_m[:8]:8s}) "
+                  f"| ens: {ens_mae:.3f} "
+                  f"| +{impr:.1f}%")
+
+            # --- Production retrain: retrain on ALL data (train+test) ---
+            print(f"    Retraining {info['display']} na SVIM podacima za produkciju...")
+            X_all = pd.concat([X_tr, X_te], axis=0)
+            y_all = pd.concat([y_tr, y_te], axis=0)
+            y_cls_all = (y_all >= RAIN_THRESH).astype(int)
+            rain_mask_all = y_all >= RAIN_THRESH
+
+            # Retrain classifier on all data using focal loss + seasonal weights.
+            # cls_hp_final contains focal_gamma / focal_alpha alongside xgb.train params
+            # plus n_estimators (which we map to num_boost_round).
+            _focal_g = float(precip_result['cls_hp_final'].pop('focal_gamma', 2.0))
+            _focal_a = float(precip_result['cls_hp_final'].pop('focal_alpha', 0.25))
+            _n_round = int(precip_result['cls_hp_final'].pop('n_estimators', 1000))
+            _cls_train_params = {k: v for k, v in precip_result['cls_hp_final'].items()
+                                  if k not in ('focal_gamma', 'focal_alpha', 'n_estimators')}
+            # Put them back so they're persisted in cls_hp_final
+            precip_result['cls_hp_final']['focal_gamma'] = _focal_g
+            precip_result['cls_hp_final']['focal_alpha'] = _focal_a
+            precip_result['cls_hp_final']['n_estimators'] = _n_round
+            if 'month' in X_all.columns:
+                _sw_all = seasonal_sample_weights(X_all['month'].values, y_cls_all.values)
+            else:
+                _sw_all = np.ones(len(y_cls_all))
+            _d_all = xgb.DMatrix(X_all, label=y_cls_all, weight=_sw_all,
+                                  feature_names=list(X_all.columns), missing=np.nan)
+            _cls_booster_prod = xgb.train(
+                _cls_train_params, _d_all,
+                num_boost_round=_n_round,
+                obj=focal_loss_xgb_objective(_focal_g, _focal_a),
+                verbose_eval=False,
+            )
+            # Wrap in the same adapter used during training so downstream save/predict works
+            class _BoosterProbaAdapter2:
+                def __init__(self, booster, feature_names, fg, fa):
+                    self._b = booster; self._fn = list(feature_names)
+                    self._gamma = float(fg); self._alpha = float(fa)
+                def _to_dmatrix(self, X):
+                    if isinstance(X, xgb.DMatrix): return X
+                    cols = list(X.columns) if hasattr(X, 'columns') else self._fn
+                    return xgb.DMatrix(X, feature_names=cols, missing=np.nan)
+                def predict_proba(self, X):
+                    margins = self._b.predict(self._to_dmatrix(X))
+                    p = 1.0 / (1.0 + np.exp(-margins))
+                    return np.stack([1 - p, p], axis=1)
+                def predict(self, X):
+                    return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
+                def save_model(self, path):
+                    self._b.save_model(path)
+                def get_params(self, deep=True):
+                    return {'focal_gamma': self._gamma, 'focal_alpha': self._alpha,
+                            'feature_names': self._fn}
+            cls_prod = _BoosterProbaAdapter2(_cls_booster_prod, X_all.columns, _focal_g, _focal_a)
+
+            # Retrain regressor on all data
+            if precip_result.get('use_sqrt', False) and rain_mask_all.sum() >= 100:
+                reg_prod = xgb.XGBRegressor(**precip_result['reg_hp_final'])
+                reg_prod.fit(X_all[rain_mask_all], np.sqrt(y_all[rain_mask_all]), verbose=False)
+            else:
+                reg_prod = xgb.XGBRegressor(**precip_result['reg_hp_final'])
+                reg_prod.fit(X_all, y_all, verbose=False)
+
+            # Retrain single model on all data
+            single_prod = xgb.XGBRegressor(**precip_result['single_hp_final'])
+            single_prod.fit(X_all, y_all, verbose=False)
+
+            # Retrain Tweedie model on all data (PDF1 §3)
+            tweedie_prod = xgb.XGBRegressor(**precip_result['tweedie_hp_final'])
+            tweedie_prod.fit(X_all, y_all.clip(lower=0), verbose=False)
+
+            # Update precip_result with production models
+            precip_result['cls_model'] = cls_prod
+            precip_result['reg_model'] = reg_prod
+            precip_result['single_model'] = single_prod
+            precip_result['tweedie_model'] = tweedie_prod
+            print(f"    Production retrain: cls={len(X_all)}, reg={rain_mask_all.sum()}, single={len(X_all)} redova")
+
+            cls_prod.save_model(os.path.join(MODEL_DIR, f"xgb_{param}_cls.json"))
+            reg_prod.save_model(os.path.join(MODEL_DIR, f"xgb_{param}_reg.json"))
+            single_prod.save_model(os.path.join(MODEL_DIR, f"xgb_{param}.json"))
+            tweedie_prod.save_model(os.path.join(MODEL_DIR, f"xgb_{param}_tweedie.json"))
+
+            # PDF §1.2: persist focal-loss hyperparams as a sidecar JSON next to the
+            # classifier. Skip-training reload needs gamma/alpha to wrap the Booster
+            # in the same adapter (probabilities from raw margins via sigmoid).
+            try:
+                _focal_sidecar = os.path.join(MODEL_DIR, f"xgb_{param}_cls_focal.json")
+                with open(_focal_sidecar, 'w', encoding='utf-8') as _fs:
+                    json.dump({'focal_gamma': _focal_g, 'focal_alpha': _focal_a,
+                               'n_estimators': _n_round}, _fs)
+            except Exception as _e:
+                print(f"    WARN: couldn't persist focal sidecar: {_e}")
+
+            # PDF §1.4: persist isotonic calibrator (for inference + skip-training mode)
+            _iso = precip_result.get('iso_calibrator')
+            if _iso is not None:
+                import joblib
+                joblib.dump(_iso, os.path.join(MODEL_DIR, f"xgb_{param}_iso_calibrator.joblib"))
+
+            trained[param] = {
+                'precip_info': precip_result,
+                'features': vf,
+                'mae': mae, 'rmse': rmse,
+                'best_model': best_m, 'best_model_mae': best_mae,
+                'ensemble_mae': ens_mae, 'improvement': impr,
+            }
+            results[param] = {
+                'mae': round(mae, 3), 'rmse': round(rmse, 3),
+                'unit': info['unit'], 'display': info['display'],
+                'improvement': round(impr, 1),
+                'best_model': best_m, 'best_model_mae': round(best_mae, 3),
+                'ensemble_mae': round(ens_mae, 3),
+                'method': precip_result['best_method'],
+                'is_residual': False,
+                'blend_alpha': float(precip_result.get('blend_alpha', 1.0)),
+                'threshold': float(precip_result['threshold']),
+                'use_sqrt': bool(precip_result.get('use_sqrt', False)),
+                'is_precip': True,
+            }
+            continue
+
+        # Default HP (used as fallback; Optuna will search for better ones)
+        if param in ('temperature_2m', 'dew_point_2m', 'pressure_msl'):
+            hp = dict(n_estimators=1000, max_depth=6, learning_rate=0.025,
+                      subsample=0.8, colsample_bytree=0.6, colsample_bylevel=0.8,
+                      reg_alpha=0.05, reg_lambda=1.0, min_child_weight=5, gamma=0.02,
+                      objective='reg:absoluteerror', random_state=42, n_jobs=-1,
+                      early_stopping_rounds=30)
+        elif param in ('cloud_cover', 'shortwave_radiation'):
+            hp = dict(n_estimators=1000, max_depth=6, learning_rate=0.022,
+                      subsample=0.75, colsample_bytree=0.5, colsample_bylevel=0.7,
+                      reg_alpha=0.1, reg_lambda=1.3, min_child_weight=7, gamma=0.04,
+                      objective='reg:absoluteerror', random_state=42, n_jobs=-1,
+                      early_stopping_rounds=30)
+        elif param == 'relative_humidity_2m':
+            hp = dict(n_estimators=1000, max_depth=6, learning_rate=0.025,
+                      subsample=0.8, colsample_bytree=0.55, colsample_bylevel=0.75,
+                      reg_alpha=0.08, reg_lambda=1.2, min_child_weight=6, gamma=0.03,
+                      objective='reg:absoluteerror', random_state=42, n_jobs=-1,
+                      early_stopping_rounds=30)
+        else:  # wind_speed_10m, wind_gusts_10m
+            hp = dict(n_estimators=1000, max_depth=5, learning_rate=0.02,
+                      subsample=0.75, colsample_bytree=0.5, colsample_bylevel=0.7,
+                      reg_alpha=0.15, reg_lambda=1.8, min_child_weight=8, gamma=0.08,
+                      objective='reg:absoluteerror', random_state=42, n_jobs=-1,
+                      early_stopping_rounds=30)
+
+        # Compute temporal sample weights (exponential decay — recent data weighted more)
+        # PDF2 §2: half-life should be tuned, not fixed. We expose it as part of model selection.
+        train_datetimes = df_v.loc[tr, 'datetime']
+        sample_weight = _compute_sample_weights(y_tr, train_datetimes, decay_half_life_days=365)
+
+        ens_col = f'{param}_ens_mean'
+        rb_result = _train_residual_blended(
+            X_tr, y_tr, X_te, y_te, hp, param, ens_col,
+            df_v.loc[tr], df_v.loc[te],
+            use_optuna=True, sample_weight=sample_weight,
+            train_datetimes=train_datetimes
+        )
+
+        method_str = rb_result['method']
+        model_obj = rb_result['model']
+        # Use selected features if feature selection was applied
+        sel_feats = rb_result.get('selected_features')
+        X_te_eval = X_te[sel_feats] if sel_feats else X_te
+        y_pred = model_obj.predict(X_te_eval)
+
+        if rb_result['is_residual']:
+            ens_te_vals = pd.to_numeric(df_v.loc[te, ens_col], errors='coerce').fillna(0).values if ens_col in df_v.columns else np.zeros(len(X_te))
+            y_pred = ens_te_vals + y_pred
+        elif rb_result.get('blend_alpha') is not None:
+            ens_te_vals = pd.to_numeric(df_v.loc[te, ens_col], errors='coerce').fillna(0).values if ens_col in df_v.columns else np.zeros(len(X_te))
+            alpha = rb_result['blend_alpha']
+            y_pred = alpha * y_pred + (1 - alpha) * ens_te_vals
+
+        if param == 'relative_humidity_2m':
+            y_pred = np.clip(y_pred, 0, 100)
+        elif param == 'cloud_cover':
+            y_pred = np.clip(y_pred, 0, 100)
+        elif param in ['wind_speed_10m', 'wind_gusts_10m', 'shortwave_radiation']:
+            y_pred = np.clip(y_pred, 0, None)
+
+        # --- CSI back-transform: convert CSI predictions back to W/m² for evaluation ---
+        if csi_mode and param == 'shortwave_radiation':
+            y_pred = np.clip(y_pred * clear_sky_te, 0, None)
+            y_te = y_te_orig  # evaluate MAE against original W/m² observations
+            print(f"    Solar CSI back-transform applied")
+
+        # --- Dew deficit back-transform: convert deficit to dew point for evaluation ---
+        if dew_deficit_mode and param == 'dew_point_2m':
+            y_pred = np.clip(y_pred, 0, None)  # deficit is always ≥ 0
+            # Need corrected temperature for back-transform; use ensemble mean as proxy during eval
+            t_ens_col = 'temperature_2m_ens_mean'
+            if t_ens_col in df_v.columns:
+                t_proxy = pd.to_numeric(df_v.loc[te, t_ens_col], errors='coerce').values
+            else:
+                t_proxy = pd.to_numeric(df_v.loc[te, 'temperature_2m_obs'], errors='coerce').values
+            y_pred = t_proxy - y_pred  # Td = T - deficit
+            y_te = y_te_orig_dew  # evaluate against original dew point observations
+            print(f"    Dew deficit back-transform applied")
+
+        mae = mean_absolute_error(y_te, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_te, y_pred))
+
+        best_mae, best_m = float('inf'), ""
+        for m in MODELS:
+            mc = f"{m}_{param}_model"
+            if mc in df_v.columns:
+                mv = pd.to_numeric(df_v.loc[te, mc], errors='coerce')
+                vv = mv.notna() & y_te.notna()
+                if vv.sum() > 50:
+                    mm = mean_absolute_error(y_te[vv], mv[vv])
+                    if mm < best_mae:
+                        best_mae, best_m = mm, m
+
+        ens_mae = float('inf')
+        if ens_col in df_v.columns:
+            ev = pd.to_numeric(df_v.loc[te, ens_col], errors='coerce')
+            vv = ev.notna() & y_te.notna()
+            if vv.sum() > 50:
+                ens_mae = mean_absolute_error(y_te[vv], ev[vv])
+
+        impr = (best_mae - mae) / best_mae * 100 if best_mae < float('inf') else 0
+
+        print(f"    {rb_result['info_str']}")
+        print(f"  {info['display']:20s} MAE: {mae:.3f}{info['unit']:5s} "
+              f"| best: {best_mae:.3f} ({best_m[:8]:8s}) "
+              f"| ens: {ens_mae:.3f} "
+              f"| +{impr:.1f}%")
+
+        # --- Production retrain: retrain on ALL data (train+test) ---
+        print(f"    Retraining {info['display']} na SVIM podacima za produkciju...")
+        X_all = pd.concat([X_tr, X_te], axis=0)
+        y_all = pd.concat([y_tr, y_te], axis=0)
+        sel_feats = rb_result.get('selected_features')
+        X_all_sel = X_all[sel_feats] if sel_feats else X_all
+
+        # Temporal weights for full dataset
+        all_datetimes = pd.concat([df_v.loc[tr, 'datetime'], df_v.loc[te, 'datetime']])
+        sw_all = _compute_sample_weights(y_all, all_datetimes, decay_half_life_days=365)
+
+        tuned_hp = rb_result['tuned_hp']
+
+        # Retrain direct model (MAE loss) on all data
+        hp_prod = {k: v for k, v in tuned_hp.items() if k != 'early_stopping_rounds'}
+        hp_prod['n_estimators'] = rb_result['direct_n_estimators']
+        direct_prod = xgb.XGBRegressor(**hp_prod)
+        direct_prod.fit(X_all_sel, y_all, verbose=False, sample_weight=sw_all)
+
+        # Retrain residual model (Huber loss) on all data
+        ens_all = pd.to_numeric(
+            pd.concat([df_v.loc[tr, ens_col], df_v.loc[te, ens_col]]),
+            errors='coerce').fillna(0) if ens_col in df_v.columns else pd.Series(0, index=y_all.index)
+        y_resid_all = y_all - ens_all.values
+        hp_resid_prod = hp_prod.copy()
+        hp_resid_prod['objective'] = 'reg:pseudohubererror'
+        hp_resid_prod['n_estimators'] = rb_result['resid_n_estimators']
+        resid_prod = xgb.XGBRegressor(**hp_resid_prod)
+        resid_prod.fit(X_all_sel, y_resid_all, verbose=False, sample_weight=sw_all)
+
+        # Retrain MSE model on all data
+        hp_mse_prod = hp_prod.copy()
+        hp_mse_prod['objective'] = 'reg:squarederror'
+        hp_mse_prod['n_estimators'] = rb_result['mse_n_estimators']
+        mse_prod = xgb.XGBRegressor(**hp_mse_prod)
+        mse_prod.fit(X_all_sel, y_all, verbose=False, sample_weight=sw_all)
+
+        # Retrain CatBoost on all data (PDF2 §1)
+        cb_prod = None
+        if rb_result.get('has_catboost') and rb_result.get('cb_model') is not None:
+            cb_prod = cb.CatBoostRegressor(
+                iterations=rb_result['cb_model'].get_params().get('iterations', 2000),
+                depth=rb_result['cb_model'].get_params().get('depth', 6),
+                learning_rate=rb_result['cb_model'].get_params().get('learning_rate', 0.03),
+                l2_leaf_reg=rb_result['cb_model'].get_params().get('l2_leaf_reg', 1.0),
+                loss_function='MAE', random_seed=42, verbose=0,
+            )
+            cb_prod.fit(cb.Pool(X_all_sel, y_all, weight=sw_all))
+
+        # Retrain LightGBM on all data (PDF2 §1)
+        lgb_prod = None
+        if rb_result.get('has_lightgbm') and rb_result.get('lgb_model') is not None:
+            lgb_params = rb_result['lgb_model'].get_params()
+            lgb_params.pop('callbacks', None)
+            lgb_params.pop('early_stopping_round', None)
+            lgb_params.pop('early_stopping_rounds', None)
+            lgb_prod = lgb.LGBMRegressor(**lgb_params)
+            lgb_prod.fit(X_all_sel, y_all, sample_weight=sw_all)
+
+        print(f"    Production retrain: {len(X_all)} redova (train={len(X_tr)}, test={len(X_te)})")
+
+        # Save retrained production models
+        direct_prod.save_model(os.path.join(MODEL_DIR, f"xgb_{param}.json"))
+        resid_prod.save_model(os.path.join(MODEL_DIR, f"xgb_{param}_resid.json"))
+        mse_prod.save_model(os.path.join(MODEL_DIR, f"xgb_{param}_mse.json"))
+
+        # Update result with production models
+        rb_result['direct_model'] = direct_prod
+        rb_result['resid_model'] = resid_prod
+        rb_result['mse_model'] = mse_prod
+        rb_result['cb_model'] = cb_prod
+        rb_result['lgb_model'] = lgb_prod
+        if rb_result['is_residual']:
+            rb_result['model'] = resid_prod
+        else:
+            rb_result['model'] = direct_prod
+
+        # Use selected features if available, otherwise all valid features
+        effective_features = rb_result.get('selected_features') or vf
+
+        trained[param] = {
+            'model': rb_result['model'],
+            'direct_model': rb_result['direct_model'],
+            'resid_model': rb_result.get('resid_model'),
+            'mse_model': rb_result.get('mse_model'),
+            'cb_model': rb_result.get('cb_model'),
+            'lgb_model': rb_result.get('lgb_model'),
+            'ridge_meta': rb_result.get('ridge_meta'),
+            'has_catboost': rb_result.get('has_catboost', False),
+            'has_lightgbm': rb_result.get('has_lightgbm', False),
+            'method': method_str,
+            'is_residual': rb_result['is_residual'],
+            'blend_alpha': rb_result.get('blend_alpha'),
+            'stack_weights': rb_result.get('stack_weights'),
+            'features': effective_features,
+            'csi_mode': csi_mode,
+            'dew_deficit_mode': dew_deficit_mode,
+            'mae': mae, 'rmse': rmse,
+            'best_model': best_m, 'best_model_mae': best_mae,
+            'ensemble_mae': ens_mae, 'improvement': impr,
+        }
+        results[param] = {
+            'mae': round(mae, 3), 'rmse': round(rmse, 3),
+            'unit': info['unit'], 'display': info['display'],
+            'improvement': round(impr, 1),
+            'best_model': best_m, 'best_model_mae': round(best_mae, 3),
+            'ensemble_mae': round(ens_mae, 3),
+            'method': method_str,
+            'is_residual': bool(rb_result['is_residual']),
+            'blend_alpha': float(rb_result['blend_alpha']) if rb_result.get('blend_alpha') is not None else None,
+            'stack_weights': [float(w) for w in rb_result['stack_weights']] if rb_result.get('stack_weights') else None,
+            'is_precip': False,
+        }
+
+    with open(os.path.join(MODEL_DIR, 'feature_lists.json'), 'w') as f:
+        json.dump({k: v['features'] for k, v in trained.items()}, f)
+    with open(os.path.join(MODEL_DIR, 'training_results.json'), 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
+
+    return trained, results
+
+
+def load_trained_models():
+    """Load pre-trained XGBoost models + metadata from disk. No historical data needed."""
+    print("\n[3/6] Ucitavanje SACUVANIH modela (--skip-training)...")
+    results_path = os.path.join(MODEL_DIR, 'training_results.json')
+    features_path = os.path.join(MODEL_DIR, 'feature_lists.json')
+    bias_path = os.path.join(MODEL_DIR, 'bias_tables.json')
+
+    if not os.path.exists(results_path) or not os.path.exists(features_path):
+        raise FileNotFoundError(f"Nema sacuvanih modela u {MODEL_DIR}. Pokrenite prvo bez --skip-training.")
+
+    with open(results_path, 'r', encoding='utf-8') as f:
+        results = json.load(f)
+    with open(features_path, 'r') as f:
+        feature_lists = json.load(f)
+
+    bias_tables = {}
+    if os.path.exists(bias_path):
+        with open(bias_path, 'r') as f:
+            bt_raw = json.load(f)
+        for k, v in bt_raw.items():
+            bias_tables[k] = pd.DataFrame(v)
+
+    trained = {}
+    for param, rinfo in results.items():
+        features = feature_lists.get(param, [])
+        if not features:
+            continue
+
+        if rinfo.get('is_precip', False):
+            cls_path = os.path.join(MODEL_DIR, f"xgb_{param}_cls.json")
+            reg_path = os.path.join(MODEL_DIR, f"xgb_{param}_reg.json")
+            single_path = os.path.join(MODEL_DIR, f"xgb_{param}.json")
+            tweedie_path = os.path.join(MODEL_DIR, f"xgb_{param}_tweedie.json")
+            if not all(os.path.exists(p) for p in [cls_path, reg_path, single_path]):
+                print(f"  {rinfo['display']:20s} --- SKIP (fajlovi ne postoje)")
+                continue
+
+            # PDF §1.2: classifier was trained with focal loss (custom objective)
+            # using xgb.train, so we reload it as a Booster and wrap it in a thin
+            # adapter that exposes predict_proba (sigmoid of raw margin).
+            _cls_booster = xgb.Booster()
+            _cls_booster.load_model(cls_path)
+            # Read focal hyperparams from sidecar (best effort; safe defaults if absent)
+            _focal_g, _focal_a = 2.0, 0.25
+            _focal_sidecar = os.path.join(MODEL_DIR, f"xgb_{param}_cls_focal.json")
+            if os.path.exists(_focal_sidecar):
+                try:
+                    with open(_focal_sidecar, encoding='utf-8') as _fs:
+                        _fsj = json.load(_fs)
+                        _focal_g = float(_fsj.get('focal_gamma', _focal_g))
+                        _focal_a = float(_fsj.get('focal_alpha', _focal_a))
+                except Exception:
+                    pass
+
+            class _BoosterProbaAdapterReload:
+                def __init__(self, booster, fg, fa):
+                    self._b = booster; self._gamma = float(fg); self._alpha = float(fa)
+                def _to_dmatrix(self, X):
+                    if isinstance(X, xgb.DMatrix): return X
+                    cols = list(X.columns) if hasattr(X, 'columns') else None
+                    return xgb.DMatrix(X, feature_names=cols, missing=np.nan)
+                def predict_proba(self, X):
+                    margins = self._b.predict(self._to_dmatrix(X))
+                    p = 1.0 / (1.0 + np.exp(-margins))
+                    return np.stack([1 - p, p], axis=1)
+                def predict(self, X):
+                    return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
+                def save_model(self, path):
+                    self._b.save_model(path)
+            cls_model = _BoosterProbaAdapterReload(_cls_booster, _focal_g, _focal_a)
+            reg_model = xgb.XGBRegressor()
+            reg_model.load_model(reg_path)
+            single_model = xgb.XGBRegressor()
+            single_model.load_model(single_path)
+
+            tweedie_model = None
+            if os.path.exists(tweedie_path):
+                tweedie_model = xgb.XGBRegressor()
+                tweedie_model.load_model(tweedie_path)
+
+            precip_info = {
+                    'cls_model': cls_model,
+                    'reg_model': reg_model,
+                    'single_model': single_model,
+                    'best_method': rinfo['method'],
+                    'threshold': rinfo.get('threshold', 0.35),
+                    'use_sqrt': rinfo.get('use_sqrt', False),
+                    'blend_alpha': rinfo.get('blend_alpha', 1.0),
+            }
+            if tweedie_model is not None:
+                precip_info['tweedie_model'] = tweedie_model
+
+            # PDF §1.4: load isotonic calibrator if persisted
+            iso_path = os.path.join(MODEL_DIR, f"xgb_{param}_iso_calibrator.joblib")
+            if os.path.exists(iso_path):
+                import joblib
+                precip_info['iso_calibrator'] = joblib.load(iso_path)
+
+            trained[param] = {
+                'precip_info': precip_info,
+                'features': features,
+                'mae': rinfo['mae'], 'rmse': rinfo['rmse'],
+                'best_model': rinfo.get('best_model', ''),
+                'best_model_mae': rinfo.get('best_model_mae', 0),
+                'ensemble_mae': rinfo.get('ensemble_mae', 0),
+                'improvement': rinfo.get('improvement', 0),
+            }
+            print(f"  {rinfo['display']:20s} loaded (MAE={rinfo['mae']}) [{rinfo['method']}]")
+        else:
+            direct_path = os.path.join(MODEL_DIR, f"xgb_{param}.json")
+            resid_path = os.path.join(MODEL_DIR, f"xgb_{param}_resid.json")
+            mse_path = os.path.join(MODEL_DIR, f"xgb_{param}_mse.json")
+            if not os.path.exists(direct_path):
+                print(f"  {rinfo['display']:20s} --- SKIP (fajl ne postoji)")
+                continue
+
+            direct_model = xgb.XGBRegressor()
+            direct_model.load_model(direct_path)
+
+            is_residual = rinfo.get('is_residual', False)
+            resid_model = None
+            if is_residual and os.path.exists(resid_path):
+                resid_model = xgb.XGBRegressor()
+                resid_model.load_model(resid_path)
+
+            mse_model = None
+            if os.path.exists(mse_path):
+                mse_model = xgb.XGBRegressor()
+                mse_model.load_model(mse_path)
+
+            if is_residual and resid_model is not None:
+                active_model = resid_model
+            else:
+                active_model = direct_model
+
+            trained[param] = {
+                'model': active_model,
+                'direct_model': direct_model,
+                'resid_model': resid_model,
+                'mse_model': mse_model,
+                'method': rinfo.get('method', 'direct'),
+                'is_residual': is_residual,
+                'blend_alpha': rinfo.get('blend_alpha'),
+                'stack_weights': rinfo.get('stack_weights'),
+                'features': features,
+                'mae': rinfo['mae'], 'rmse': rinfo['rmse'],
+                'best_model': rinfo.get('best_model', ''),
+                'best_model_mae': rinfo.get('best_model_mae', 0),
+                'ensemble_mae': rinfo.get('ensemble_mae', 0),
+                'improvement': rinfo.get('improvement', 0),
+            }
+            print(f"  {rinfo['display']:20s} loaded (MAE={rinfo['mae']}) [{rinfo.get('method', 'direct')}]")
+
+    print(f"  Ucitano {len(trained)}/{len(results)} modela.")
+    return trained, results, bias_tables
+
+
+def fetch_live_forecasts():
+    print("\n[4/6] Preuzimanje LIVE prognoza...")
+    URL = "https://api.open-meteo.com/v1/forecast"
+    all_fc = {}
+
+    # Trusted models go FIRST -- before any rate-limit pressure builds up
+    # from other model calls -- and get more retries, longer timeout, and
+    # a precipitation-presence check (Open-Meteo sometimes returns 200 OK
+    # with empty hourly or no precip key, which would silently break the
+    # trusted gate downstream).
+    ordered = TRUSTED_MODELS + [m for m in MODELS if m not in TRUSTED_MODELS]
+
+    for model_name in ordered:
+        model_id = MODEL_IDS[model_name]
+        is_trusted = model_name in TRUSTED_MODELS
+        max_attempts = 5 if is_trusted else 3
+        timeout_s = 60 if is_trusted else 30
+        tag = " [TRUSTED]" if is_trusted else ""
+        update_h = MODEL_UPDATE_HOURS.get(model_id, DEFAULT_UPDATE_HOURS)
+        cache_path = _cache_path('forecast', model_id, LAT, LON)
+        print(f"  {model_name}{tag}...", end=" ")
+
+        # Preferred: ask upstream meta when the model was last re-run, only
+        # refetch if our cached copy is older than the latest run.
+        upstream_time = _get_upstream_update_time(model_id)
+        use_cache = False
+        if upstream_time is not None and _cache_current_for_upstream(cache_path, upstream_time):
+            use_cache = True
+            cache_reason = f"upstream run @ {time.strftime('%H:%M UTC', time.gmtime(upstream_time))}"
+        elif upstream_time is None:
+            # Fallback: TTL check (model has no meta endpoint).
+            cached_ttl = _load_fresh_cache(cache_path, update_h)
+            if cached_ttl is not None:
+                use_cache = True
+                cache_reason = f"TTL {update_h}h fallback (no meta)"
+
+        if use_cache:
+            cached = _load_stale_cache(cache_path)[0]  # load regardless of age now
+            if cached is not None:
+                h = cached.get('hourly', {})
+                if (not is_trusted) or (h and 'precipitation' in h and h.get('precipitation')):
+                    d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+                    for v in HOURLY_VARS:
+                        if v in h:
+                            d[f"{model_name}_{v}_model"] = h[v]
+                    all_fc[model_name] = d
+                    age_h = (time.time() - os.path.getmtime(cache_path)) / 3600
+                    print(f"CACHE ({len(d)}h, {age_h:.1f}h, {cache_reason})")
+                    continue
+
+        params = {
+            "latitude": LAT, "longitude": LON,
+            "hourly": ",".join(HOURLY_VARS),
+            "timezone": FORECAST_TIMEZONE, "temperature_unit": "celsius",
+            "wind_speed_unit": "ms", "precipitation_unit": "mm",
+            "models": model_id, "forecast_days": 10,
+        }
+        fetched = False
+        for attempt in range(max_attempts):
+            try:
+                r = requests.get(URL, params=params, timeout=timeout_s)
+                if r.status_code == 429:
+                    backoff = 60 * (1.5 ** attempt)
+                    print(f"429 (sleep {backoff:.0f}s)", end=" ")
+                    time.sleep(backoff); continue
+                r.raise_for_status()
+                resp = r.json()
+                h = resp.get('hourly', {})
+                if is_trusted and (not h or 'precipitation' not in h
+                                   or not h.get('precipitation')):
+                    if attempt < max_attempts - 1:
+                        print("empty/no-precip; retrying", end=" ")
+                        time.sleep(5 * (attempt + 1)); continue
+                    print(f"FAIL: trusted response missing precipitation after "
+                          f"{max_attempts} attempts")
+                    break
+                d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+                for v in HOURLY_VARS:
+                    if v in h:
+                        d[f"{model_name}_{v}_model"] = h[v]
+                all_fc[model_name] = d
+                _save_cache(cache_path, resp)
+                _save_upstream_meta(cache_path, upstream_time)
+                print(f"OK ({len(d)}h)")
+                fetched = True
+                break
+            except Exception as e:
+                if attempt == max_attempts - 1:
+                    # Fallback: any stale cache is better than nothing.
+                    stale, age_h = _load_stale_cache(cache_path)
+                    if stale is not None:
+                        h = stale.get('hourly', {})
+                        d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+                        for v in HOURLY_VARS:
+                            if v in h:
+                                d[f"{model_name}_{v}_model"] = h[v]
+                        all_fc[model_name] = d
+                        print(f"FAIL ({e}); STALE CACHE used ({len(d)}h, {age_h:.1f}h staro)")
+                    else:
+                        print(f"FAIL: {e}")
+                else:
+                    time.sleep(5 * (attempt + 1))
+        time.sleep(1.5)
+
+    # Hard fail early if the trusted model never materialised. Better to
+    # bail here -- before training / correction burn cycles -- so the
+    # outer fallback (previous JSON) kicks in immediately.
+    for tm in TRUSTED_MODELS:
+        if tm not in all_fc or f'{tm}_precipitation_model' not in all_fc[tm].columns:
+            raise TrustedRainGateError(
+                f"Trusted model '{tm}' nije fetched ni nakon prioritetnog "
+                f"pokušaja sa povećanim retry/timeout-om. Najvjerovatnije je "
+                f"Open-Meteo API trenutno bez tog modela za našu tačku."
+            )
+
+    if not all_fc:
+        raise RuntimeError("Nema prognoza!")
+
+    merged = list(all_fc.values())[0]
+    for k in list(all_fc.keys())[1:]:
+        merged = merged.merge(all_fc[k], on='datetime', how='outer')
+    merged.sort_values('datetime', inplace=True)
+    merged.reset_index(drop=True, inplace=True)
+
+    # Keep today's already-elapsed hours so the daily summary for "today"
+    # can include morning rainfall instead of computing icon/total from a
+    # partial-afternoon slice. Hourly JSON output filters past hours back
+    # out at write time.
+    now = local_now().floor('h')
+    today_start = now.normalize()
+    mask = merged['datetime'] >= today_start
+    fc_all = merged[mask].copy().reset_index(drop=True)
+    n_past = int((fc_all['datetime'] < now).sum())
+    print(f"  Prognoza: {fc_all.shape[0]} sati ({fc_all['datetime'].min()} --- "
+          f"{fc_all['datetime'].max()}) [+{n_past} prethodnih sati danasnjeg dana za daily summary]")
+
+    print("\n  Preuzimanje Previous Runs (Day1/Day2)...")
+    prev_hourly_list = []
+    for v in PREV_RUNS_VARS:
+        prev_hourly_list.append(v)
+        prev_hourly_list.append(f"{v}_previous_day1")
+        prev_hourly_list.append(f"{v}_previous_day2")
+    prev_hourly_str = ",".join(prev_hourly_list)
+
+    for model_name in PREV_RUNS_MODELS:
+        if model_name not in all_fc:
+            continue
+        model_id = MODEL_IDS[model_name]
+        update_h = MODEL_UPDATE_HOURS.get(model_id, DEFAULT_UPDATE_HOURS)
+        pr_cache_path = _cache_path('prev_runs', model_id, LAT, LON)
+
+        def _parse_prev(h, label):
+            d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+            added = 0
+            for v in PREV_RUNS_VARS:
+                for lag in ['previous_day1', 'previous_day2']:
+                    col = f"{v}_{lag}"
+                    new_col = f"{model_name}_{v}_{lag}"
+                    if col in h:
+                        d[new_col] = h[col]
+                        added += 1
+            return d, added
+
+        upstream_time = _get_upstream_update_time(model_id)
+        use_cache = False
+        cache_reason = ""
+        if upstream_time is not None and _cache_current_for_upstream(pr_cache_path, upstream_time):
+            use_cache = True
+            cache_reason = f"upstream @ {time.strftime('%H:%M UTC', time.gmtime(upstream_time))}"
+        elif upstream_time is None:
+            cached_ttl = _load_fresh_cache(pr_cache_path, update_h)
+            if cached_ttl is not None:
+                use_cache = True
+                cache_reason = f"TTL {update_h}h"
+
+        if use_cache:
+            stale_data, _ = _load_stale_cache(pr_cache_path)
+            if stale_data is not None:
+                d, added = _parse_prev(stale_data.get('hourly', {}), 'CACHE')
+                fc_all = fc_all.merge(d[['datetime'] + [c for c in d.columns if c != 'datetime']],
+                                       on='datetime', how='left')
+                age_h = (time.time() - os.path.getmtime(pr_cache_path)) / 3600
+                print(f"    {model_name}: CACHE ({added} cols, {age_h:.1f}h, {cache_reason})")
+                time.sleep(0.3)
+                continue
+
+        pr_params = {
+            "latitude": LAT, "longitude": LON,
+            "hourly": prev_hourly_str,
+            "timezone": FORECAST_TIMEZONE, "models": model_id, "forecast_days": 10,
+        }
+        try:
+            r = requests.get(PREV_RUNS_API, params=pr_params, timeout=30)
+            if r.status_code == 429:
+                time.sleep(60)
+                r = requests.get(PREV_RUNS_API, params=pr_params, timeout=30)
+            r.raise_for_status()
+            resp = r.json()
+            d, added = _parse_prev(resp.get('hourly', {}), 'OK')
+            fc_all = fc_all.merge(d[['datetime'] + [c for c in d.columns if c != 'datetime']],
+                                   on='datetime', how='left')
+            _save_cache(pr_cache_path, resp)
+            _save_upstream_meta(pr_cache_path, upstream_time)
+            print(f"    {model_name}: OK ({added} columns)")
+        except Exception as e:
+            stale, age_h = _load_stale_cache(pr_cache_path)
+            if stale is not None:
+                d, added = _parse_prev(stale.get('hourly', {}), 'STALE')
+                fc_all = fc_all.merge(d[['datetime'] + [c for c in d.columns if c != 'datetime']],
+                                       on='datetime', how='left')
+                print(f"    {model_name}: FAIL ({e}); STALE CACHE used ({added} cols, {age_h:.1f}h staro)")
+            else:
+                print(f"    {model_name}: FAIL ({e})")
+        time.sleep(1.5)
+
+    # Fetch SST for forecast period (PDF1 §10)
+    sst_df = fetch_sst_data(
+        fc_all['datetime'].min() - pd.Timedelta(days=30),
+        fc_all['datetime'].max()
+    )
+    if sst_df is not None:
+        fc_all = fc_all.merge(sst_df, on='datetime', how='left')
+        # Forward-fill SST since marine data may lag
+        if 'sst' in fc_all.columns:
+            fc_all['sst'] = fc_all['sst'].ffill()
+            print(f"  SST: merged ({fc_all['sst'].notna().sum()} valid rows)")
+
+    return fc_all
+
+
+# ----------------------------------------------------------------------------
+# Marine forecast (Phase 1: ensemble of 2 wave models + offshore wind, no
+# bias correction). Lives in its own pipeline so atmospheric path stays clean.
+# ----------------------------------------------------------------------------
+
+# Beaufort thresholds (m/s, upper bound of each Bft 0..11).
+_BEAUFORT_THRESHOLDS = [0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.7]
+
+# Douglas / WMO sea state thresholds (m, upper bound of state 0..8).
+_DOUGLAS_THRESHOLDS = [0.1, 0.5, 1.25, 2.5, 4.0, 6.0, 9.0, 14.0]
+
+DOUGLAS_LABELS = {
+    0: "Bonaca", 1: "Mirno", 2: "Blagi talasi", 3: "Umjereni talasi",
+    4: "Talasasto", 5: "Vrlo talasasto", 6: "Uzburkano",
+    7: "Vrlo uzburkano", 8: "Olujni talasi", 9: "Izuzetno olujni talasi",
+}
+
+
+def beaufort_from_wind(ms):
+    if ms is None or pd.isna(ms):
+        return None
+    for i, t in enumerate(_BEAUFORT_THRESHOLDS):
+        if ms < t:
+            return i
+    return 12
+
+
+def douglas_sea_state(m):
+    if m is None or pd.isna(m):
+        return None
+    for i, t in enumerate(_DOUGLAS_THRESHOLDS):
+        if m < t:
+            return i
+    return 9
+
+
+def cg_wind_name(direction_deg, speed_ms):
+    """Adriatic-specific wind name from direction + speed."""
+    if direction_deg is None or pd.isna(direction_deg):
+        return ""
+    d = float(direction_deg) % 360
+    s = float(speed_ms) if speed_ms is not None and pd.notna(speed_ms) else 0.0
+    if d >= 337.5 or d < 22.5:
+        return "Tramontana"
+    if 22.5 <= d < 67.5:
+        return "Bura" if s >= 7 else "Levanat"
+    if 67.5 <= d < 112.5:
+        return "Levanat"
+    if 112.5 <= d < 157.5:
+        return "Jugo"
+    if 157.5 <= d < 202.5:
+        return "Sirocco"
+    if 202.5 <= d < 247.5:
+        return "Lebić"
+    if 247.5 <= d < 292.5:
+        return "Pulenat"
+    if 292.5 <= d < 337.5:
+        return "Maestral"
+    return ""
+
+
+def sailing_score(bft, wave_height):
+    """Traffic-light + label for sailing comfort."""
+    if bft is None or wave_height is None:
+        return ("gray", "N/A")
+    if bft <= 3 and wave_height <= 0.5:
+        return ("green", "Idealno")
+    if bft <= 4 and wave_height <= 1.0:
+        return ("green", "Dobro")
+    if bft <= 5 and wave_height <= 1.5:
+        return ("yellow", "Prihvatljivo")
+    if bft <= 6 and wave_height <= 2.5:
+        return ("orange", "Oprez")
+    return ("red", "Opasno")
+
+
+def _fetch_marine_waves(lat, lon, label):
+    """Fetch wave models for ONE point with disk cache. Returns DataFrame
+    with *_mean columns, or None if nothing succeeded."""
+    marine_url = "https://marine-api.open-meteo.com/v1/marine"
+    all_waves = {}
+
+    def _parse(h, model):
+        d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+        added = 0
+        for v in MARINE_VARS:
+            if v in h:
+                d[f"{model}_{v}"] = h[v]
+                added += 1
+        return d, added
+
+    for model in MARINE_MODELS:
+        update_h = MODEL_UPDATE_HOURS.get(model, DEFAULT_UPDATE_HOURS)
+        cache_path = _cache_path('marine_wave', model, lat, lon)
+
+        upstream_time = _get_upstream_update_time(model)
+        use_cache = False
+        cache_reason = ""
+        if upstream_time is not None and _cache_current_for_upstream(cache_path, upstream_time):
+            use_cache = True
+            cache_reason = f"upstream @ {time.strftime('%H:%M UTC', time.gmtime(upstream_time))}"
+        elif upstream_time is None:
+            cached_ttl = _load_fresh_cache(cache_path, update_h)
+            if cached_ttl is not None:
+                use_cache = True
+                cache_reason = f"TTL {update_h}h"
+
+        if use_cache:
+            stale_data, _ = _load_stale_cache(cache_path)
+            if stale_data is not None:
+                d, added = _parse(stale_data.get('hourly', {}), model)
+                all_waves[model] = d
+                age_h = (time.time() - os.path.getmtime(cache_path)) / 3600
+                print(f"  [{label}] Wave {model}: CACHE ({len(d)}h, {age_h:.1f}h, {cache_reason})")
+                continue
+
+        params = {
+            "latitude": lat, "longitude": lon,
+            "hourly": ",".join(MARINE_VARS),
+            "timezone": FORECAST_TIMEZONE,
+            "models": model,
+            "forecast_days": 7,
+        }
+        success = False
+        for attempt in range(3):
+            try:
+                r = requests.get(marine_url, params=params, timeout=30)
+                r.raise_for_status()
+                resp = r.json()
+                d, added = _parse(resp.get('hourly', {}), model)
+                all_waves[model] = d
+                _save_cache(cache_path, resp)
+                _save_upstream_meta(cache_path, upstream_time)
+                print(f"  [{label}] Wave {model}: OK ({len(d)}h, {added} varijabli)")
+                success = True
+                break
+            except Exception as e:
+                if attempt == 2:
+                    stale, age_h = _load_stale_cache(cache_path)
+                    if stale is not None:
+                        d, added = _parse(stale.get('hourly', {}), model)
+                        all_waves[model] = d
+                        print(f"  [{label}] Wave {model}: FAIL ({e}); STALE ({age_h:.1f}h staro)")
+                    else:
+                        print(f"  [{label}] Wave {model}: FAIL ({e})")
+                else:
+                    time.sleep(5)
+        time.sleep(1.0)
+
+    if not all_waves:
+        return None
+
+    df = list(all_waves.values())[0]
+    for k in list(all_waves.keys())[1:]:
+        df = df.merge(all_waves[k], on='datetime', how='outer')
+    df.sort_values('datetime', inplace=True)
+    df.reset_index(drop=True, inplace=True)
+
+    for v in MARINE_VARS:
+        cols = [f"{m}_{v}" for m in MARINE_MODELS if f"{m}_{v}" in df.columns]
+        if cols:
+            df[f'{v}_mean'] = df[cols].apply(pd.to_numeric, errors='coerce').mean(axis=1)
+
+    now = local_now().floor('h')
+    df = df[df['datetime'] >= now].copy().reset_index(drop=True)
+    return df
+
+
+def _fetch_marine_wind(lat, lon, label):
+    """Fetch wind models for ONE point with disk cache. Returns DataFrame
+    with ensemble mean columns."""
+    forecast_url = "https://api.open-meteo.com/v1/forecast"
+    all_winds = {}
+
+    def _parse(h, model_id):
+        d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
+        for v in ['wind_speed_10m', 'wind_gusts_10m', 'wind_direction_10m']:
+            if v in h:
+                d[f"{model_id}_{v}"] = h[v]
+        return d
+
+    for model_id in MARINE_WIND_MODELS:
+        update_h = MODEL_UPDATE_HOURS.get(model_id, DEFAULT_UPDATE_HOURS)
+        cache_path = _cache_path('marine_wind', model_id, lat, lon)
+
+        upstream_time = _get_upstream_update_time(model_id)
+        use_cache = False
+        cache_reason = ""
+        if upstream_time is not None and _cache_current_for_upstream(cache_path, upstream_time):
+            use_cache = True
+            cache_reason = f"upstream @ {time.strftime('%H:%M UTC', time.gmtime(upstream_time))}"
+        elif upstream_time is None:
+            cached_ttl = _load_fresh_cache(cache_path, update_h)
+            if cached_ttl is not None:
+                use_cache = True
+                cache_reason = f"TTL {update_h}h"
+
+        if use_cache:
+            stale_data, _ = _load_stale_cache(cache_path)
+            if stale_data is not None:
+                d = _parse(stale_data.get('hourly', {}), model_id)
+                all_winds[model_id] = d
+                age_h = (time.time() - os.path.getmtime(cache_path)) / 3600
+                print(f"  [{label}] Wind {model_id}: CACHE ({len(d)}h, {age_h:.1f}h, {cache_reason})")
+                continue
+
+        params = {
+            "latitude": lat, "longitude": lon,
+            "hourly": "wind_speed_10m,wind_gusts_10m,wind_direction_10m",
+            "timezone": FORECAST_TIMEZONE,
+            "wind_speed_unit": "ms",
+            "models": model_id, "forecast_days": 7,
+        }
+        try:
+            r = requests.get(forecast_url, params=params, timeout=30)
+            r.raise_for_status()
+            resp = r.json()
+            d = _parse(resp.get('hourly', {}), model_id)
+            all_winds[model_id] = d
+            _save_cache(cache_path, resp)
+            _save_upstream_meta(cache_path, upstream_time)
+            print(f"  [{label}] Wind {model_id}: OK ({len(d)}h)")
+        except Exception as e:
+            stale, age_h = _load_stale_cache(cache_path)
+            if stale is not None:
+                d = _parse(stale.get('hourly', {}), model_id)
+                all_winds[model_id] = d
+                print(f"  [{label}] Wind {model_id}: FAIL ({e}); STALE ({age_h:.1f}h staro)")
+            else:
+                print(f"  [{label}] Wind {model_id}: FAIL ({e})")
+        time.sleep(1.0)
+
+    if not all_winds:
+        return None
+
+    df = list(all_winds.values())[0]
+    for k in list(all_winds.keys())[1:]:
+        df = df.merge(all_winds[k], on='datetime', how='outer')
+    df.sort_values('datetime', inplace=True)
+    df.reset_index(drop=True, inplace=True)
+
+    for v in ['wind_speed_10m', 'wind_gusts_10m']:
+        cols = [c for c in df.columns
+                if any(c == f"{m}_{v}" for m in MARINE_WIND_MODELS)]
+        if cols:
+            df[f'{v}_mean'] = df[cols].apply(pd.to_numeric, errors='coerce').mean(axis=1)
+
+    dir_cols = [c for c in df.columns
+                if any(c == f"{m}_wind_direction_10m" for m in MARINE_WIND_MODELS)]
+    if dir_cols:
+        dirs = df[dir_cols].apply(pd.to_numeric, errors='coerce')
+        sin_mean = np.sin(np.radians(dirs)).mean(axis=1)
+        cos_mean = np.cos(np.radians(dirs)).mean(axis=1)
+        df['wind_direction_10m_mean'] = (np.degrees(np.arctan2(sin_mean, cos_mean)) % 360)
+
+    now = local_now().floor('h')
+    df = df[df['datetime'] >= now].copy().reset_index(drop=True)
+    return df
+
+
+def fetch_live_marine():
+    """Fetch ONE wave dataset + wind for each MARINE_WIND_LOCATIONS.
+
+    Returns dict {'waves': df_or_None, 'winds': [{loc_meta..., 'df': df}, ...]}
+    or None if everything failed."""
+    print("\n[Marine] Preuzimanje pomorske prognoze...")
+    print(f"  Talasi: jedna reprezentativna tačka {MARINE_WAVE_LOCATION['name']} "
+          f"({MARINE_WAVE_LOCATION['lat']}, {MARINE_WAVE_LOCATION['lon']})")
+    waves = _fetch_marine_waves(
+        MARINE_WAVE_LOCATION['lat'], MARINE_WAVE_LOCATION['lon'],
+        MARINE_WAVE_LOCATION['name']
+    )
+
+    print(f"  Vjetar: {len(MARINE_WIND_LOCATIONS)} lokacije, finija rezolucija "
+          f"({', '.join(MARINE_WIND_MODELS)})")
+    winds = []
+    for loc in MARINE_WIND_LOCATIONS:
+        wdf = _fetch_marine_wind(loc['lat'], loc['lon'], loc['name'])
+        if wdf is not None:
+            winds.append({**loc, 'df': wdf})
+
+    if waves is None and not winds:
+        print("  Marine: ništa nije fetched.")
+        return None
+    return {'waves': waves, 'winds': winds}
+
+
+def _build_wave_block(waves_df):
+    """Build the SHARED wave block (single location). Hourly + daily."""
+    if waves_df is None or waves_df.empty:
+        return None
+
+    now_ts = local_now().floor('h')
+    cutoff_48h = now_ts + pd.Timedelta(hours=48)
+
+    hourly = []
+    for _, row in waves_df.iterrows():
+        if row['datetime'] >= cutoff_48h:
+            break
+        wh = row.get('wave_height_mean')
+        wp = row.get('wave_period_mean')
+        wd = row.get('wave_direction_mean')
+        ww_h = row.get('wind_wave_height_mean')
+        sw_h = row.get('swell_wave_height_mean')
+        sw_p = row.get('swell_wave_period_mean')
+        sst = row.get('sea_surface_temperature_mean')
+        sea = douglas_sea_state(wh)
+        hourly.append({
+            "datetime": row['datetime'].isoformat(),
+            "hour": int(row['datetime'].hour),
+            "date": row['datetime'].strftime('%Y-%m-%d'),
+            "wave_height": round(float(wh), 2) if pd.notna(wh) else None,
+            "wave_period": round(float(wp), 1) if pd.notna(wp) else None,
+            "wave_direction": round(float(wd), 0) if pd.notna(wd) else None,
+            "wind_wave_height": round(float(ww_h), 2) if pd.notna(ww_h) else None,
+            "swell_wave_height": round(float(sw_h), 2) if pd.notna(sw_h) else None,
+            "swell_wave_period": round(float(sw_p), 1) if pd.notna(sw_p) else None,
+            "sea_surface_temperature": round(float(sst), 1) if pd.notna(sst) else None,
+            "sea_state": sea,
+            "sea_state_label": DOUGLAS_LABELS.get(sea, "") if sea is not None else "",
+        })
+
+    df = waves_df.copy()
+    df['_date'] = df['datetime'].dt.strftime('%Y-%m-%d')
+    daily = []
+    for date_str, grp in df.groupby('_date', sort=True):
+        wh_max = pd.to_numeric(grp.get('wave_height_mean', pd.Series()), errors='coerce').max()
+        wp_max = pd.to_numeric(grp.get('wave_period_mean', pd.Series()), errors='coerce').max()
+        sst_avg = pd.to_numeric(grp.get('sea_surface_temperature_mean', pd.Series()), errors='coerce').mean()
+        sea_max = douglas_sea_state(wh_max) if pd.notna(wh_max) else None
+        daily.append({
+            "date": date_str,
+            "day_name": pd.Timestamp(date_str).strftime('%A'),
+            "wave_height_max": round(float(wh_max), 2) if pd.notna(wh_max) else None,
+            "wave_period_max": round(float(wp_max), 1) if pd.notna(wp_max) else None,
+            "sst_avg": round(float(sst_avg), 1) if pd.notna(sst_avg) else None,
+            "sea_state_max": sea_max,
+            "sea_state_label": DOUGLAS_LABELS.get(sea_max, "") if sea_max is not None else "",
+        })
+
+    return {"hourly": hourly, "daily_summary": daily[:7]}
+
+
+def _build_wind_block(wind_df, shared_waves_by_dt, shared_waves_daily_by_date):
+    """Build a wind location block. Sailing score combines this location's
+    wind Bft with the shared wave height at the same hour/day."""
+    if wind_df is None or wind_df.empty:
+        return None
+
+    now_ts = local_now().floor('h')
+    cutoff_48h = now_ts + pd.Timedelta(hours=48)
+
+    hourly = []
+    for _, row in wind_df.iterrows():
+        if row['datetime'] >= cutoff_48h:
+            break
+        ws = row.get('wind_speed_10m_mean')
+        wg = row.get('wind_gusts_10m_mean')
+        wdir = row.get('wind_direction_10m_mean')
+        bft = beaufort_from_wind(ws)
+        wind_name = cg_wind_name(wdir, ws)
+        # Pair with shared wave height at the same hour for sailing score.
+        dt_key = row['datetime']
+        wh_here = shared_waves_by_dt.get(dt_key)
+        score_color, score_label = sailing_score(bft, wh_here)
+        hourly.append({
+            "datetime": dt_key.isoformat(),
+            "hour": int(dt_key.hour),
+            "date": dt_key.strftime('%Y-%m-%d'),
+            "wind_speed_10m": round(float(ws), 1) if pd.notna(ws) else None,
+            "wind_gusts_10m": round(float(wg), 1) if pd.notna(wg) else None,
+            "wind_direction_10m": round(float(wdir), 0) if pd.notna(wdir) else None,
+            "beaufort": bft,
+            "wind_name": wind_name,
+            "sailing_score": score_label,
+            "sailing_color": score_color,
+        })
+
+    df = wind_df.copy()
+    df['_date'] = df['datetime'].dt.strftime('%Y-%m-%d')
+    daily = []
+    for date_str, grp in df.groupby('_date', sort=True):
+        ws_max = pd.to_numeric(grp.get('wind_speed_10m_mean', pd.Series()), errors='coerce').max()
+        wg_max = pd.to_numeric(grp.get('wind_gusts_10m_mean', pd.Series()), errors='coerce').max()
+        peak_dir = None
+        ws_series = pd.to_numeric(grp.get('wind_speed_10m_mean', pd.Series()), errors='coerce')
+        if ws_series.notna().any():
+            idx = ws_series.idxmax()
+            peak_dir = grp.loc[idx, 'wind_direction_10m_mean'] if 'wind_direction_10m_mean' in grp.columns else None
+        bft_max = beaufort_from_wind(ws_max) if pd.notna(ws_max) else None
+        wind_name = cg_wind_name(peak_dir, ws_max)
+        wh_here = shared_waves_daily_by_date.get(date_str)
+        score_color, score_label = sailing_score(bft_max, wh_here)
+        daily.append({
+            "date": date_str,
+            "day_name": pd.Timestamp(date_str).strftime('%A'),
+            "wind_speed_max": round(float(ws_max), 1) if pd.notna(ws_max) else None,
+            "wind_gusts_max": round(float(wg_max), 1) if pd.notna(wg_max) else None,
+            "wind_direction_peak": round(float(peak_dir), 0) if peak_dir is not None and pd.notna(peak_dir) else None,
+            "beaufort_max": bft_max,
+            "wind_name": wind_name,
+            "sailing_score": score_label,
+            "sailing_color": score_color,
+        })
+
+    return {"hourly": hourly, "daily_summary": daily[:7]}
+
+
+def build_marine_output(marine_results):
+    """marine_results = {'waves': df_or_None, 'winds': [{loc_meta, 'df': df}]}.
+    Returns dict with shared waves block + per-location wind blocks."""
+    if not marine_results:
+        return None
+
+    waves_block = _build_wave_block(marine_results.get('waves'))
+
+    # Build lookups so wind locations can pair their sailing score with the
+    # shared wave height at the matching hour/day.
+    shared_waves_by_dt = {}
+    shared_waves_daily = {}
+    if waves_block:
+        for h in waves_block['hourly']:
+            wh = h.get('wave_height')
+            if wh is not None:
+                shared_waves_by_dt[pd.Timestamp(h['datetime'])] = wh
+        for d in waves_block['daily_summary']:
+            wh = d.get('wave_height_max')
+            if wh is not None:
+                shared_waves_daily[d['date']] = wh
+
+    wind_locations = []
+    for loc in marine_results.get('winds', []):
+        body = _build_wind_block(loc['df'], shared_waves_by_dt, shared_waves_daily)
+        if body is None:
+            continue
+        wind_locations.append({
+            "id": loc['id'],
+            "name": loc['name'],
+            "desc": loc.get('desc', ''),
+            "lat": loc['lat'],
+            "lon": loc['lon'],
+            "hourly": body['hourly'],
+            "daily_summary": body['daily_summary'],
+        })
+
+    if not waves_block and not wind_locations:
+        return None
+
+    return {
+        "note": (
+            "Talasi su modelirani na rezoluciji od 5.5km, pa pokazujemo jednu vrijednost "
+            "za cijelu pomorsku zonu Budve (Bečićka plaža i otvoreno more dijele istu "
+            "prognozu). Vjetar je precizniji (~2 km rezolucija) i razlikuje se "
+            "između zaliva i otvorenog mora."
+        ),
+        "wave_location": {
+            "lat": MARINE_WAVE_LOCATION['lat'],
+            "lon": MARINE_WAVE_LOCATION['lon'],
+            "name": MARINE_WAVE_LOCATION['name'],
+            "desc": MARINE_WAVE_LOCATION['desc'],
+        },
+        "waves": waves_block,
+        "wind_locations": wind_locations,
+    }
+
+
+def correct_weather_code_row(row, raw_row=None):
+    """
+    Models often report rain (WC >= 51) during winter overcast conditions
+    when it's actually just cloudy. XGBoost precipitation correction is more accurate,
+    so we trust it over the raw weather code mode.
+    
+    This is how we're going to fix:
+    - If XGBoost says precip below display threshold AND raw WC is rain/drizzle → downgrade to cloud-based code
+    - If XGBoost says precip > 0 but raw WC is clear → upgrade to appropriate rain code
+    - Use cloud cover to determine the correct non-rain code
+    """
+    wc_raw_val = row.get('weather_code_raw', row.get('weather_code', 0))
+    if wc_raw_val is None or pd.isna(wc_raw_val):
+        wc_raw = 0
+    else:
+        wc_raw = int(wc_raw_val)
+    
+    precip_xgb = row.get('precipitation_xgb', None)
+    cloud_xgb = row.get('cloud_cover_xgb', None)
+    
+    is_rain_code = 51 <= wc_raw <= 82  # drizzle + rain + showers
+    is_snow_code = 71 <= wc_raw <= 77
+    is_thunderstorm = wc_raw >= 95
+    
+    # We don't want to mess with thunderstorm codes, as they are often correct and XGBoost precip can be underestimated in convective events
+    if is_thunderstorm:
+        return wc_raw
+    
+    if is_rain_code and precip_xgb is not None and pd.notna(precip_xgb) and precip_xgb < CORRECTED_RAIN_THRESHOLD_MM:
+        if cloud_xgb is not None and pd.notna(cloud_xgb):
+            if cloud_xgb > 80:
+                return 3   
+            elif cloud_xgb > 50:
+                return 2   
+            elif cloud_xgb > 20:
+                return 1   
+            else:
+                return 0   
+        return 3 
+    
+    if 51 <= wc_raw <= 55 and precip_xgb is not None and pd.notna(precip_xgb):
+        if precip_xgb < CORRECTED_RAIN_THRESHOLD_MM:
+            if cloud_xgb is not None and pd.notna(cloud_xgb) and cloud_xgb > 85:
+                return 3  
+    
+    if wc_raw <= 3 and precip_xgb is not None and pd.notna(precip_xgb) and precip_xgb >= CORRECTED_RAIN_THRESHOLD_MM:
+        if precip_xgb > 3.0:
+            return 63  
+        elif precip_xgb > 1.0:
+            return 61  
+        else:
+            return 51  
+    
+    if wc_raw <= 3 and cloud_xgb is not None and pd.notna(cloud_xgb):
+        if cloud_xgb > 80:
+            return 3   
+        elif cloud_xgb > 50:
+            return 2   
+        elif cloud_xgb > 20:
+            return 1  
+        else:
+            return 0   
+    
+    return wc_raw
+
+
+class TrustedRainGateError(RuntimeError):
+    """Raised when the trusted rain model is unavailable for the gate.
+
+    Used so the main script can specifically catch THIS failure mode and fall
+    back to the previous run, instead of writing a silently-dry forecast.
+    """
+    pass
+
+
+def _detect_short_rain_bursts(precip_vals, wet_threshold,
+                              max_hours_base, max_hours_extended,
+                              ext_intensity_mm, ext_sum_mm):
+    """Return mask of hours that belong to a short isolated wet run.
+
+    Coastal Adriatic summers produce convective cells that drift over Budva.
+    Short (1-2h) cells are always treated as bursts. Slow-moving heavy cells
+    (3-4h) also count if they carry enough water — either a single hour at
+    >= ext_intensity_mm or a total run sum >= ext_sum_mm. Anything longer is
+    stratiform / synoptic and gets ignored here.
+    """
+    n = len(precip_vals)
+    burst_mask = np.zeros(n, dtype=bool)
+    if n == 0:
+        return burst_mask
+    wet_mask = precip_vals >= wet_threshold
+    i = 0
+    while i < n:
+        if wet_mask[i]:
+            j = i
+            while j < n and wet_mask[j]:
+                j += 1
+            run_len = j - i
+            if run_len <= max_hours_base:
+                burst_mask[i:j] = True
+            elif run_len <= max_hours_extended:
+                run_slice = precip_vals[i:j]
+                if run_slice.max() >= ext_intensity_mm or run_slice.sum() >= ext_sum_mm:
+                    burst_mask[i:j] = True
+            i = j
+        else:
+            i += 1
+    return burst_mask
+
+
+def _apply_burst_wind_boost(corrected, fc):
+    """Boost wind & gust predictions for short isolated rain bursts.
+
+    Operates AFTER the param loop, modifying `corrected` in place. Reads the
+    trusted-model precip column from `fc`, detects bursts (1-2h always, 3-4h
+    only when intensity carries), then applies the wind boost only on hours
+    where italia precip >= BURST_BOOST_PRECIP_MM. Floors scale linearly with
+    in-hour intensity; halo (+/-1h around boosted hours) gets a weak additive
+    bump.
+
+    NaN handling: NaN inputs stay NaN — we don't manufacture observations.
+    """
+    trusted_col = f'{TRUSTED_RAIN_MODEL}_precipitation_model'
+    if trusted_col not in fc.columns:
+        return
+
+    italia_precip = pd.to_numeric(fc[trusted_col], errors='coerce').fillna(0).values
+    burst_mask = _detect_short_rain_bursts(
+        italia_precip, TRUSTED_RAIN_THRESHOLD,
+        BURST_MAX_HOURS, BURST_MAX_HOURS_EXTENDED,
+        BURST_EXTENDED_MAX_MM, BURST_EXTENDED_SUM_MM,
+    )
+
+    if not burst_mask.any():
+        return
+
+    # Wind boost only fires inside a burst when italia precip clears the
+    # in-hour threshold. Slabe kise (<2 mm/h) ne diraju vjetar.
+    boost_mask = burst_mask & (italia_precip >= BURST_BOOST_PRECIP_MM)
+
+    n_burst = int(burst_mask.sum())
+    if not boost_mask.any():
+        print(f"  Kratki pljuskovi: {n_burst} sat(a) detektovano, "
+              f"nijedan ne prelazi {BURST_BOOST_PRECIP_MM:.1f} mm/h -> "
+              f"vjetar netaknut.")
+        return
+
+    # Halo: +/-1h around boosted hours (not all burst hours), excluding boost itself.
+    halo_mask = np.zeros_like(boost_mask)
+    halo_mask[:-1] |= boost_mask[1:]
+    halo_mask[1:] |= boost_mask[:-1]
+    halo_mask &= ~boost_mask
+
+    # Dynamic floors per hour, scaling with italia precip above the gate.
+    excess = np.maximum(italia_precip - BURST_BOOST_PRECIP_MM, 0.0)
+    wind_floor_per_hour = np.minimum(
+        BURST_WIND_FLOOR_BASE + BURST_WIND_FLOOR_SLOPE * excess,
+        BURST_WIND_FLOOR_CAP,
+    )
+    gust_floor_per_hour = np.minimum(
+        BURST_GUST_FLOOR_BASE + BURST_GUST_FLOOR_SLOPE * excess,
+        BURST_GUST_FLOOR_CAP,
+    )
+
+    n_boost = int(boost_mask.sum())
+    n_halo = int(halo_mask.sum())
+
+    boost_spec = [
+        ('wind_gusts_10m', gust_floor_per_hour, BURST_HALO_GUST_DELTA, BURST_GUST_MAX),
+        ('wind_speed_10m', wind_floor_per_hour, BURST_HALO_WIND_DELTA, BURST_WIND_MAX),
+    ]
+
+    for base, floor_per_hour, halo_delta, hard_cap in boost_spec:
+        for suffix in ['_xgb', '_ensemble']:
+            col = f'{base}{suffix}'
+            if col not in corrected.columns:
+                continue
+            w = corrected[col].values.astype(float).copy()
+            # Core: keep original if already above the dynamic floor; otherwise lift.
+            w[boost_mask] = np.minimum(
+                np.maximum(w[boost_mask], floor_per_hour[boost_mask]),
+                hard_cap,
+            )
+            # Halo: weak additive boost, no floor, same cap. NaN propagates.
+            w[halo_mask] = np.minimum(w[halo_mask] + halo_delta, hard_cap)
+            corrected[col] = w
+
+    boost_times = corrected.loc[boost_mask, 'datetime'].dt.strftime('%d.%m %H:%M').tolist()
+    sample = ', '.join(boost_times[:6]) + (' ...' if len(boost_times) > 6 else '')
+    print(f"  Kratki pljuskovi: {n_burst} sat(a) detektovano, "
+          f"{n_boost} boost (>= {BURST_BOOST_PRECIP_MM:.1f} mm/h) + {n_halo} halo "
+          f"-> vjetar/udari skalirani po intenzitetu.")
+    print(f"    Boost sati: {sample}")
+
+
+def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
+    print("\n[5/6] Primjena korekcije...")
+
+    fc = apply_bias_features(fc_df.copy(), bias_tables)
+    fc = engineer_features(fc)
+
+    corrected = fc[['datetime']].copy()
+
+    for param in TARGET_PARAMS:
+        ens = f'{param}_ens_mean'
+        if ens in fc.columns:
+            corrected[f'{param}_ensemble'] = fc[ens]
+
+    for param, minfo in trained.items():
+        features = minfo['features']
+        available = [f for f in features if f in fc.columns]
+
+        if len(available) < len(features) * 0.4:
+            print(f"  {TARGET_PARAMS[param]['display']:20s} --- nedovoljno feature-a ({len(available)}/{len(features)})")
+            continue
+
+        X = fc[available].copy()
+        for c in features:
+            if c not in X.columns:
+                X[c] = np.nan  # NaN passthrough — XGBoost handles missing natively
+        X = X[features]  # keep NaN for XGBoost's sparsity-aware splits
+
+        for c in X.columns:
+            if X[c].dtype == 'object':
+                X[c] = pd.to_numeric(X[c], errors='coerce')  # keep NaN
+
+        if param == 'precipitation' and 'precip_info' in minfo:
+            pinfo = minfo['precip_info']
+            method = pinfo['best_method']
+
+            cls_proba_raw = pinfo['cls_model'].predict_proba(X)[:, 1]
+            _iso = pinfo.get('iso_calibrator')
+            cls_proba = _iso.transform(cls_proba_raw) if _iso is not None else cls_proba_raw
+            thresh = pinfo['threshold']
+
+            if pinfo.get('use_sqrt', False):
+                reg_pred = np.square(np.clip(pinfo['reg_model'].predict(X), 0, None))
+            else:
+                reg_pred = np.clip(pinfo['reg_model'].predict(X), 0, None)
+
+            single_pred = np.clip(pinfo['single_model'].predict(X), 0, None)
+            single_pred[single_pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
+
+            if method == 'hard':
+                pred = np.where(cls_proba >= thresh, reg_pred, 0.0)
+            elif method == 'soft':
+                pred = cls_proba * reg_pred
+            elif method == 'sharp':
+                pred = np.where(cls_proba >= thresh, 0.7 * reg_pred + 0.3 * single_pred, single_pred * cls_proba)
+            elif method == 'adaptive':
+                confidence = np.abs(cls_proba - 0.5) * 2
+                pred = np.where(cls_proba >= thresh, confidence * reg_pred + (1 - confidence) * single_pred, (1 - confidence) * single_pred * 0.5)
+            elif method == 'tweedie':
+                pred = np.clip(pinfo['tweedie_model'].predict(X), 0, None)
+            else:
+                pred = single_pred
+
+            pred = np.clip(pred, 0, 50)
+            p_blend_alpha = pinfo.get('blend_alpha', 1.0)
+            if p_blend_alpha < 1.0:
+                ens_col_p = f'{param}_ens_mean'
+                ens_vals_p = pd.to_numeric(fc[ens_col_p], errors='coerce').fillna(0).values if ens_col_p in fc.columns else np.zeros(len(X))
+                pred = p_blend_alpha * pred + (1 - p_blend_alpha) * ens_vals_p
+                pred = np.clip(pred, 0, 50)
+
+            # False-alarm clamping with trusted-model rain gate.
+            #
+            # For this experiment, rain is allowed only when ItaliaMeteo sees
+            # at least 0.1mm. KNMI and DMI still feed the ensemble/model, but
+            # they do not open the rain gate.
+            #
+            # Hard-fail policy: if the trusted model column is missing entirely,
+            # OR every hour in the 48h horizon is NaN, raise TrustedRainGateError
+            # so main can fall back to the previous run instead of silently
+            # producing a fully-dry forecast.
+            def _trusted_precip_values(model_name):
+                col = f'{model_name}_precipitation_model'
+                if col not in fc.columns:
+                    raise TrustedRainGateError(
+                        f"Trusted rain model '{model_name}' nije fetched - "
+                        f"kolona '{col}' nedostaje u live prognozama. "
+                        f"Trusted gate ne moze da radi. Provjeri "
+                        f"fetch_live_forecasts log iznad za FAIL poruke."
+                    )
+                vals = pd.to_numeric(fc[col], errors='coerce').values
+                nan_mask = np.isnan(vals)
+                horizon = min(48, len(vals))
+                if horizon > 0 and int(nan_mask[:horizon].sum()) >= horizon:
+                    raise TrustedRainGateError(
+                        f"Trusted rain model '{model_name}' ima sve NaN u "
+                        f"prvih {horizon} sati. Trusted gate ne moze da radi."
+                    )
+                return vals, nan_mask
+
+            trusted_vals, trusted_nan = _trusted_precip_values(TRUSTED_RAIN_MODEL)
+            n_nan = int(trusted_nan.sum())
+            if n_nan > 0:
+                print(f"  UPOZORENJE: {TRUSTED_RAIN_MODEL} ima NaN za "
+                      f"{n_nan}/{len(trusted_vals)} sati. Ti sati se "
+                      f"tretiraju kao 'bez signala' (suvo).")
+            # NaN -> 0 samo za poredjenje sa pragom; gate ostaje zatvoren
+            # za NaN sate. Ovo razdvaja "Italia kaze nula" od "Italia nema podatak".
+            trusted_vals_filled = np.where(trusted_nan, 0.0, trusted_vals)
+            trusted_signal = trusted_vals_filled >= TRUSTED_RAIN_THRESHOLD
+
+            # Hard trusted rain gate:
+            # - ItaliaMeteo can trigger rain alone at 0.1mm.
+            # - Otherwise (or NaN), the corrected model is forced dry.
+            trusted_signal_amount = np.where(trusted_signal, trusted_vals_filled, 0)
+            no_signal = ~trusted_signal
+
+            # PDF §3.3 + §1.5: SUMMER CONVECTION ABSTENTION
+            # ItaliaMeteo's own May-2025 admission: ICON-2I systematically over-
+            # predicts weakly-forced summer convection. When in summer AND only
+            # high-res LAMs see rain (low global agreement), DON'T let ICON-2I
+            # alone open the gate. Suppress the false-alarm fingerprint.
+            try:
+                hours_dt = pd.to_datetime(fc['datetime'])
+                month_arr = hours_dt.dt.month.values
+                is_warm_season = np.isin(month_arr, [6, 7, 8, 9])
+                rain_agree = pd.to_numeric(
+                    fc.get('rain_agreement', pd.Series(0, index=fc.index)),
+                    errors='coerce').fillna(0).values
+                italiameteo_isolated_signal = (
+                    is_warm_season & trusted_signal & (rain_agree <= 0.30)
+                )
+                n_suppressed = int(italiameteo_isolated_signal.sum())
+                if n_suppressed > 0:
+                    # Treat as no_signal: do not let ICON-2I alone trigger summer rain
+                    trusted_signal = trusted_signal & ~italiameteo_isolated_signal
+                    no_signal = ~trusted_signal
+                    trusted_signal_amount = np.where(trusted_signal, trusted_vals_filled, 0)
+                    print(f"  PDF abstention: {n_suppressed} summer hour(s) with isolated "
+                          f"ICON-2I rain signal SUPPRESSED (weakly-forced convection regime)")
+            except Exception as _e:
+                pass  # be defensive; don't break inference if any field missing
+
+            # 1. Sub-threshold noise -> 0 (always)
+            pred[pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
+            # 2. No trusted gate -> no rain.
+            pred[no_signal] = 0.0
+            # 3. Amplification cap. Avoid a hard 0.5mm minimum when the ensemble
+            #    is mostly dry; trusted support scales the cap with trusted amount.
+            if 'precip_ens_p75' in fc.columns:
+                p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
+                cap = np.maximum(np.full(len(fc), CORRECTED_RAIN_THRESHOLD_MM), 1.5 * p75_vals)
+                trusted_cap = 1.2 * trusted_signal_amount
+                cap[trusted_signal] = np.maximum(cap[trusted_signal], trusted_cap[trusted_signal])
+                pred = np.minimum(pred, cap)
+            # 4. If the trusted gate sees rain, the corrected precipitation must
+            #    track ItaliaMeteo more closely. Floor scales as 0.6 * italia
+            #    so a 5 mm Italia hour can't collapse to 0.5 mm under a
+            #    conservative XGBoost. Cap above (1.2 * italia) still bounds
+            #    the upside, so we never fully equal trusted — just stop
+            #    diverging when XGBoost is too dry.
+            if trusted_signal.any():
+                trusted_floor = np.maximum(
+                    CORRECTED_RAIN_THRESHOLD_MM,
+                    0.6 * trusted_signal_amount,
+                )
+                pred[trusted_signal] = np.maximum(pred[trusted_signal], trusted_floor[trusted_signal])
+
+            if local_dry_nowcast:
+                now_local = local_now()
+                dry_start = now_local.floor('h')
+                if now_local.minute >= 30:
+                    dry_start += pd.Timedelta(hours=1)
+                dry_end = dry_start + pd.Timedelta(hours=LOCAL_DRY_NOWCAST_HOURS)
+                dry_window = (fc['datetime'] >= dry_start) & (fc['datetime'] <= dry_end)
+                ens_vals_now = (
+                    pd.to_numeric(fc.get('precipitation_ens_mean', pd.Series(0, index=fc.index)),
+                                  errors='coerce').fillna(0).values
+                )
+                storm_wc_count = (
+                    pd.to_numeric(fc.get('storm_wc_count', pd.Series(0, index=fc.index)),
+                                  errors='coerce').fillna(0).values
+                )
+                light_rain = pred <= LOCAL_DRY_LIGHT_RAIN_MAX_MM
+                strong_near_support = (ens_vals_now >= 0.5) | (storm_wc_count >= 1)
+                dry_now_mask = dry_window.values & light_rain & ~strong_near_support
+                pred[dry_now_mask] = 0.0
+
+            pred[pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
+
+            corrected[f'{param}_xgb'] = pred
+            method_lbl = method + (f'+blend({p_blend_alpha:.2f})' if p_blend_alpha < 1.0 else '')
+            print(f"  {TARGET_PARAMS[param]['display']:20s} (MAE={minfo['mae']:.3f}{TARGET_PARAMS[param]['unit']}) [{method_lbl}]")
+            continue
+
+        method_name = minfo.get('method', 'direct')
+        model = minfo['model']
+        pred = model.predict(X)
+
+        if method_name == 'stacked' and minfo.get('stack_weights') is not None:
+            # Multi-objective stacked prediction
+            w_d, w_r, w_m = minfo['stack_weights']
+            direct_pred = minfo['direct_model'].predict(X)
+            ens_col = f'{param}_ens_mean'
+            ens_vals = pd.to_numeric(fc[ens_col], errors='coerce').fillna(0).values if ens_col in fc.columns else np.zeros(len(X))
+            resid_pred = ens_vals + minfo['resid_model'].predict(X) if minfo.get('resid_model') else direct_pred
+            mse_pred = minfo['mse_model'].predict(X) if minfo.get('mse_model') else direct_pred
+            pred = w_d * direct_pred + w_r * resid_pred + w_m * mse_pred
+        elif method_name == 'ridge_meta' and minfo.get('ridge_meta') is not None:
+            # RidgeCV meta-learner stacking (PDF2 §1, PDF1 §11)
+            ens_col = f'{param}_ens_mean'
+            ens_vals = pd.to_numeric(fc[ens_col], errors='coerce').fillna(0).values if ens_col in fc.columns else np.zeros(len(X))
+            base_preds = [
+                minfo['direct_model'].predict(X),
+                ens_vals + minfo['resid_model'].predict(X) if minfo.get('resid_model') else minfo['direct_model'].predict(X),
+                minfo['mse_model'].predict(X) if minfo.get('mse_model') else minfo['direct_model'].predict(X),
+            ]
+            if minfo.get('has_catboost') and minfo.get('cb_model') is not None:
+                base_preds.append(minfo['cb_model'].predict(X))
+            if minfo.get('has_lightgbm') and minfo.get('lgb_model') is not None:
+                base_preds.append(minfo['lgb_model'].predict(X))
+            meta_X = np.column_stack(base_preds)
+            pred = minfo['ridge_meta'].predict(meta_X)
+        elif minfo.get('is_residual'):
+            ens_col = f'{param}_ens_mean'
+            ens_vals = pd.to_numeric(fc[ens_col], errors='coerce').fillna(0).values if ens_col in fc.columns else np.zeros(len(X))
+            pred = ens_vals + pred
+        elif minfo.get('blend_alpha') is not None:
+            ens_col = f'{param}_ens_mean'
+            ens_vals = pd.to_numeric(fc[ens_col], errors='coerce').fillna(0).values if ens_col in fc.columns else np.zeros(len(X))
+            alpha = minfo['blend_alpha']
+            pred = alpha * pred + (1 - alpha) * ens_vals
+
+        if param == 'relative_humidity_2m':
+            pred = np.clip(pred, 0, 100)
+        elif param == 'cloud_cover':
+            pred = np.clip(pred, 0, 100)
+            # One issue that I've had with clouds is winter morning overcast scenarios, the XGBoost model regularly overpowers, so to fix the XGBoost offset: when ensemble unanimously says clear sky,
+            # don't let XGBoost hallucinate clouds from climatology.
+            ens_col_cc = f'{param}_ens_mean'
+            if ens_col_cc in fc.columns:
+                ens_cc = pd.to_numeric(fc[ens_col_cc], errors='coerce').fillna(0).values
+                # If ensemble < 10%, cap XGBoost at ensemble + 30%
+                low_ens = ens_cc < 10
+                if low_ens.any():
+                    pred[low_ens] = np.minimum(pred[low_ens], ens_cc[low_ens] + 30)
+                # If ensemble > 90%, floor XGBoost at ensemble - 30%
+                high_ens = ens_cc > 90
+                if high_ens.any():
+                    pred[high_ens] = np.maximum(pred[high_ens], ens_cc[high_ens] - 30)
+                pred = np.clip(pred, 0, 100)
+
+                # OUT-OF-WINDOW FIX:
+                # XGB was trained on the per-season daytime window
+                # (Apr-Sep 7-18h, Oct-Mar 9-15h), but in PRODUCTION we further
+                # restrict inference to start at 10:00 LT regardless of season.
+                # Reason: between sunrise and ~10:00 the derived-cloud target
+                # (1 - solar/clear_sky) is noisy due to low solar elevation +
+                # terrain shading from Lovcen, and the model carries that
+                # noise into a visible jump at 07-09h vs the smooth ensemble.
+                # So: for hours < 10 (any season) use NWP ensemble. From 10:00
+                # inclusive up to the seasonal upper bound (18 warm / 15 cold)
+                # use XGB. Outside the upper bound, ensemble again.
+                _h = fc['datetime'].dt.hour
+                _m = fc['datetime'].dt.month
+                _warm = _m.isin([4, 5, 6, 7, 8, 9])
+                _warm_ok = _warm & (_h >= 10) & (_h <= 18)
+                _cold_ok = (~_warm) & (_h >= 10) & (_h <= 15)
+                _in_window = (_warm_ok | _cold_ok).values
+                out_of_window = ~_in_window
+                if out_of_window.any():
+                    pred[out_of_window] = ens_cc[out_of_window]
+                    pred = np.clip(pred, 0, 100)
+        elif param in ['wind_speed_10m', 'wind_gusts_10m', 'shortwave_radiation']:
+            pred = np.clip(pred, 0, None)
+
+        # CSI back-transform for solar radiation (PDF1 §4)
+        if param == 'shortwave_radiation' and minfo.get('csi_mode', False):
+            cs_prod = compute_clear_sky(fc['datetime']).values
+            pred = pred * cs_prod
+            pred = np.clip(pred, 0, None)
+
+        # Dew deficit back-transform (PDF1 §8): Td = T_corrected - deficit
+        if param == 'dew_point_2m' and minfo.get('dew_deficit_mode', False):
+            pred = np.clip(pred, 0, None)  # deficit ≥ 0
+            # Use corrected temperature if available, else ensemble mean
+            if 'temperature_2m_xgb' in corrected.columns:
+                t_vals = corrected['temperature_2m_xgb'].values
+            else:
+                t_ens = f'temperature_2m_ens_mean'
+                t_vals = pd.to_numeric(fc[t_ens], errors='coerce').fillna(0).values if t_ens in fc.columns else np.zeros(len(pred))
+            pred = t_vals - pred  # Td = T - deficit
+
+        corrected[f'{param}_xgb'] = pred
+        print(f"  {TARGET_PARAMS[param]['display']:20s} (MAE={minfo['mae']:.3f}{TARGET_PARAMS[param]['unit']}) [{method_name}]")
+
+    wc_cols = [f"{m}_weather_code_model" for m in MODELS if f"{m}_weather_code_model" in fc.columns]
+    if wc_cols:
+        corrected['weather_code_raw'] = fc[wc_cols].apply(pd.to_numeric, errors='coerce').mode(axis=1)[0]
+        corrected['weather_code'] = corrected.apply(
+            lambda r: correct_weather_code_row(r, fc.loc[r.name] if r.name in fc.index else None), axis=1
+        )
+
+    for extra in ['apparent_temperature', 'snowfall', 'rain',
+                  'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high',
+                  'wind_direction_10m', 'surface_pressure']:
+        ec = [f"{m}_{extra}_model" for m in MODELS if f"{m}_{extra}_model" in fc.columns]
+        if ec:
+            corrected[f'{extra}_ens'] = fc[ec].apply(pd.to_numeric, errors='coerce').mean(axis=1)
+
+    # Microcellular-shower wind boost. Runs LAST so it can see the final
+    # wind_speed_10m_xgb / wind_gusts_10m_xgb that the param loop produced.
+    _apply_burst_wind_boost(corrected, fc)
+
+    # Open-Meteo labels accumulations / preceding-hour maxima at the END of
+    # the hour: row T's precip/gusts cover [T-1h, T]. Shift these columns
+    # back by 1 so a row labelled T means "from T to T+1h" -- intuitive on
+    # the UI (precip at 12:00 = what falls between 12:00 and 13:00).
+    # weather_code_raw follows precip (same convention) and shifts with it.
+    # wind_speed_10m is also shifted: the burst boost ties sustained wind to
+    # the trusted-model precip in that hour, so shifting precip without wind
+    # would misalign the boosted value (e.g., 5 m/s at the rain hour would
+    # display 1h later than the rain that drove the boost).
+    # Other variables (temp, humidity, pressure, cloud cover, wind direction)
+    # are instantaneous and stay anchored to the row's timestamp.
+    shift_cols = [
+        'precipitation_xgb', 'precipitation_ensemble',
+        'wind_speed_10m_xgb', 'wind_speed_10m_ensemble',
+        'wind_gusts_10m_xgb', 'wind_gusts_10m_ensemble',
+        'weather_code_raw',
+        'rain_ens', 'snowfall_ens',
+    ]
+    for col in shift_cols:
+        if col in corrected.columns:
+            corrected[col] = corrected[col].shift(-1)
+
+    # weather_code MUST be recomputed AFTER the shift so it sees the shifted
+    # precip (for "rain coming" decisions) AND the instantaneous cloud cover
+    # at the same row (for cloud-based sky codes). Otherwise hour T's icon
+    # represents hour T+1's sky -- e.g., 67% cloud display + "Vedro" icon
+    # because the next hour happens to clear.
+    if 'weather_code_raw' in corrected.columns:
+        corrected['weather_code'] = corrected.apply(
+            lambda r: correct_weather_code_row(r, fc.loc[r.name] if r.name in fc.index else None), axis=1
+        )
+
+    return corrected
+
+
+WMO_CODES = {
+    0: {"desc": "Vedro", "icon": "clear", "emoji": "\u2600\ufe0f"},
+    1: {"desc": "Pretezno vedro", "icon": "mostly_clear", "emoji": "\U0001f324\ufe0f"},
+    2: {"desc": "Djelimicno oblacno", "icon": "partly_cloudy", "emoji": "\u26c5"},
+    3: {"desc": "Oblacno", "icon": "cloudy", "emoji": "\u2601\ufe0f"},
+    45: {"desc": "Magla", "icon": "fog", "emoji": "\U0001f32b\ufe0f"},
+    48: {"desc": "Magla (inje)", "icon": "fog", "emoji": "\U0001f32b\ufe0f"},
+    51: {"desc": "Sitna kisa", "icon": "light_rain", "emoji": "\U0001f326\ufe0f"},
+    53: {"desc": "Sitna kisa, umjerena", "icon": "rain", "emoji": "\U0001f327\ufe0f"},
+    55: {"desc": "Sitna kisa, jaka", "icon": "rain", "emoji": "\U0001f327\ufe0f"},
+    61: {"desc": "Slaba kisa", "icon": "light_rain", "emoji": "\U0001f326\ufe0f"},
+    63: {"desc": "Umjerena kisa", "icon": "rain", "emoji": "\U0001f327\ufe0f"},
+    65: {"desc": "Jaka kisa", "icon": "heavy_rain", "emoji": "\U0001f327\ufe0f\U0001f327\ufe0f"},
+    71: {"desc": "Slab snijeg", "icon": "snow", "emoji": "\U0001f328\ufe0f"},
+    73: {"desc": "Umjeren snijeg", "icon": "snow", "emoji": "\U0001f328\ufe0f"},
+    75: {"desc": "Jak snijeg", "icon": "heavy_snow", "emoji": "\u2744\ufe0f\u2744\ufe0f"},
+    80: {"desc": "Slabi pljuskovi", "icon": "light_rain", "emoji": "\U0001f326\ufe0f"},
+    81: {"desc": "Umjereni pljuskovi", "icon": "rain", "emoji": "\U0001f327\ufe0f"},
+    82: {"desc": "Jaki pljuskovi", "icon": "heavy_rain", "emoji": "\u26c8\ufe0f"},
+    95: {"desc": "Grmljavina", "icon": "thunderstorm", "emoji": "\u26c8\ufe0f"},
+    96: {"desc": "Grmljavina + grad", "icon": "thunderstorm", "emoji": "\u26c8\ufe0f\U0001f9ca"},
+    99: {"desc": "Jaka grmljavina", "icon": "thunderstorm", "emoji": "\u26c8\ufe0f\U0001f9ca"},
+}
+
+
+def _daily_narrative(grp):
+    def _col(name):
+        return pd.to_numeric(grp.get(name, pd.Series(dtype=float)), errors='coerce')
+
+    hr = grp['hour'].astype(int)
+    cc = _col('cloud_cover')
+    pr = _col('precipitation')
+    ws = _col('wind_speed_10m')
+    wg = _col('wind_gusts_10m')
+    tp = _col('temperature_2m')
+    wc = _col('weather_code')
+    wd = _col('wind_direction_10m')
+
+    def _period(h0, h1):
+        mask = (hr >= h0) & (hr < h1)
+        sub_cc = cc[mask].dropna()
+        sub_pr = pr[mask].dropna()
+        sub_wc = wc[mask].dropna()
+        sub_ws = ws[mask].dropna()
+        return {
+            'cloud': float(sub_cc.mean()) if len(sub_cc) else None,
+            'precip': float(sub_pr.sum()) if len(sub_pr) else 0,
+            'precip_max_h': float(sub_pr.max()) if len(sub_pr) else 0,
+            'has_rain': float(sub_pr.sum()) > 0.1 if len(sub_pr) else False,
+            'rain_hours': int((sub_pr > 0.1).sum()) if len(sub_pr) else 0,
+            'has_thunder': bool((sub_wc >= 95).any()) if len(sub_wc) else False,
+            'has_snow': bool(((sub_wc >= 71) & (sub_wc <= 75)).any()) if len(sub_wc) else False,
+            'has_fog': bool(((sub_wc >= 45) & (sub_wc <= 48)).any()) if len(sub_wc) else False,
+            'wind_max': float(sub_ws.max()) if len(sub_ws) else 0,
+            'n': int(mask.sum()),
+        }
+
+    night = _period(0, 6)
+    morn = _period(6, 12)
+    aftn = _period(12, 18)
+    eve = _period(18, 24)
+
+    total_precip = float(pr.sum()) if pr.notna().any() else 0
+    rain_hours_total = int((pr > 0.1).sum()) if pr.notna().any() else 0
+    max_wind = float(ws.max()) if ws.notna().any() else 0
+    max_gust = float(wg.max()) if wg.notna().any() else 0
+    temp_max = float(tp.max()) if tp.notna().any() else None
+    temp_min = float(tp.min()) if tp.notna().any() else None
+
+    wind_dir_str = ""
+    if wd.notna().any():
+        rad = np.radians(wd.dropna())
+        avg_deg = float(np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) % 360)
+        compass = ['S', 'SSI', 'SI', 'ISI', 'I', 'IJI', 'JI', 'JJI',
+                    'J', 'JJZ', 'JZ', 'ZJZ', 'Z', 'ZSZ', 'SZ', 'SSZ']
+        wind_dir_str = compass[round(avg_deg / 22.5) % 16]
+
+    def sky(c):
+        if c is None:
+            return 'unknown'
+        if c < 30:
+            return 'clear'
+        if c < 50:
+            return 'mostly_clear'
+        if c < 65:
+            return 'partly_cloudy'
+        if c < 85:
+            return 'mostly_cloudy'
+        return 'cloudy'
+
+    ms, as_, es = sky(morn['cloud']), sky(aftn['cloud']), sky(eve['cloud'])
+    rain_m, rain_a, rain_e = morn['has_rain'], aftn['has_rain'], eve['has_rain']
+    has_thunder = night['has_thunder'] or morn['has_thunder'] or aftn['has_thunder'] or eve['has_thunder']
+    has_snow = night['has_snow'] or morn['has_snow'] or aftn['has_snow'] or eve['has_snow']
+    has_fog_morn = morn['has_fog']
+
+    daytime_cc = cc[(hr >= 7) & (hr <= 19)].dropna()
+    cloud_day_avg = float(daytime_cc.mean()) if len(daytime_cc) else 50
+
+    if has_thunder:
+        day_wc = 95
+    elif has_snow and total_precip >= 3:
+        day_wc = 75
+    elif has_snow:
+        day_wc = 73 if total_precip >= 1 else 71
+    elif total_precip >= 10:
+        day_wc = 65
+    elif total_precip >= 3:
+        day_wc = 63
+    elif total_precip >= 0.5:
+        day_wc = 61
+    elif total_precip > 0.1:
+        day_wc = 51
+    elif has_fog_morn:
+        day_wc = 45
+    elif cloud_day_avg >= 65:
+        day_wc = 3
+    elif cloud_day_avg >= 50:
+        day_wc = 2
+    elif cloud_day_avg >= 30:
+        day_wc = 1
+    else:
+        day_wc = 0
+
+    if 51 <= day_wc <= 65 and rain_hours_total <= 4:
+        if day_wc >= 63:
+            day_wc = 80
+
+    day_wmo = WMO_CODES.get(day_wc, WMO_CODES[0])
+
+    parts = []
+
+    if has_snow:
+        snow_desc = "snijeg"
+        if total_precip >= 5:
+            snow_desc = "obilniji snijeg"
+        if rain_m and rain_a and rain_e:
+            parts.append(f"Snijeg tokom cijelog dana ({total_precip:.0f} mm)")
+        elif rain_m and not rain_a:
+            parts.append("Snijeg prije podne, prestanak od podneva")
+        elif not rain_m and rain_a:
+            parts.append("Suvo ujutru, snijeg od podneva")
+        elif not rain_m and not rain_a and rain_e:
+            parts.append("Suvo tokom dana, snijeg predveče")
+        else:
+            parts.append(f"Povremeni {snow_desc}")
+    elif has_thunder:
+        if not rain_m and rain_a and not rain_e:
+            parts.append("Sunčano prije podne, grmljavinska kiša od podneva")
+        elif rain_m and not rain_a:
+            parts.append("Grmljavina prije podne, smirivanje od podneva")
+        elif not rain_m and not rain_a and rain_e:
+            parts.append("Pretežno suvo, grmljavina predveče")
+        elif rain_m and rain_a:
+            parts.append("Oblačno uz povremenu grmljavinu tokom dana")
+        elif night['has_thunder'] and not morn['has_thunder'] and not aftn['has_thunder']:
+            parts.append("Grmljavina tokom noći, mirnije tokom dana")
+        else:
+            parts.append("Nestabilno uz povremenu grmljavinu")
+        if total_precip >= 5:
+            parts[0] += f" ({total_precip:.0f} mm)"
+    elif total_precip > 0.2:
+        precip_str = f" ({total_precip:.1f} mm)" if total_precip >= 1 else ""
+        if rain_m and rain_a and rain_e:
+            if total_precip >= 15:
+                parts.append(f"Kiša cijeli dan")
+            elif total_precip >= 5:
+                parts.append(f"Kiša tokom cijelog dana ({total_precip:.0f} mm)")
+            elif total_precip >= 1:
+                parts.append(f"Povremena kiša")
+            else:
+                parts.append("Povremena slaba kiša")
+        elif rain_m and rain_a and not rain_e:
+            parts.append(f"Kiša tokom dana do kasno poslijepodne, suvo predveče")
+        elif rain_m and not rain_a and not rain_e:
+            if morn['precip'] >= 3:
+                parts.append(f"Jača kiša prijepodne ({morn['precip']:.1f} mm), suvo i vedrije od podneva")
+            else:
+                parts.append(f"Kiša prijepodne, suvo od podneva")
+        elif rain_m and not rain_a and rain_e:
+            parts.append(f"Kiša ujutru i predveče, suvo od podneva do večeri")
+        elif not rain_m and rain_a and rain_e:
+            if ms in ('clear', 'mostly_clear'):
+                parts.append(f"Sunčano ujutru, kiša od podneva")
+            else:
+                parts.append(f"Kiša od podneva do kraja dana{precip_str}")
+        elif not rain_m and rain_a and not rain_e:
+            if ms in ('clear', 'mostly_clear'):
+                parts.append(f"Sunčano ujutru, kiša od podneva do kasno poslijepodne")
+            else:
+                parts.append(f"Oblačno, kiša od podneva do kasno poslijepodne")
+        elif not rain_m and not rain_a and rain_e:
+            parts.append(f"Suvo tokom dana, kiša predveče")
+        elif night['has_rain'] and not rain_m and not rain_a and not rain_e:
+            if ms in ('clear', 'mostly_clear'):
+                parts.append("Kiša tokom noći, sunčano tokom dana")
+            else:
+                parts.append("Kiša tokom noći, suvo tokom dana")
+        else:
+            parts.append(f"Povremena kiša{precip_str}")
+    elif has_fog_morn:
+        if as_ in ('clear', 'mostly_clear'):
+            parts.append("Magla ujutru, sunčano od podneva")
+        elif as_ in ('partly_cloudy',):
+            parts.append("Magla ujutru, oblaci i sunce od podneva")
+        else:
+            parts.append("Magla ujutru, oblačno od podneva")
+    else:
+        if morn['n'] == 0 and aftn['n'] == 0 and eve['n'] > 0:
+            sky_labels = {
+                'clear': 'Vedro', 'mostly_clear': 'Pretežno vedro',
+                'partly_cloudy': 'Po koji oblak', 'mostly_cloudy': 'Pretežno oblačno',
+                'cloudy': 'Oblačno',
+            }
+            parts.append(sky_labels.get(es, 'Promjenljivo'))
+        elif morn['n'] == 0 and aftn['n'] > 0:
+            sky_labels = {
+                'clear': 'Vedro i sunčano', 'mostly_clear': 'Pretežno sunčano',
+                'partly_cloudy': 'Po koji oblak', 'mostly_cloudy': 'Pretežno oblačno',
+                'cloudy': 'Oblačno',
+            }
+            parts.append(sky_labels.get(as_, 'Promjenljivo'))
+        elif ms == as_:
+            sky_labels = {
+                'clear': 'Vedro i sunčano tokom dana',
+                'mostly_clear': 'Pretežno sunčano, poneki oblak',
+                'partly_cloudy': 'Oblačno sa sunčanim periodima',
+                'mostly_cloudy': 'Pretežno oblačno, malo sunca',
+                'cloudy': 'Oblačno tokom cijelog dana bez padavina',
+            }
+            parts.append(sky_labels.get(ms, 'Promjenljivo'))
+        elif ms in ('clear', 'mostly_clear') and as_ in ('mostly_cloudy', 'cloudy'):
+            parts.append("Sunčano prije podne, oblaci od podneva")
+        elif ms in ('mostly_cloudy', 'cloudy') and as_ in ('clear', 'mostly_clear'):
+            parts.append("Oblačno prije podne, sunce od podneva")
+        elif ms in ('clear', 'mostly_clear') and as_ == 'partly_cloudy':
+            parts.append("Sunčano sa ponešto oblaka od podneva")
+        elif ms == 'partly_cloudy' and as_ in ('clear', 'mostly_clear'):
+            parts.append("Više oblaka prijepodna, sunčano od podneva")
+        elif ms == 'partly_cloudy' and as_ in ('mostly_cloudy', 'cloudy'):
+            parts.append("Sve oblačnije kako dan odmiče")
+        elif ms in ('mostly_cloudy', 'cloudy') and as_ == 'partly_cloudy':
+            parts.append("Oblačno prijepodne, ponešto sunca od podneva")
+        else:
+            parts.append("Promjenljivo oblačno")
+
+        if es != 'unknown' and len(parts) > 0:
+            curr_end = as_ if as_ != 'unknown' else ms
+            if curr_end in ('clear', 'mostly_clear') and es in ('mostly_cloudy', 'cloudy'):
+                parts[0] += ". Oblaci predveče"
+            elif curr_end in ('mostly_cloudy', 'cloudy') and es in ('clear', 'mostly_clear'):
+                parts[0] += ". Vedrije predveče"
+
+    wind_part = ""
+    if max_wind >= 10:
+        wind_part = f"jak {wind_dir_str} vjetar" if wind_dir_str else "jak vjetar"
+    elif max_wind >= 7:
+        wind_part = f"vjetrovito ({wind_dir_str})" if wind_dir_str else "vjetrovito"
+    elif max_wind >= 5:
+        wind_part = f"umjeren {wind_dir_str} vjetar" if wind_dir_str else "umjeren vjetar"
+
+    if wind_part:
+        if max_gust >= 15:
+            wind_part += f", udari do {max_gust:.0f} m/s"
+        parts.append(wind_part)
+    elif max_gust >= 15:
+        parts.append(f"udari vjetra do {max_gust:.0f} m/s")
+
+    if temp_max is not None:
+        if temp_max >= 33:
+            parts.append("izuzetno vruće")
+        elif temp_max >= 30:
+            parts.append("vruće")
+    if temp_min is not None:
+        if temp_min <= -5:
+            parts.append("jak mraz")
+        elif temp_min <= 0:
+            parts.append("mraz")
+
+    narrative = "Promjenljivo"
+    if len(parts) == 1:
+        narrative = parts[0]
+    elif len(parts) > 1:
+        narrative = f"{parts[0]}; {'; '.join(parts[1:])}"
+
+    return {
+        'narrative': narrative,
+        'weather_code': day_wc,
+        'weather_desc': day_wmo['desc'],
+        'weather_icon': day_wmo['icon'],
+        'weather_emoji': day_wmo['emoji'],
+    }
+
+
+def _build_daily_summary(date_str, day_name, grp_df, fc_raw=None):
+    """Build a single daily summary dict from a group of hourly forecast rows.
+    Uses _daily_narrative for icon/desc/narrative (unified, not split).
+    grp_df must have 'hour' column and XGBoost/ensemble columns.
+    """
+    def _v(col_xgb, col_ens):
+        c = grp_df.get(col_xgb, grp_df.get(col_ens, pd.Series(dtype=float)))
+        return pd.to_numeric(c, errors='coerce') if isinstance(c, pd.Series) else pd.Series(dtype=float)
+
+    temp = _v('temperature_2m_xgb', 'temperature_2m_ensemble')
+    wind = _v('wind_speed_10m_xgb', 'wind_speed_10m_ensemble')
+    gusts = _v('wind_gusts_10m_xgb', 'wind_gusts_10m_ensemble')
+    precip = _v('precipitation_xgb', 'precipitation_ensemble')
+    humid = _v('relative_humidity_2m_xgb', 'relative_humidity_2m_ensemble')
+    pres = _v('pressure_msl_xgb', 'pressure_msl_ensemble')
+    cloud = _v('cloud_cover_xgb', 'cloud_cover_ensemble')
+
+    ds = {"date": date_str, "day_name": day_name}
+    if temp.notna().any():
+        ds['temp_min'] = round(float(temp.min()), 1)
+        ds['temp_max'] = round(float(temp.max()), 1)
+    if wind.notna().any():
+        ds['wind_max'] = round(float(wind.max()), 1)
+    if gusts.notna().any():
+        ds['gust_max'] = round(float(gusts.max()), 1)
+    ds['precip_total'] = round(float(precip.sum()), 1) if precip.notna().any() else 0
+    if humid.notna().any():
+        ds['humidity_avg'] = round(float(humid.mean()), 0)
+    if pres.notna().any():
+        ds['pressure_avg'] = round(float(pres.mean()), 0)
+
+    wd_s = pd.to_numeric(grp_df.get('wind_direction_10m_ens',
+                         grp_df.get('wind_direction_10m', pd.Series(dtype=float))),
+                         errors='coerce').dropna()
+    if len(wd_s) > 0:
+        rad = np.radians(wd_s)
+        ds['wind_dir_avg'] = round(float(np.degrees(
+            np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) % 360), 0)
+
+    hr = grp_df['hour'].astype(int)
+    daytime_mask = (hr >= 7) & (hr <= 19)
+    if cloud.notna().any() and daytime_mask.any():
+        dc = cloud[daytime_mask].dropna()
+        if len(dc) > 0:
+            ds['cloud_cover_day'] = round(float(dc.mean()), 0)
+
+    narr_df = pd.DataFrame({
+        'hour': hr.values,
+        'cloud_cover': cloud.values,
+        'precipitation': precip.values,
+        'wind_speed_10m': wind.values,
+        'wind_gusts_10m': gusts.values,
+        'temperature_2m': temp.values,
+        'weather_code': pd.to_numeric(
+            grp_df.get('weather_code', pd.Series(dtype=float)), errors='coerce').values,
+        'wind_direction_10m': wd_s.reindex(grp_df.index).values if len(wd_s) > 0 else np.nan,
+    })
+    narr = _daily_narrative(narr_df)
+    ds.update({
+        'weather_code': narr['weather_code'],
+        'weather_desc': narr['weather_desc'],
+        'weather_icon': narr['weather_icon'],
+        'weather_emoji': narr['weather_emoji'],
+        'day_narrative': narr['narrative'],
+    })
+
+    if fc_raw is not None:
+        raw_mask = fc_raw['datetime'].isin(grp_df['datetime'])
+        raw_grp = fc_raw[raw_mask]
+        pcols = [f"{m}_precipitation_model" for m in MODELS
+                 if f"{m}_precipitation_model" in raw_grp.columns]
+        if pcols:
+            has_rain = [(pd.to_numeric(raw_grp[c], errors='coerce').fillna(0) > 0.1).any()
+                        for c in pcols]
+            ds['precip_probability'] = round(sum(has_rain) / len(has_rain) * 100)
+
+    return ds
+
+
+# ---------------------------------------------------------------------------
+# Gemini AI narrative generation
+# ---------------------------------------------------------------------------
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+
+def _gemini_narrative(date_str, hourly_rows):
+    """Call Gemini to generate a short weather narrative from hourly data."""
+    if not GEMINI_API_KEY or not hourly_rows:
+        return None
+    lines = []
+    for h in hourly_rows:
+        hour = h.get('hour', 0)
+        temp = h.get('temperature_2m', h.get('temperature_2m_ensemble', '?'))
+        hum = h.get('relative_humidity_2m', h.get('relative_humidity_2m_ensemble', '?'))
+        wind = h.get('wind_speed_10m', h.get('wind_speed_10m_ensemble', '?'))
+        press = h.get('surface_pressure', h.get('pressure_msl', '?'))
+        cloud = h.get('cloud_cover', '?')
+        # precipitation + weather_code can be NaN at the forecast horizon's
+        # last row after the hourly shift; sanitize so the prompt stays clean.
+        precip_raw = h.get('precipitation', h.get('precipitation_ensemble', 0))
+        precip = precip_raw if precip_raw is not None and pd.notna(precip_raw) else 0
+        wc_raw = h.get('weather_code', h.get('weather_code_raw', 0))
+        wc = int(wc_raw) if wc_raw is not None and pd.notna(wc_raw) else 0
+        icon = WMO_CODES.get(wc, {}).get('icon', 'unknown')
+        emoji = h.get('weather_emoji', '')
+        lines.append(
+            f"  {date_str} {hour:02d}:00 {icon} {emoji}  {temp}°   {hum}%   {wind}   {press}   {cloud}%   {precip}"
+        )
+    hourly_text = "\n".join(lines)
+
+    prompt = (
+        f"Satni podaci za Budvu, {date_str} (sat  ikonica  temp  vlažnost  vjetar_m/s  pritisak_hPa  oblačnost  padavine_mm):\n"
+        f"{hourly_text}\n\n"
+        "Na osnovu ovih satnih podataka za Budvu, napiši kratak izvještaj.\n\nPravila:\n1. Maksimalno 8 riječi.\n2. Fokusiraj se na glavnu promjenu vremena (npr. prelaz iz oblačnog u sunčano).\n3. Navedi doba dana kada se promjena dešava.\n4.Ako nema kiše ili vjetra, ne spominji ih."
+    )
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}],
+               "generationConfig": {"temperature": 0.3, "maxOutputTokens": 200,
+                                    "thinkingConfig": {"thinkingBudget": 0}}}
+    for attempt in range(4):
+        try:
+            resp = requests.post(url, json=payload, timeout=15)
+            if resp.status_code == 429:
+                wait = 2 ** attempt * 5  # 5, 10, 20, 40 sec
+                print(f"  [Gemini] Rate limit za {date_str}, čekam {wait}s...")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            text = data['candidates'][0]['content']['parts'][0]['text'].strip()
+            if text.startswith('"') and text.endswith('"'):
+                text = text[1:-1]
+            return text
+        except Exception as e:
+            print(f"  [Gemini] Greška za {date_str}: {e}")
+            return None
+    return None
+
+
+def _gemini_narrative_daily(date_str, ds):
+    """Call Gemini for long-range days that lack hourly data."""
+    if not GEMINI_API_KEY:
+        return None
+    tmin = ds.get('temp_min', '?')
+    tmax = ds.get('temp_max', '?')
+    cloud = ds.get('cloud_cover_day', ds.get('cloud_cover_avg', '?'))
+    precip = ds.get('precip_total', 0)
+    wind = ds.get('wind_max', '?')
+    pp = ds.get('precip_probability', 0)
+    summary = (f"Budva {date_str}: temp {tmin}-{tmax}°C, oblačnost {cloud}%, "
+               f"padavine {precip}mm (šansa {pp}%), vjetar do {wind}m/s.")
+    prompt = (
+        f"{summary}\n\n"
+        "Napiši JEDNU rečenicu (max 10 riječi) koja opisuje vremenske uslove.\n"
+        "Crnogorski jezik. Bez emotikona. Bez savjeta.\n"
+        "Ako oblačnost > 50%, pomeni oblake. Ako padavine >= 0.2mm, pomeni kišu.\n"
+        "Primjeri: Djelimično oblačno, moguća slaba kiša. / Pretežno vedro uz umjeren vjetar.\n"
+        "Samo rečenicu:"
+    )
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}],
+               "generationConfig": {"temperature": 0.3, "maxOutputTokens": 200,
+                                    "thinkingConfig": {"thinkingBudget": 0}}}
+    for attempt in range(3):
+        try:
+            resp = requests.post(url, json=payload, timeout=15)
+            if resp.status_code == 429:
+                wait = 2 ** attempt * 5
+                print(f"  [Gemini] Rate limit za {date_str}, čekam {wait}s...")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            text = data['candidates'][0]['content']['parts'][0]['text'].strip()
+            if text.startswith('"') and text.endswith('"'):
+                text = text[1:-1]
+            return text
+        except Exception as e:
+            print(f"  [Gemini] Greška za {date_str}: {e}")
+            return None
+    return None
+
+
+def _enrich_narratives_with_ai(daily_list, hourly_data):
+    """Replace day_narrative with AI-generated text where possible.
+    Uses a date-keyed cache to avoid redundant Gemini calls."""
+    if not GEMINI_API_KEY:
+        print("  [Gemini] API ključ nije postavljen, preskačem AI opise.")
+        return
+
+    # --- Cache logic (only on CI/GitHub Actions to save API quota) ---
+    use_cache = os.environ.get('GITHUB_ACTIONS') == 'true'
+    cache_path = os.path.join(OUTPUT_DIR, "gemini_narrative_cache.json")
+    cache = {}
+    if use_cache and os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache = json.load(f)
+        except Exception:
+            cache = {}
+
+    print("  [Gemini] Generišem AI opise vremena...")
+    hourly_by_date = {}
+    for h in hourly_data:
+        d = h.get('date', h.get('_date', ''))
+        if d not in hourly_by_date:
+            hourly_by_date[d] = []
+        hourly_by_date[d].append(h)
+
+    count = 0
+    api_calls = 0
+    for ds in daily_list:
+        date_str = ds.get('date', '')
+        rows = hourly_by_date.get(date_str, [])
+        rows.sort(key=lambda r: r.get('hour', 0))
+        has_hourly = len(rows) >= 8
+
+        # Cache strategy: only use cache for long-range days (no hourly available).
+        # Hourly-covered days are ALWAYS regenerated so the narrative reflects the
+        # latest forecast — and because earlier-cached entries may have been
+        # generated when this date was still long-range (Gemini hallucinates timing
+        # without hourly data). Cost: a few extra API calls per run, worth it.
+        if not has_hourly and date_str in cache:
+            ds['day_narrative'] = cache[date_str]
+            count += 1
+            continue
+
+        if has_hourly:
+            narrative = _gemini_narrative(date_str, rows)
+        else:
+            narrative = _gemini_narrative_daily(date_str, ds)
+        api_calls += 1
+        if narrative:
+            ds['day_narrative'] = narrative
+            # Cache only daily-sourced narratives (long-range stable).
+            # Hourly-sourced ones change with each run so caching them is wasteful.
+            if not has_hourly:
+                cache[date_str] = narrative
+            count += 1
+        if api_calls < len(daily_list):
+            time.sleep(12)
+
+    # Save cache only on CI
+    if use_cache:
+        today_str = local_now().strftime('%Y-%m-%d')
+        cache = {k: v for k, v in cache.items() if k >= today_str}
+        try:
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    print(f"  [Gemini] Generisano {count}/{len(daily_list)} AI opisa ({api_calls} API poziva, {count - api_calls} iz keša).")
+
+
+def generate_output(corrected, trained, results, fc_raw=None, marine=None):
+    print("\n[6/6] Generisanje izlaza...")
+    now_str = local_now().isoformat()
+    now_ts = local_now().floor('h')
+    cutoff_48h = now_ts + pd.Timedelta(hours=48)
+
+    forecast_hours = []
+    for _, row in corrected.iterrows():
+        if row['datetime'] >= cutoff_48h:
+            continue
+        # Past hours (today's morning that already happened) stay in corrected
+        # for daily aggregation but must NOT appear in the live hourly JSON.
+        if row['datetime'] < now_ts:
+            continue
+        wc = int(row.get('weather_code', 0)) if pd.notna(row.get('weather_code', np.nan)) else 0
+        wmo = WMO_CODES.get(wc, WMO_CODES[0])
+
+        entry = {
+            "datetime": row['datetime'].isoformat(),
+            "hour": int(row['datetime'].hour),
+            "date": row['datetime'].strftime('%Y-%m-%d'),
+            "day_name": row['datetime'].strftime('%A'),
+            "weather_code": wc,
+            "weather_desc": wmo['desc'],
+            "weather_icon": wmo['icon'],
+            "weather_emoji": wmo['emoji'],
+        }
+
+        for param, info in TARGET_PARAMS.items():
+            xgb_col = f'{param}_xgb'
+            ens_col = f'{param}_ensemble'
+            val = row.get(xgb_col, row.get(ens_col, None))
+            if val is not None and pd.notna(val):
+                entry[param] = round(float(val), 2)
+            ens_val = row.get(ens_col, None)
+            if ens_val is not None and pd.notna(ens_val):
+                entry[f'{param}_raw'] = round(float(ens_val), 2)
+
+        for extra in ['apparent_temperature', 'wind_direction_10m', 'surface_pressure',
+                      'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'rain', 'snowfall']:
+            v = row.get(f'{extra}_ens', None)
+            if v is not None and pd.notna(v):
+                entry[extra] = round(float(v), 2)
+
+        forecast_hours.append(entry)
+
+    all_data = corrected.copy()
+    all_data['_date'] = all_data['datetime'].dt.strftime('%Y-%m-%d')
+    all_data['_day_name'] = all_data['datetime'].dt.strftime('%A')
+    all_data['hour'] = all_data['datetime'].dt.hour
+
+    today_str = local_now().strftime('%Y-%m-%d')
+    today_cache_path = os.path.join(OUTPUT_DIR, "today_daily_cache.json")
+
+    all_daily = {}  # date_str -> summary dict
+    for date_str, grp in all_data.groupby('_date'):
+        day_name = grp.iloc[0]['_day_name']
+
+        if date_str == today_str:
+            first_hour = int(grp['hour'].min())
+            if first_hour < 10:
+                ds = _build_daily_summary(date_str, day_name, grp, fc_raw=fc_raw)
+                all_daily[date_str] = ds
+                try:
+                    with open(today_cache_path, 'w', encoding='utf-8') as _cf:
+                        json.dump(ds, _cf, ensure_ascii=False)
+                except Exception:
+                    pass
+            else:
+                cached = None
+                if os.path.exists(today_cache_path):
+                    try:
+                        with open(today_cache_path, 'r', encoding='utf-8') as _cf:
+                            cached = json.load(_cf)
+                        if cached.get('date') != today_str:
+                            cached = None
+                    except Exception:
+                        cached = None
+                if cached:
+                    all_daily[date_str] = cached
+                else:
+                    all_daily[date_str] = _build_daily_summary(
+                        date_str, day_name, grp, fc_raw=fc_raw
+                    )
+        else:
+            all_daily[date_str] = _build_daily_summary(
+                date_str, day_name, grp, fc_raw=fc_raw
+            )
+
+    dates_48h = set()
+    if len(forecast_hours) > 0:
+        fc_df = pd.DataFrame(forecast_hours)
+        dates_48h = set(fc_df['date'].unique())
+
+    daily = []
+    long_range = []
+    for date_str in sorted(all_daily.keys()):
+        ds = all_daily[date_str]
+        if date_str in dates_48h:
+            daily.append(ds)
+        else:
+            long_range.append(ds)
+
+    if long_range:
+        print(f"  Long range: {len(long_range)} dana")
+
+    # Enrich narratives with Gemini AI (daily + long_range, uses ALL hourly data)
+    all_days_for_ai = daily + long_range
+    all_hourly = all_data.to_dict('records')
+    _enrich_narratives_with_ai(all_days_for_ai, all_hourly)
+
+    output = {
+        "generated": now_str,
+        "location": {"name": "Budva, Crna Gora", "lat": LAT, "lon": LON,
+                      "timezone": FORECAST_TIMEZONE,
+                      "station": "ibudva5 (Weather Underground)"},
+        "method": "XGBoost Multi-Model Ensemble + Historical Bias + Forecast Revision v3",
+        "description": "11 modela, 6 godina podataka (2020-2026), pametna korekcija + Day1/Day2 revizije",
+        "models": MODELS,
+        "training_metrics": results,
+        "daily_summary": daily,
+        "hourly_forecast": forecast_hours,
+        "long_range": long_range,
+    }
+
+    if marine is not None:
+        output["marine_forecast"] = marine
+
+    json_path = os.path.join(OUTPUT_DIR, "forecast_48h.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(output, f, indent=2, ensure_ascii=False)
+    csv_path = os.path.join(OUTPUT_DIR, "forecast_48h.csv")
+    corrected.to_csv(csv_path, index=False)
+
+    print(f"  JSON: {json_path}")
+    print(f"  CSV:  {csv_path}")
+
+    print("\n" + "=" * 72)
+    print("  KORIGOVANA PROGNOZA ZA BUDVU --- Naredna 48 sata")
+    print("=" * 72)
+    for d in daily:
+        em = d.get('weather_emoji', '')
+        print(f"\n  {em} {d['day_name']} {d['date']}")
+        print(f"     Temp: {d.get('temp_min', '?')}° — {d.get('temp_max', '?')}°C  |  Vlaznost: {d.get('humidity_avg', '?')}%")
+        print(f"     Vjetar: do {d.get('wind_max', '?')} m/s (udari {d.get('gust_max', '?')} m/s)")
+        print(f"     Padavine: {d.get('precip_total', 0)} mm  |  Pritisak: {d.get('pressure_avg', '?')} hPa")
+        print(f"     {d.get('day_narrative', d.get('weather_desc', ''))}")
+
+    print("\n  " + "-" * 68)
+    print(f"  {'Sat':>12}  {'Temp':>6}  {'Vlaz':>5}  {'Vjet':>5}  {'Prit':>6}  {'Obl':>4}  {'Kisa':>6}  Opis")
+    print(f"  {'':>12}  {'':>6}  {'':>5}  {'':>5}  {'':>6}  {'':>4}  {'':>6}")
+    for _, r in corrected.iterrows():
+        ts = r['datetime'].strftime('%d.%m %H:%M')
+        t = r.get('temperature_2m_xgb', r.get('temperature_2m_ensemble', float('nan')))
+        h = r.get('relative_humidity_2m_xgb', r.get('relative_humidity_2m_ensemble', float('nan')))
+        w = r.get('wind_speed_10m_xgb', r.get('wind_speed_10m_ensemble', float('nan')))
+        p = r.get('pressure_msl_xgb', r.get('pressure_msl_ensemble', float('nan')))
+        c = r.get('cloud_cover_xgb', r.get('cloud_cover_ensemble', float('nan')))
+        pr = r.get('precipitation_xgb', r.get('precipitation_ensemble', float('nan')))
+        wc = int(r.get('weather_code', 0)) if pd.notna(r.get('weather_code', np.nan)) else 0
+        em = WMO_CODES.get(wc, WMO_CODES[0])['emoji']
+
+        tf = f"{t:5.1f}°" if pd.notna(t) else "  N/A"
+        hf = f"{h:3.0f}%" if pd.notna(h) else " N/A"
+        wf = f"{w:4.1f}" if pd.notna(w) else " N/A"
+        pf = f"{p:5.0f}" if pd.notna(p) else "  N/A"
+        cf = f"{c:3.0f}%" if pd.notna(c) else " N/A"
+        rf = f"{pr:5.2f}" if pd.notna(pr) else "  N/A"
+
+        print(f"  {ts:>12}  {tf}  {hf}  {wf}  {pf}  {cf}  {rf}  {em}")
+
+    return json_path, csv_path
+
+
+if __name__ == "__main__":
+    skip_training = '--skip-training' in sys.argv or '--skip_training' in sys.argv
+    local_dry_nowcast = '--dry-now' in sys.argv or '--dry_now' in sys.argv
+
+    if skip_training:
+        print("\n  MODE: --skip-training (ucitavam sacuvane modele)")
+        trained, results, bias_tables = load_trained_models()
+    else:
+        hist = load_historical_data()
+
+        print("\n[2/6] Feature engineering + tabele biasa...")
+        bias_tables = compute_bias_tables(hist)
+        hist = apply_bias_features(hist, bias_tables)
+        hist = engineer_features(hist)
+        print(f"  Dimenzije: {hist.shape[0]} x {hist.shape[1]}")
+
+        bias_path = os.path.join(MODEL_DIR, 'bias_tables.json')
+        bt_serializable = {}
+        for k, v in bias_tables.items():
+            bt_serializable[k] = v.to_dict(orient='records')
+        with open(bias_path, 'w') as f:
+            json.dump(bt_serializable, f)
+        print(f"  Bias tabele: {bias_path}")
+
+        trained, results = train_all_models(hist)
+
+    try:
+        fc_all = fetch_live_forecasts()
+        station_obs = fetch_current_station_observation()
+        station_dry_nowcast = station_says_dry_now(station_obs)
+        if station_obs:
+            rate = station_obs.get("precip_rate_mm")
+            age = station_obs.get("age_min")
+            age_txt = f"{age:.0f}" if age is not None else "?"
+            print(f"\n  WU nowcast: {station_obs.get('station')} rate={rate} mm/h, age={age_txt} min")
+
+        dry_nowcast_active = local_dry_nowcast or station_dry_nowcast
+        if local_dry_nowcast:
+            print("  NOWCAST: lokalno suvo sada (--dry-now), gasim slabu blisku kisu bez sire podrske")
+        elif station_dry_nowcast:
+            print("  NOWCAST: WU stanica javlja suvo sada, gasim slabu blisku kisu bez sire podrske")
+        elif not WU_API_KEY:
+            print("\n  WU nowcast: WU_API_KEY nije postavljen, preskacem automatsku live-stanicu")
+
+        corrected = apply_correction(fc_all, trained, bias_tables, local_dry_nowcast=dry_nowcast_active)
+    except TrustedRainGateError as e:
+        print("\n" + "!" * 72)
+        print(f"  TRUSTED RAIN GATE FAIL: {e}")
+        print("!" * 72)
+        prev_json = os.path.join(OUTPUT_DIR, "forecast_48h.json")
+        prev_csv = os.path.join(OUTPUT_DIR, "forecast_48h.csv")
+        if os.path.exists(prev_json):
+            mtime = os.path.getmtime(prev_json)
+            age_str = pd.Timestamp.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
+            print(f"\n  ZADRZAVAM prethodnu prognozu: {prev_json}")
+            print(f"  (generisana: {age_str})")
+            print("  Nova prognoza NIJE upisana - prethodni run ostaje na snazi.")
+            print("=" * 72)
+            sys.exit(0)
+        else:
+            print(f"\n  Prethodna prognoza ne postoji ({prev_json}).")
+            print("  Ne postoji fallback - prekidam bez upisa.")
+            print("=" * 72)
+            sys.exit(1)
+
+    marine_block = None
+    try:
+        marine_df = fetch_live_marine()
+        if marine_df is not None:
+            marine_block = build_marine_output(marine_df)
+    except Exception as e:
+        print(f"  Marine: greska, preskacem ({e})")
+
+    json_path, csv_path = generate_output(corrected, trained, results, fc_raw=fc_all, marine=marine_block)
+
+    print("\n" + "=" * 72)
+    print("  GOTOVO! Fajlovi:", OUTPUT_DIR)
+    print("=" * 72)

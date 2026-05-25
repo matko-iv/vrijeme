@@ -12,7 +12,7 @@ permissions:
 jobs:
   forecast:
     runs-on: ubuntu-latest
-    timeout-minutes: 11
+    timeout-minutes: 13
     env:
       # Use Montenegro local time (CET in winter, CEST in summer) for all
       # timestamps — Python pd.Timestamp.now(), bash date, etc.
@@ -34,7 +34,7 @@ jobs:
       - name: Run forecast pipeline (skip training)
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python forecast_48h_v2.py --skip-training
+        run: python forecast_48h_v3.py --skip-training
 
       - name: Copy forecast JSON to docs
         run: cp forecast_output/forecast_48h.json docs/forecast_data/forecast_48h.json
