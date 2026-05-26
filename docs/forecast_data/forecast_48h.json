@@ -1,5 +1,5 @@
 {
-  "generated": "2026-05-26T15:06:09.317663",
+  "generated": "2026-05-26T15:18:00.484889",
   "location": {
     "name": "Budva, Crna Gora",
     "lat": 42.2864,
@@ -196,7 +196,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Sunčano i toplo, popodne blagi porast vlažnosti vazduha.",
+      "day_narrative": "Sunčano i toplo, popodne blagi porast vlažnosti.",
       "precip_probability": 0
     },
     {
@@ -215,7 +215,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Sunčano uz blagu oblačnost u večernjim satima.",
+      "day_narrative": "Sunčano i toplo, blaga oblačnost tek uveče.",
       "precip_probability": 0
     },
     {
@@ -234,7 +234,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Sunčano i toplo, popodne uz povremenu slabu oblačnost.",
+      "day_narrative": "Sunčano i toplo, popodne blagi porast temperature.",
       "precip_probability": 70
     }
   ],
@@ -2042,7 +2042,7 @@
       "weather_desc": "Pretezno vedro",
       "weather_icon": "mostly_clear",
       "weather_emoji": "🌤️",
-      "day_narrative": "Pretežno vedro, popodne povremeno umjerena oblačnost.",
+      "day_narrative": "Pretežno vedro uz blagi porast temperature tokom dana.",
       "precip_probability": 20
     },
     {
@@ -2080,7 +2080,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Sunčano i toplo, vedrije od 13 sati.",
+      "day_narrative": "Sunčano i toplo, od podneva potpuno vedro nebo.",
       "precip_probability": 0
     }
   ],
