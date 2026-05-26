@@ -2866,11 +2866,13 @@ function renderRadarStatus(data) {
     let bestRain = null;       // closest rain detection from any source
     let approaching = false;
     let etaMin = null;
+    let rainAtLocation = false; // any source reports kiša pada u Budvi
 
     for (const [srcId, info] of Object.entries(sources)) {
         if (!info.ok) continue;
         const app = info.approaching;
         if (!app) continue;
+        if (app.rain_at_location) rainAtLocation = true;
         if (app.any_rain_within_radii && app.closest_rain_km != null) {
             if (!bestRain || app.closest_rain_km < bestRain.km) {
                 bestRain = {
@@ -2878,6 +2880,7 @@ function renderRadarStatus(data) {
                     km: app.closest_rain_km,
                     cardinal: app.closest_rain_bearing_cardinal,
                     label: app.closest_rain_intensity_label,
+                    at_location: !!app.rain_at_location,
                 };
             }
             if (app.is_approaching) {
@@ -2897,21 +2900,34 @@ function renderRadarStatus(data) {
         age = ' · podatak star ' + mins + ' min';
     }
 
-    // Render
-    if (approaching && etaMin != null) {
+    // Format km with finer precision for sub-km echoes.
+    function fmtKm(km) {
+        if (km == null) return '?';
+        if (km < 1) return km.toFixed(2);
+        if (km < 10) return km.toFixed(1);
+        return Math.round(km);
+    }
+
+    // Render: rain-at-location > approaching > nearby > distant > clear.
+    if (rainAtLocation && bestRain) {
+        el.style.color = '#bf360c';
+        el.style.fontWeight = '700';
+        el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: <b>pada kiša u Budvi</b> — ' +
+                       bestRain.label + age;
+    } else if (approaching && etaMin != null) {
         el.style.color = '#bf360c';
         el.style.fontWeight = '600';
         el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: <b>kiša dolazi</b> — ' + bestRain.label +
-                       ' na ' + bestRain.km + ' km ' + (bestRain.cardinal || '?') +
+                       ' na ' + fmtKm(bestRain.km) + ' km ' + (bestRain.cardinal || '?') +
                        ', ETA ~' + etaMin + ' min' + age;
     } else if (bestRain && bestRain.km <= 25) {
         el.style.color = '#1565c0';
         el.style.fontWeight = '600';
         el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: <b>kiša u blizini</b> — ' + bestRain.label +
-                       ' na ' + bestRain.km + ' km ' + (bestRain.cardinal || '?') + age;
+                       ' na ' + fmtKm(bestRain.km) + ' km ' + (bestRain.cardinal || '?') + age;
     } else if (bestRain) {
         el.style.color = '#666';
-        el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: padavine na ' + bestRain.km + ' km ' +
+        el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: padavine na ' + fmtKm(bestRain.km) + ' km ' +
                        (bestRain.cardinal || '?') + ', ne ide ka nama' + age;
     } else {
         el.style.color = '#2e7d32';
