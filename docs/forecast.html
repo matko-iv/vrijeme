@@ -1008,6 +1008,54 @@ function getWeatherIcon(code, hour) {
     return map[code] || (isNight ? 'clear_night' : 'clear_day');
 }
 
+// ---- SKALA radar gating of near-term rain icons ----
+// radarState is populated by refreshRadar(); null/stale = no gating (trust model).
+let radarState = null;
+
+function isRainCode(c) { return c >= 51 && c <= 82; }  // drizzle/rain/showers; thunder 95-99 excluded
+function cloudToCode(cc) {
+    if (cc == null || isNaN(cc)) return 2;
+    if (cc < 10) return 0;
+    if (cc < 40) return 1;
+    if (cc < 75) return 2;
+    return 3;
+}
+function radarFresh(rs) { return !!(rs && rs.ok && rs.ageMin != null && rs.ageMin <= 40); }
+
+// Reconcile a model weather code with the radar for hour offset 0 (current) or 1 (next).
+function gateWeatherCode(code, cloud, offset, rs) {
+    if (!radarFresh(rs)) return code;                 // radar down/stale -> trust the model
+    if (offset === 0) {
+        if (rs.rainAtLocation) return isRainCode(code) ? code : 61;  // radar confirms rain -> ensure rain icon
+        return isRainCode(code) ? cloudToCode(cloud) : code;          // radar dry -> strip model rain
+    }
+    if (offset === 1) {
+        if (!isRainCode(code)) return code;
+        const nothing = !rs.anyRainVicinity && !rs.approaching && rs.etaMin == null;
+        return nothing ? cloudToCode(cloud) : code;   // strip next hour only if radar sees nothing
+    }
+    return code;
+}
+
+// Re-skin the current-weather icon + the current/next hourly cells after a radar refresh.
+function applyRadarGating() {
+    const box = document.getElementById('cwIconBox');
+    if (box) {
+        const code = +box.dataset.code;
+        const cloud = box.dataset.cloud === '' ? null : +box.dataset.cloud;
+        const hour = +box.dataset.hour;
+        box.innerHTML = weatherIcon(getWeatherIcon(gateWeatherCode(code, cloud, 0, radarState), hour), 96);
+    }
+    document.querySelectorAll('.hourly-cell[data-gate]').forEach(cell => {
+        const offset = +cell.dataset.gate;
+        const hour = +cell.dataset.hour;
+        const code = +cell.dataset.code;
+        const cloud = cell.dataset.cloud === '' ? null : +cell.dataset.cloud;
+        const iconEl = cell.querySelector('.h-icon');
+        if (iconEl) iconEl.innerHTML = weatherIcon(getWeatherIcon(gateWeatherCode(code, cloud, offset, radarState), hour), 48);
+    });
+}
+
 function dailyIconKey(iconField) {
     const map = {
         clear: 'clear_day', mostly_clear: 'mostly_clear_day',
@@ -2228,7 +2276,12 @@ async function loadForecast() {
         const resp = await fetch('forecast_data/forecast_48h.json?v=' + Date.now(), { cache: 'no-store' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         forecastData = await resp.json();
+        // Populate radarState before first paint so near-term rain icons are
+        // gated immediately. Cap the wait so a slow radar never blocks render.
+        await Promise.race([refreshRadar(), new Promise(r => setTimeout(r, 2500))]);
         render(forecastData);
+        renderRadarStatusLine(radarState);
+        applyRadarGating();
     } catch(e) {
         document.getElementById('app').innerHTML =
             '<div class="loading" style="color:#d73a49">Greška: ' + e.message +
@@ -2310,10 +2363,14 @@ function render(data) {
     const now = new Date();
     const currentHour = now.getHours();
     const currentData = data.hourly_forecast.find(h => h.hour === currentHour) || data.hourly_forecast[0];
+    const currentIdx = data.hourly_forecast.indexOf(currentData);
     if (currentData) {
-        const cwIcon = getWeatherIcon(currentData.weather_code, currentData.hour);
         const wmoDescs = {0:'Vedro',1:'Pretežno vedro',2:'Djelimično oblačno',3:'Oblačno',45:'Magla',48:'Magla',51:'Sitna kiša',53:'Sitna kiša, umjerena',55:'Sitna kiša, jaka',61:'Slaba kiša',63:'Kiša',65:'Jaka kiša',71:'Snijeg',73:'Snijeg',75:'Jak snijeg',80:'Pljuskovi',81:'Pljuskovi',82:'Jaki pljuskovi',95:'Grmljavina',96:'Grmljavina',99:'Grmljavina'};
-        const cwDesc = wmoDescs[currentData.weather_code] || 'Vedro';
+        // SKALA radar gate: the near-term rain icon must agree with the radar.
+        const cwCode = gateWeatherCode(currentData.weather_code, currentData.cloud_cover, 0, radarState);
+        const cwIcon = getWeatherIcon(cwCode, currentData.hour);
+        const cwDesc = wmoDescs[cwCode] || 'Vedro';
+        const gatedDryNow = isRainCode(currentData.weather_code) && !isRainCode(cwCode);
 
         // Compute warnings against the full 48h horizon. Active = covers current hour.
         const currentDate = (currentData.datetime || '').slice(0, 10);
@@ -2325,7 +2382,8 @@ function render(data) {
         if (warnings.length > 0) {
             html += '<div class="weather-warnings">';
             warnings.forEach(w => {
-                const badge = w.active ? '<span class="w-now-badge">Upozorenje</span>' : '';
+                const badgeLabels = { wind: 'Moguće', rainHeavy: 'Moguće', shower: 'Moguće', thunder: 'Upozorenje' };
+                const badge = w.active ? '<span class="w-now-badge">' + (badgeLabels[w.kind] || 'Upozorenje') + '</span>' : '';
                 html += `
                 <div class="warning-row sev-${w.sev}">
                     <div class="w-icon">${warningIcon(w.kind)}</div>
@@ -2340,8 +2398,11 @@ function render(data) {
         }
 
         html += `
+        <p class="rain-method-note" style="margin:18px 0 6px;padding:12px 14px;background:#f6f8fa;border-left:3px solid #0366d6;border-radius:6px;font-size:13.5px;color:#444;line-height:1.5">
+            Kišu predviđamo u dva koraka: XGBoost model na osnovu svih ulaznih modela procjenjuje da li je kiša <b>moguća</b> (oznaka „Moguće"). Da li zaista pada — potvrđuje SKALA radarski sistem. Zato ikonica za tekući i naredni sat prati radar: ako radar ne vidi kišu, prikazujemo stvarno stanje neba, a ne model. Kad kiša stvarno krene, ikonica se mijenja u odgovarajuću kišnu.
+        </p>
         <div class="${cwClass}">
-            <div class="cw-icon">${weatherIcon(cwIcon, 96)}</div>
+            <div class="cw-icon" id="cwIconBox" data-code="${currentData.weather_code}" data-cloud="${currentData.cloud_cover != null ? currentData.cloud_cover : ''}" data-hour="${currentData.hour}">${weatherIcon(cwIcon, 96)}</div>
             <div class="cw-main">
                 <div class="cw-label">Trenutno stanje · ${String(currentHour).padStart(2,'0')}:00h</div>
                 <div class="cw-temp">${currentData.temperature_2m.toFixed(1)}°C</div>
@@ -2350,7 +2411,7 @@ function render(data) {
                     <div class="cw-detail">${weatherIcon('wind', 20)} <span>${windArrow(currentData.wind_direction_10m)} ${currentData.wind_speed_10m.toFixed(1)} m/s ${windDirText(currentData.wind_direction_10m)}</span></div>
                     <div class="cw-detail">${weatherIcon('humidity', 20)} <span>${Math.round(currentData.relative_humidity_2m)}%</span></div>
                     <div class="cw-detail"><img src="${ICON_CDN}barometer.svg" width="20" height="20" style="vertical-align:middle"> <span>${currentData.pressure_msl.toFixed(0)} hPa</span></div>
-                    ${currentData.precipitation > 0.05 ? '<div class="cw-detail">' + weatherIcon('rain_icon', 20) + ' <span>' + currentData.precipitation.toFixed(1) + ' mm</span></div>' : ''}
+                    ${currentData.precipitation > 0.05 && !gatedDryNow ? '<div class="cw-detail">' + weatherIcon('rain_icon', 20) + ' <span>' + currentData.precipitation.toFixed(1) + ' mm</span></div>' : ''}
                     ${(function() {
                         const beach = beachWindAdjustment(currentData.wind_direction_10m);
                         if (!beach) return '';
@@ -2366,14 +2427,17 @@ function render(data) {
     }
 
     html += '<div class="hourly-strip"><h3>Prognoza po satima</h3><div class="hourly-row">';
-    data.hourly_forecast.forEach(h => {
+    data.hourly_forecast.forEach((h, i) => {
         const t = h.temperature_2m != null ? Math.round(h.temperature_2m) + '°' : '-';
         const rain = h.precipitation > 0.05 ? h.precipitation.toFixed(1) + 'mm' : '';
         const wind = h.wind_speed_10m != null ? h.wind_speed_10m.toFixed(1) : '';
-        const iconKey = getWeatherIcon(h.weather_code, h.hour);
+        const gateOffset = (i === currentIdx) ? 0 : (i === currentIdx + 1 ? 1 : -1);
+        const cellCode = gateOffset >= 0 ? gateWeatherCode(h.weather_code, h.cloud_cover, gateOffset, radarState) : h.weather_code;
+        const iconKey = getWeatherIcon(cellCode, h.hour);
         const isNow = h.hour === currentHour;
+        const gateAttr = gateOffset >= 0 ? ` data-gate="${gateOffset}" data-hour="${h.hour}" data-code="${h.weather_code}" data-cloud="${h.cloud_cover != null ? h.cloud_cover : ''}"` : '';
         html += `
-        <div class="hourly-cell" ${isNow ? 'style="background:#f1f8ff;border-top:2px solid #0366d6"' : ''}>
+        <div class="hourly-cell"${gateAttr} ${isNow ? 'style="background:#f1f8ff;border-top:2px solid #0366d6"' : ''}>
             <span class="h-time">${String(h.hour).padStart(2,'0')}h</span>
             <span class="h-icon">${weatherIcon(iconKey, 48)}</span>
             <span class="h-temp">${t}</span>
@@ -2838,41 +2902,30 @@ const RADAR_STATUS_URLS = [
     'https://matko-iv.github.io/budva-radar/radar_status.json',
 ];
 
-async function loadRadarStatus() {
-    let lastErr = null;
+async function fetchRadarData() {
     for (const url of RADAR_STATUS_URLS) {
         try {
             const resp = await fetch(url + '?v=' + Date.now(), { cache: 'no-store' });
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
-            const data = await resp.json();
-            renderRadarStatus(data);
-            return;
-        } catch (e) {
-            lastErr = e;
-        }
+            return await resp.json();
+        } catch (e) { /* try next url */ }
     }
-    const el = document.getElementById('radarStatusLine');
-    if (el) el.textContent = 'Radar: nedostupan (' + (lastErr && lastErr.message || '?') + ')';
+    return null;
 }
 
-function renderRadarStatus(data) {
-    const el = document.getElementById('radarStatusLine');
-    if (!el) return;
-
-    const sum = data.summary || {};
-    const sources = data.sources || {};
-
-    // Find best signal across sources
-    let bestRain = null;       // closest rain detection from any source
-    let approaching = false;
-    let etaMin = null;
-    let rainAtLocation = false; // any source reports kiša pada u Budvi
+// Parse radar JSON into the compact state used by the status line + icon gating.
+function parseRadarState(data) {
+    const sum = (data && data.summary) || {};
+    const sources = (data && data.sources) || {};
+    let bestRain = null;        // closest rain detection from any source
+    let srcApproaching = false, srcEta = null, srcAtLoc = false, srcVicinity = false;
 
     for (const [srcId, info] of Object.entries(sources)) {
-        if (!info.ok) continue;
+        if (!info || !info.ok) continue;
         const app = info.approaching;
         if (!app) continue;
-        if (app.rain_at_location) rainAtLocation = true;
+        if (app.rain_at_location) srcAtLoc = true;
+        if (app.any_rain_within_radii) srcVicinity = true;
         if (app.any_rain_within_radii && app.closest_rain_km != null) {
             if (!bestRain || app.closest_rain_km < bestRain.km) {
                 bestRain = {
@@ -2884,21 +2937,45 @@ function renderRadarStatus(data) {
                 };
             }
             if (app.is_approaching) {
-                approaching = true;
-                if (app.eta_minutes != null && (etaMin == null || app.eta_minutes < etaMin)) {
-                    etaMin = app.eta_minutes;
-                }
+                srcApproaching = true;
+                if (app.eta_minutes != null && (srcEta == null || app.eta_minutes < srcEta)) srcEta = app.eta_minutes;
             }
         }
     }
 
-    // Compute age of data
-    let age = '';
-    if (data.generated) {
-        const gen = new Date(data.generated);
-        const mins = Math.round((Date.now() - gen.getTime()) / 60000);
-        age = ' · podatak star ' + mins + ' min';
+    let ageMin = null;
+    if (data && data.generated) ageMin = Math.round((Date.now() - new Date(data.generated).getTime()) / 60000);
+    const ok = Object.values(sources).some(s => s && s.ok);
+    // Prefer the server-aggregated summary booleans; fall back to per-source.
+    return {
+        ok,
+        rainAtLocation: sum.rain_at_location != null ? !!sum.rain_at_location : srcAtLoc,
+        approaching:    sum.rain_approaching != null ? !!sum.rain_approaching : srcApproaching,
+        anyRainVicinity: sum.rain_in_vicinity != null ? !!sum.rain_in_vicinity : srcVicinity,
+        etaMin:         sum.closest_eta_minutes != null ? sum.closest_eta_minutes : srcEta,
+        bestRain, ageMin,
+    };
+}
+
+async function refreshRadar() {
+    const data = await fetchRadarData();
+    radarState = data ? parseRadarState(data) : null;
+    renderRadarStatusLine(radarState);
+    applyRadarGating();
+}
+
+function renderRadarStatusLine(state) {
+    const el = document.getElementById('radarStatusLine');
+    if (!el) return;
+    if (!state || !state.ok) {
+        el.style.color = '#777';
+        el.style.fontWeight = '400';
+        el.textContent = 'Radar: nedostupan';
+        return;
     }
+
+    const bestRain = state.bestRain;
+    const age = state.ageMin != null ? ' · podatak star ' + state.ageMin + ' min' : '';
 
     // Format km with finer precision for sub-km echoes.
     function fmtKm(km) {
@@ -2908,36 +2985,36 @@ function renderRadarStatus(data) {
         return Math.round(km);
     }
 
-    // Render: rain-at-location > approaching > nearby > distant > clear.
-    if (rainAtLocation && bestRain) {
+    // Render states:
+    //   rain_at_location   — KIŠA PADA U BUDVI (exact pixel)
+    //   approaching        — KIŠA DOLAZI (gated server-side in radar/interpret.py)
+    //   any rain elsewhere — POSTOJI KIŠA U OKOLINI (no arrival prediction)
+    //   none               — nema padavina
+    if (state.rainAtLocation && bestRain) {
         el.style.color = '#bf360c';
         el.style.fontWeight = '700';
         el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: <b>pada kiša u Budvi</b> — ' +
                        bestRain.label + age;
-    } else if (approaching && etaMin != null) {
+    } else if (state.approaching && state.etaMin != null && bestRain) {
         el.style.color = '#bf360c';
         el.style.fontWeight = '600';
         el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: <b>kiša dolazi</b> — ' + bestRain.label +
                        ' na ' + fmtKm(bestRain.km) + ' km ' + (bestRain.cardinal || '?') +
-                       ', ETA ~' + etaMin + ' min' + age;
-    } else if (bestRain && bestRain.km <= 25) {
+                       ', ETA ~' + state.etaMin + ' min' + age;
+    } else if (bestRain) {
         el.style.color = '#1565c0';
         el.style.fontWeight = '600';
-        el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: <b>kiša u blizini</b> — ' + bestRain.label +
-                       ' na ' + fmtKm(bestRain.km) + ' km ' + (bestRain.cardinal || '?') + age;
-    } else if (bestRain) {
-        el.style.color = '#666';
-        el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: padavine na ' + fmtKm(bestRain.km) + ' km ' +
-                       (bestRain.cardinal || '?') + ', ne ide ka nama' + age;
+        el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: <b>postoji kiša u okolini</b> — ' +
+                       bestRain.label + ' na ' + fmtKm(bestRain.km) + ' km ' + (bestRain.cardinal || '?') + age;
     } else {
         el.style.color = '#2e7d32';
+        el.style.fontWeight = '400';
         el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: nema padavina u okolini Budve' + age;
     }
 }
 
-// Pokreni 3s posle forecast load-a (dovoljno da DOM stigne), pa svake 2 min
-setTimeout(loadRadarStatus, 3000);
-setInterval(loadRadarStatus, 120000);
+// Radar se osvježava svake 2 min; inicijalno gejtovanje ikonica radi loadForecast().
+setInterval(refreshRadar, 120000);
 </script>
 
 </body>

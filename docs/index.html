@@ -692,6 +692,7 @@
 
     function renderRun(data) {
         const target = document.getElementById('currentRun');
+        if (!target) return;
         const first = data.hourly_forecast && data.hourly_forecast[0];
         if (!first) {
             target.innerHTML = '<h3>Trenutni live run</h3><p style="color:#586069;font-size:15px;margin-bottom:0;">Live JSON trenutno nije dostupan.</p>';
@@ -710,6 +711,7 @@
 
     function renderAccuracy(data) {
         const target = document.getElementById('liveAccuracy');
+        if (!target) return;
         if (!data || !data.training_metrics) {
             target.innerHTML = '<p style="color:#586069;font-size:14px;">Podaci o tačnosti su dostupni na stranici za prognozu.</p>';
             return;
