@@ -1030,9 +1030,10 @@ function gateWeatherCode(code, cloud, offset, rs) {
         return isRainCode(code) ? cloudToCode(cloud) : code;          // radar dry -> strip model rain
     }
     if (offset === 1) {
-        if (!isRainCode(code)) return code;
-        const nothing = !rs.anyRainVicinity && !rs.approaching && rs.etaMin == null;
-        return nothing ? cloudToCode(cloud) : code;   // strip next hour only if radar sees nothing
+        // Rain headed toward Budva (or already falling now) -> show rain next hour,
+        // even if the model was dry. Otherwise it will bypass us -> strip to cloud.
+        if (rs.approaching || rs.rainAtLocation) return isRainCode(code) ? code : 61;
+        return isRainCode(code) ? cloudToCode(cloud) : code;
     }
     return code;
 }
@@ -2399,7 +2400,8 @@ function render(data) {
 
         html += `
         <p>
-            Kišu predviđamo u dva koraka: XGBoost model na osnovu svih ulaznih modela procjenjuje da li je kiša <b>moguća</b> (oznaka „Moguće"). Da li zaista pada — potvrđuje SKALA radarski sistem. Zato ikonica za tekući i naredni sat prati radar: ako radar ne vidi kišu, prikazujemo stvarno stanje neba, a ne model. Kad kiša stvarno krene, ikonica se mijenja u odgovarajuću kišnu.
+            Kišu predviđamo u dva koraka: XGBoost model na osnovu svih ulaznih modela procjenjuje da li je kiša moguća (oznaka „Moguće"). Da li zaista pada potvrđuje SKALA sistem interpretacije. Zato ikonica za tekući i naredni sat prati radar: ako radar ne vidi kišu, prikazujemo stvarno stanje neba, a ne model. Kad kiša stvarno krene, ikonica se mijenja u odgovarajuću kišnu.
+            <b>POZOR: SKALA sistem je trenutno nedostupan. Povratak servisa planiran je za nedjelju, 31. maj 2026. godine.</b>
         </p>
         <div class="${cwClass}">
             <div class="cw-icon" id="cwIconBox" data-code="${currentData.weather_code}" data-cloud="${currentData.cloud_cover != null ? currentData.cloud_cover : ''}" data-hour="${currentData.hour}">${weatherIcon(cwIcon, 96)}</div>
@@ -2933,6 +2935,8 @@ function parseRadarState(data) {
                     km: app.closest_rain_km,
                     cardinal: app.closest_rain_bearing_cardinal,
                     label: app.closest_rain_intensity_label,
+                    dbz: app.closest_rain_intensity_dbz,
+                    motionCardinal: app.motion_direction_cardinal || (info.motion && info.motion.direction_cardinal),
                     at_location: !!app.rain_at_location,
                 };
             }
@@ -2976,6 +2980,7 @@ function renderRadarStatusLine(state) {
 
     const bestRain = state.bestRain;
     const age = state.ageMin != null ? ' · podatak star ' + state.ageMin + ' min' : '';
+    const LINK = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: ';
 
     // Format km with finer precision for sub-km echoes.
     function fmtKm(km) {
@@ -2984,32 +2989,40 @@ function renderRadarStatusLine(state) {
         if (km < 10) return km.toFixed(1);
         return Math.round(km);
     }
+    // Intensity from dBZ (light / moderate / heavy / hail), in Montenegrin.
+    function intenzitet(dbz) {
+        if (dbz == null || isNaN(dbz)) return 'kiša';
+        if (dbz < 25) return 'slaba kiša';
+        if (dbz < 40) return 'umjerena kiša';
+        if (dbz < 50) return 'jaka kiša';
+        return 'grad';
+    }
+    // English 8-point cardinal -> Montenegrin (S/I/J/Z based).
+    const CARD_SR = { N:'S', NE:'SI', E:'I', SE:'JI', S:'J', SW:'JZ', W:'Z', NW:'SZ' };
+    function smjer(c) { return c ? (CARD_SR[c] || c) : ''; }
 
-    // Render states:
-    //   rain_at_location   — KIŠA PADA U BUDVI (exact pixel)
-    //   approaching        — KIŠA DOLAZI (gated server-side in radar/interpret.py)
-    //   any rain elsewhere — POSTOJI KIŠA U OKOLINI (no arrival prediction)
-    //   none               — nema padavina
+    // Pixel-first model: kiša je "pada" SAMO ako je na tačnom pikselu Budve;
+    // inače se ili približava (pašće) ili je blizu ali zaobilazi.
     if (state.rainAtLocation && bestRain) {
         el.style.color = '#bf360c';
         el.style.fontWeight = '700';
-        el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: <b>pada kiša u Budvi</b> — ' +
-                       bestRain.label + age;
-    } else if (state.approaching && state.etaMin != null && bestRain) {
+        el.innerHTML = LINK + '<b>pada kiša u Budvi</b> — ' + intenzitet(bestRain.dbz) + age;
+    } else if (state.approaching && bestRain) {
+        const eta = state.etaMin != null ? ', ETA ~' + Math.round(state.etaMin) + ' min' : '';
         el.style.color = '#bf360c';
         el.style.fontWeight = '600';
-        el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: <b>kiša dolazi</b> — ' + bestRain.label +
-                       ' na ' + fmtKm(bestRain.km) + ' km ' + (bestRain.cardinal || '?') +
-                       ', ETA ~' + state.etaMin + ' min' + age;
+        el.innerHTML = LINK + '<b>kiša se približava</b> — ' + intenzitet(bestRain.dbz) +
+                       ', ~' + fmtKm(bestRain.km) + ' km ' + smjer(bestRain.cardinal) + eta + age;
     } else if (bestRain) {
+        const move = bestRain.motionCardinal ? ' (ide ka ' + smjer(bestRain.motionCardinal) + ')' : '';
         el.style.color = '#1565c0';
         el.style.fontWeight = '600';
-        el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: <b>postoji kiša u okolini</b> — ' +
-                       bestRain.label + ' na ' + fmtKm(bestRain.km) + ' km ' + (bestRain.cardinal || '?') + age;
+        el.innerHTML = LINK + '<b>kiša je blizu, ali zaobilazi Budvu</b> — ' + intenzitet(bestRain.dbz) +
+                       ', ~' + fmtKm(bestRain.km) + ' km ' + smjer(bestRain.cardinal) + move + age;
     } else {
         el.style.color = '#2e7d32';
         el.style.fontWeight = '400';
-        el.innerHTML = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: nema padavina u okolini Budve' + age;
+        el.innerHTML = LINK + 'nema padavina u okolini Budve' + age;
     }
 }
 
