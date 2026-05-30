@@ -1,5 +1,5 @@
 {
-  "generated": "2026-05-30T12:43:04.145190",
+  "generated": "2026-05-30T13:38:17.999497",
   "location": {
     "name": "Budva, Crna Gora",
     "lat": 42.2864,
@@ -196,7 +196,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Pretežno sunčano uz blagu večernju oblačnost nakon 18h.",
+      "day_narrative": "Sunčano i toplo, uveče uz malu prolaznu oblačnost.",
       "precip_probability": 0
     },
     {
@@ -234,47 +234,11 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Sunčano jutro prelazi u blagu oblačnost tokom večeri.",
+      "day_narrative": "Sunčano prijepodne, popodne i veče umjereno oblačno.",
       "precip_probability": 10
     }
   ],
   "hourly_forecast": [
-    {
-      "datetime": "2026-05-30T12:00:00",
-      "hour": 12,
-      "date": "2026-05-30",
-      "day_name": "Saturday",
-      "weather_code": 0,
-      "weather_desc": "Vedro",
-      "weather_icon": "clear",
-      "weather_emoji": "☀️",
-      "temperature_2m": 26.86,
-      "temperature_2m_raw": 25.86,
-      "dew_point_2m": 12.46,
-      "dew_point_2m_raw": 11.16,
-      "relative_humidity_2m": 40.52,
-      "relative_humidity_2m_raw": 41.44,
-      "wind_speed_10m": 1.55,
-      "wind_speed_10m_raw": 2.68,
-      "wind_gusts_10m": 3.32,
-      "wind_gusts_10m_raw": 6.7,
-      "pressure_msl": 1016.75,
-      "pressure_msl_raw": 1019.38,
-      "cloud_cover": 19.2,
-      "cloud_cover_raw": 18.67,
-      "precipitation": 0.0,
-      "precipitation_raw": 0.0,
-      "shortwave_radiation": 2.7,
-      "shortwave_radiation_raw": 892.77,
-      "apparent_temperature": 26.93,
-      "wind_direction_10m": 243.89,
-      "surface_pressure": 1018.48,
-      "cloud_cover_low": 0.0,
-      "cloud_cover_mid": 9.0,
-      "cloud_cover_high": 23.22,
-      "rain": 0.0,
-      "snowfall": 0.0
-    },
     {
       "datetime": "2026-05-30T13:00:00",
       "hour": 13,
@@ -1966,6 +1930,42 @@
       "cloud_cover_high": 47.62,
       "rain": 0.05,
       "snowfall": 0.0
+    },
+    {
+      "datetime": "2026-06-01T12:00:00",
+      "hour": 12,
+      "date": "2026-06-01",
+      "day_name": "Monday",
+      "weather_code": 0,
+      "weather_desc": "Vedro",
+      "weather_icon": "clear",
+      "weather_emoji": "☀️",
+      "temperature_2m": 26.16,
+      "temperature_2m_raw": 24.8,
+      "dew_point_2m": 8.52,
+      "dew_point_2m_raw": 15.81,
+      "relative_humidity_2m": 58.59,
+      "relative_humidity_2m_raw": 57.62,
+      "wind_speed_10m": 1.34,
+      "wind_speed_10m_raw": 2.17,
+      "wind_gusts_10m": 2.62,
+      "wind_gusts_10m_raw": 5.38,
+      "pressure_msl": 1015.11,
+      "pressure_msl_raw": 1015.89,
+      "cloud_cover": 19.01,
+      "cloud_cover_raw": 58.38,
+      "precipitation": 0.0,
+      "precipitation_raw": 0.05,
+      "shortwave_radiation": 12.96,
+      "shortwave_radiation_raw": 793.71,
+      "apparent_temperature": 27.23,
+      "wind_direction_10m": 221.38,
+      "surface_pressure": 1014.99,
+      "cloud_cover_low": 1.88,
+      "cloud_cover_mid": 4.5,
+      "cloud_cover_high": 57.0,
+      "rain": 0.05,
+      "snowfall": 0.0
     }
   ],
   "long_range": [
@@ -1985,7 +1985,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Od podneva prelazak iz djelimično oblačnog u sunčano.",
+      "day_narrative": "Od podneva pretežno sunčano uz postepen porast temperature.",
       "precip_probability": 50
     },
     {
@@ -2004,7 +2004,7 @@
       "weather_desc": "Grmljavina",
       "weather_icon": "thunderstorm",
       "weather_emoji": "⛈️",
-      "day_narrative": "Vedro do večeri, zatim grmljavina i kiša.",
+      "day_narrative": "Vedro danju, kasno uveče stiže grmljavina s kišom.",
       "precip_probability": 10
     },
     {
@@ -2023,7 +2023,7 @@
       "weather_desc": "Grmljavina",
       "weather_icon": "thunderstorm",
       "weather_emoji": "⛈️",
-      "day_narrative": "Popodne razvedravanje nakon jutarnjih nepogoda i oblaka.",
+      "day_narrative": "Popodnevno razvedravanje nakon jutarnjih oluja i oblaka.",
       "precip_probability": 10
     },
     {
@@ -2061,7 +2061,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Sunčano prijepodne, od 10:00 postepeno umjereno oblačno.",
+      "day_narrative": "Vedro jutro, od 10:00 umjereno oblačno i toplije.",
       "precip_probability": 0
     },
     {
@@ -2079,7 +2079,7 @@
       "weather_desc": "Vedro",
       "weather_icon": "clear",
       "weather_emoji": "☀️",
-      "day_narrative": "Vedro jutro, od 10:00 umjereno oblačno.",
+      "day_narrative": "Ujutro vedro, od 10:00 pretežno sunčano.",
       "precip_probability": 0
     },
     {
@@ -2111,20 +2111,6 @@
     },
     "waves": {
       "hourly": [
-        {
-          "datetime": "2026-05-30T12:00:00",
-          "hour": 12,
-          "date": "2026-05-30",
-          "wave_height": 0.27,
-          "wave_period": 3.9,
-          "wave_direction": 264.0,
-          "wind_wave_height": 0.03,
-          "swell_wave_height": 0.26,
-          "swell_wave_period": 3.6,
-          "sea_surface_temperature": null,
-          "sea_state": 1,
-          "sea_state_label": "Mirno"
-        },
         {
           "datetime": "2026-05-30T13:00:00",
           "hour": 13,
@@ -2782,13 +2768,27 @@
           "sea_surface_temperature": null,
           "sea_state": 1,
           "sea_state_label": "Mirno"
+        },
+        {
+          "datetime": "2026-06-01T12:00:00",
+          "hour": 12,
+          "date": "2026-06-01",
+          "wave_height": 0.22,
+          "wave_period": 2.5,
+          "wave_direction": 172.0,
+          "wind_wave_height": 0.06,
+          "swell_wave_height": 0.22,
+          "swell_wave_period": 2.6,
+          "sea_surface_temperature": null,
+          "sea_state": 1,
+          "sea_state_label": "Mirno"
         }
       ],
       "daily_summary": [
         {
           "date": "2026-05-30",
           "day_name": "Saturday",
-          "wave_height_max": 0.27,
+          "wave_height_max": 0.26,
           "wave_period_max": 3.9,
           "sst_avg": null,
           "sea_state_max": 1,
@@ -2858,18 +2858,6 @@
         "lat": 42.270259,
         "lon": 18.870885,
         "hourly": [
-          {
-            "datetime": "2026-05-30T12:00:00",
-            "hour": 12,
-            "date": "2026-05-30",
-            "wind_speed_10m": 2.4,
-            "wind_gusts_10m": 6.6,
-            "wind_direction_10m": 234.0,
-            "beaufort": 2,
-            "wind_name": "Lebić",
-            "sailing_score": "Idealno",
-            "sailing_color": "green"
-          },
           {
             "datetime": "2026-05-30T13:00:00",
             "hour": 13,
@@ -3433,6 +3421,18 @@
             "wind_name": "Sirocco",
             "sailing_score": "Idealno",
             "sailing_color": "green"
+          },
+          {
+            "datetime": "2026-06-01T12:00:00",
+            "hour": 12,
+            "date": "2026-06-01",
+            "wind_speed_10m": 2.6,
+            "wind_gusts_10m": 6.6,
+            "wind_direction_10m": 175.0,
+            "beaufort": 2,
+            "wind_name": "Sirocco",
+            "sailing_score": "Idealno",
+            "sailing_color": "green"
           }
         ],
         "daily_summary": [
@@ -3522,18 +3522,6 @@
         "lat": 42.252626,
         "lon": 18.831183,
         "hourly": [
-          {
-            "datetime": "2026-05-30T12:00:00",
-            "hour": 12,
-            "date": "2026-05-30",
-            "wind_speed_10m": 2.3,
-            "wind_gusts_10m": 5.0,
-            "wind_direction_10m": 239.0,
-            "beaufort": 2,
-            "wind_name": "Lebić",
-            "sailing_score": "Idealno",
-            "sailing_color": "green"
-          },
           {
             "datetime": "2026-05-30T13:00:00",
             "hour": 13,
@@ -4093,6 +4081,18 @@
             "wind_speed_10m": 2.2,
             "wind_gusts_10m": 4.2,
             "wind_direction_10m": 161.0,
+            "beaufort": 2,
+            "wind_name": "Sirocco",
+            "sailing_score": "Idealno",
+            "sailing_color": "green"
+          },
+          {
+            "datetime": "2026-06-01T12:00:00",
+            "hour": 12,
+            "date": "2026-06-01",
+            "wind_speed_10m": 2.5,
+            "wind_gusts_10m": 4.6,
+            "wind_direction_10m": 162.0,
             "beaufort": 2,
             "wind_name": "Sirocco",
             "sailing_score": "Idealno",
