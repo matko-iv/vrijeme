@@ -18,15 +18,15 @@
 		
 
         body {
-            font-family: inter;
+            font-family: 'Inter', sans-serif;
             font-weight: 400;
-            font-size: 18px;
+            font-size: 16px;
             line-height: 1.6;
             color: #24292e;
             background: #fbfcfd;
-            max-width: 680px;
+            max-width: 800px;
             margin: 0 auto;
-            padding: 60px 20px;
+            padding: 48px 24px;
         }
 
         h1 {
@@ -73,11 +73,13 @@
         .site-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 40px;
-            padding-bottom: 20px;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 12px 24px;
+            margin-bottom: 36px;
+            padding-bottom: 16px;
             border-bottom: 1px solid #d8dee4;
-            font-size: 15px;
+            font-size: 13px;
         }
 
         .site-header a {
@@ -95,25 +97,20 @@
         }
 
         .site-header nav a {
-            margin-left: 20px;
+            margin: 0;
         }
 
         .generated-time {
-            text-align: left;
             color: #586069;
-            font-size: 13px;
+            font-size: 12px;
             margin-bottom: 28px;
-            padding: 10px 12px;
-            border: 1px solid #d8dee4;
-            border-radius: 6px;
-            background: #ffffff;
         }
 
         .method-badge {
             display: inline-block;
             margin-top: 8px;
             padding: 4px 12px;
-            border-radius: 999px;
+            border-radius: 3px;
             background: #f6f8fa;
             border: 1px solid #d0d7de;
             color: #24292e;
@@ -122,33 +119,30 @@
         }
 
         .note {
-            background: #f6f8fa;
-            border: 1px solid #e1e4e8;
-            border-left: 3px solid #586069;
-            border-radius: 6px;
-            padding: 14px 18px;
-            margin: 28px 0;
-            font-size: 16px;
+            border-left: 2px solid #d0d7de;
+            padding: 4px 0 4px 16px;
+            margin: 24px 0;
+            font-size: 14px;
         }
 
         .daily-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
-            width: calc(100% + 120px);
-            margin: 24px 0 32px -60px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0;
+            width: 100%;
+            margin: 24px 0 36px;
+            border-top: 1px solid #d0d7de;
+            border-bottom: 1px solid #d0d7de;
         }
 
         .current-weather {
-            background: #ffffff;
-            border: 1px solid #d0d7de;
-            border-radius: 10px;
-            padding: 24px;
-            margin: 0 -60px 32px;
+            padding: 24px 0;
+            margin: 0 0 32px;
             display: flex;
             align-items: center;
             gap: 24px;
-            box-shadow: 0 8px 24px rgba(27, 31, 36, 0.06);
+            border-top: 1px solid #d0d7de;
+            border-bottom: 1px solid #d0d7de;
         }
 
         /* Hairline behind the icon: structure instead of a colored edge. */
@@ -156,26 +150,6 @@
             flex-shrink: 0;
             padding-right: 24px;
             border-right: 1px solid #eaeef2;
-        }
-
-        /* Small "live" pulse next to the label — this card is the one live
-           reading on the page (radar line updates below it). */
-        .cw-live {
-            display: inline-block;
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            background: #0366d6;
-            margin-right: 7px;
-            vertical-align: 1px;
-            animation: cw-pulse 2.4s ease-in-out infinite;
-        }
-        @keyframes cw-pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.35; }
-        }
-        @media (prefers-reduced-motion: reduce) {
-            .cw-live { animation: none; }
         }
 
         .current-weather .cw-main {
@@ -226,7 +200,7 @@
 
         /* Weather warnings banner — sits above .current-weather. */
         .weather-warnings {
-            margin: 0 -60px 12px;
+            margin: 0 0 12px;
             display: flex;
             flex-direction: column;
             gap: 8px;
@@ -236,19 +210,18 @@
         .warning-row {
             background: #fff;
             border: 1px solid #d0d7de;
-            border-radius: 10px;
+            border-radius: 0;
             padding: 12px 16px;
             display: flex;
             gap: 14px;
             align-items: flex-start;
-            box-shadow: 0 4px 12px rgba(27, 31, 36, 0.04);
         }
 
         .warning-row .w-icon {
             flex-shrink: 0;
             width: 36px;
             height: 36px;
-            border-radius: 8px;
+            border-radius: 0;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -298,29 +271,21 @@
         .current-weather.has-warning-moderate { border-color: #d97706; }
         .current-weather.has-warning-severe   { border-color: #ea580c; }
         .current-weather.has-warning-extreme  { border-color: #dc2626; }
-        .current-weather.has-warning-moderate .cw-live { background: #d97706; }
-        .current-weather.has-warning-severe   .cw-live { background: #ea580c; }
-        .current-weather.has-warning-extreme  .cw-live { background: #dc2626; }
 
         .day-card {
-            background: #ffffff;
-            border: 1px solid #d0d7de;
-            border-radius: 10px;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
             padding: 20px 18px;
-            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.05);
-            transition: box-shadow 0.15s ease;
+            border-left: 1px solid #d0d7de;
         }
-        .day-card:hover {
-            box-shadow: 0 10px 26px rgba(27, 31, 36, 0.09);
-        }
+        .day-card:first-child { border-left: none; }
 
         .day-card .day-header {
             display: flex;
             justify-content: space-between;
             align-items: baseline;
-            margin-bottom: 12px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #e1e4e8;
+            margin-bottom: 8px;
         }
 
         .day-card .day-name {
@@ -342,67 +307,45 @@
         .day-card .weather-desc {
             font-size: 14px;
             color: #586069;
-            text-align: center;
-            margin-top: 4px;
+            line-height: 1.4;
         }
 
         /* The day narrative IS the "dnevni izvještaj" — a quiet note panel,
            hairline all around, no colored edge. */
         .day-card .day-narrative {
-            font-size: 13.5px;
+            flex: 1;
+            font-size: 14px;
             color: #424a53;
-            text-align: left;
-            margin-top: 10px;
-            line-height: 1.45;
-            padding: 8px 12px;
-            background: #f6f8fa;
-            border: 1px solid #eaeef2;
-            border-radius: 8px;
+            line-height: 1.6;
         }
 
         .day-card .temp-range {
             display: flex;
-            justify-content: center;
-            gap: 16px;
-            margin: 14px 0 4px;
-            font-size: 30px;
-            font-weight: 700;
+            justify-content: flex-start;
+            gap: 10px;
+            margin: 20px 0 4px;
+            font-size: 28px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
         }
 
         .temp-high { color: #d73a49; }
         .temp-low { color: #0366d6; }
 
-        /* Week-scaled temperature span: where this day's min-max sits within
-           the whole forecast window. Shared by day cards and long-range. */
-        .temp-bar {
-            position: relative;
-            height: 5px;
-            margin: 0 22px 6px;
-            background: #eef1f4;
-            border-radius: 999px;
-        }
-        .temp-bar span {
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            border-radius: 999px;
-            background: linear-gradient(90deg, #0366d6, #d73a49);
-        }
-
         .day-details {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin-top: 14px;
-            padding-top: 14px;
+            gap: 5px;
+            margin-top: 12px;
+            padding-top: 12px;
             border-top: 1px solid #e1e4e8;
         }
 
         .detail-item {
             display: flex;
-            align-items: center;
+            justify-content: space-between;
+            align-items: baseline;
             gap: 8px;
-            font-size: 13px;
+            font-size: 12px;
             color: #586069;
         }
 
@@ -410,30 +353,12 @@
         .detail-item .detail-icon { font-size: 16px; }
         .detail-item .detail-val { color: #24292e; font-weight: 500; }
 
-        .precip-badge {
-            background: #f1f8ff;
-            border: 1px solid #c8e1ff;
-            border-radius: 6px;
-            padding: 6px 10px;
-            margin-top: 12px;
-            text-align: center;
-            font-size: 14px;
-            font-weight: 600;
-            color: #24292e;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-        }
 
         .hourly-strip {
-            background: #ffffff;
-            border: 1px solid #d0d7de;
-            border-radius: 6px;
-            padding: 0;
-            margin: 0 -60px 36px;
+            border-top: 1px solid #d0d7de;
+            border-bottom: 1px solid #d0d7de;
+            margin: 0 0 36px;
             overflow-x: auto;
-            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.05);
         }
 
         .hourly-strip h3 {
@@ -460,13 +385,12 @@
             min-width: 80px;
             padding: 14px 8px;
             font-size: 13px;
-            border-radius: 8px;
+            border-radius: 0;
             transition: background 0.12s ease;
         }
         /* Night hours get a faint slate tint so the strip reads day/night at
            a glance; a new calendar day starts with a rule + weekday label. */
         .hourly-cell.is-night { background: #f7f9fb; }
-        .hourly-cell:hover { background: #eef2f6; }
         .hourly-cell.is-now {
             background: #f1f8ff;
             box-shadow: inset 0 2px 0 #0366d6;
@@ -474,7 +398,7 @@
         .hourly-cell.is-now .h-time { color: #0366d6; }
         .hourly-cell.day-break {
             border-left: 1px solid #d0d7de;
-            border-radius: 0 8px 8px 0;
+            border-radius: 0;
             margin-left: 8px;
         }
         .hourly-cell .h-day {
@@ -499,9 +423,7 @@
         }
         .hourly-cell .h-rain {
             color: #0550ae;
-            background: #ddf4ff;
-            border-radius: 999px;
-            padding: 0 8px;
+            border-radius: 3px;
             font-size: 11.5px;
             margin-top: 6px;
             font-weight: 600;
@@ -565,10 +487,9 @@
             grid-template-columns: repeat(7, 1fr);
             gap: 0;
             border: 1px solid #d0d7de;
-            border-radius: 6px;
+            border-radius: 0;
             overflow: hidden;
             background: #fff;
-            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.04);
             margin-bottom: 18px;
         }
         .m-day {
@@ -583,7 +504,7 @@
         .m-score-pill {
             display: inline-block;
             padding: 2px 8px;
-            border-radius: 999px;
+            border-radius: 3px;
             font-weight: 600;
             font-size: 11px;
             margin: 4px 0;
@@ -615,9 +536,8 @@
         }
         .marine-hourly-wrap {
             border: 1px solid #d0d7de;
-            border-radius: 10px;
+            border-radius: 0;
             background: #fff;
-            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.04);
             overflow-x: auto;
         }
         .marine-hourly-wrap h4 {
@@ -640,14 +560,13 @@
             text-align: center;
             font-size: 11.5px;
             padding: 8px 4px;
-            border-radius: 8px;
+            border-radius: 0;
             color: #424a53;
             transition: background 0.12s ease;
         }
-        .mh-cell:hover { background: #eef2f6; }
         .mh-cell.day-break {
             border-left: 1px solid #d0d7de;
-            border-radius: 0 8px 8px 0;
+            border-radius: 0;
             margin-left: 8px;
         }
         .mh-day {
@@ -690,10 +609,9 @@
         }
         .douglas-table-wrap {
             border: 1px solid #d0d7de;
-            border-radius: 6px;
+            border-radius: 0;
             overflow-x: auto;
             background: #fff;
-            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.04);
         }
         .douglas-table {
             width: 100%;
@@ -725,7 +643,7 @@
             align-items: center;
             justify-content: center;
             width: 26px; height: 26px;
-            border-radius: 999px;
+            border-radius: 3px;
             color: #fff;
             font-weight: 700;
             font-size: 12px;
@@ -755,31 +673,19 @@
         }
 
         .long-range-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-            max-width: 800px;
-            margin-left: auto;
-            margin-right: auto;
-            margin-top: 0;
-            margin-bottom: 36px;
+            display: block;
+            margin: 0 0 36px;
+            border-top: 1px solid #d0d7de;
         }
 
         .lr-card {
-            background: #ffffff;
-            border: 1px solid #d0d7de;
-            border-radius: 10px;
-            padding: 18px 14px;
-            text-align: center;
-            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.04);
-            transition: box-shadow 0.15s ease;
-        }
-        .lr-card:hover {
-            box-shadow: 0 10px 26px rgba(27, 31, 36, 0.09);
-        }
-        .lr-card .temp-bar {
-            height: 4px;
-            margin: 0 12px 6px;
+            display: grid;
+            grid-template-columns: 100px 48px minmax(0, 1fr) auto;
+            grid-template-areas: 'date icon condition temp' '. . details details';
+            gap: 0 16px;
+            align-items: center;
+            padding: 18px 0;
+            border-bottom: 1px solid #d0d7de;
         }
 
         .lr-day {
@@ -797,18 +703,15 @@
         .lr-icon { margin: 4px 0; }
 
         .lr-desc {
-            font-size: 12px;
-            color: #586069;
-            margin-bottom: 2px;
-            min-height: 18px;
+            font-size: 13px;
+            color: #24292e;
+            font-weight: 500;
         }
 
         .lr-narrative {
-            font-size: 12px;
+            font-size: 13px;
             color: #57606a;
-            margin-bottom: 6px;
-            min-height: 16px;
-            line-height: 1.4;
+            line-height: 1.5;
         }
 
         .lr-precip-label {
@@ -819,9 +722,9 @@
         }
 
         .lr-temp {
-            font-size: 18px;
-            font-weight: 700;
-            margin: 6px 0 2px;
+            font-size: 16px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
         }
 
         .lr-details {
@@ -831,12 +734,8 @@
 
         .lr-details span {
             display: inline-block;
-            background: #f6f8fa;
-            border: 1px solid #eaeef2;
-            border-radius: 999px;
-            padding: 1px 10px;
-            margin: 4px 2px 0;
-            font-size: 11.5px;
+            margin: 4px 14px 0 0;
+            font-size: 12px;
         }
 
         .charts-section {
@@ -846,27 +745,23 @@
         .chart-tabs {
             display: flex;
             gap: 0;
-            margin-bottom: 0;
             flex-wrap: wrap;
-            border: 1px solid #d0d7de;
-            border-bottom: none;
-            border-radius: 6px 6px 0 0;
-            overflow: hidden;
-            background: #ffffff;
+            border-bottom: 1px solid #d0d7de;
         }
 
         .chart-tab {
-            padding: 9px 14px;
-            border-radius: 0;
+            padding: 10px 12px;
             border: none;
-            border-right: 1px solid #e1e4e8;
-            background: #ffffff;
+            border-bottom: 2px solid transparent;
+            background: transparent;
             color: #586069;
             cursor: pointer;
+            font-family: inherit;
             font-size: 13px;
             font-weight: 500;
             flex: 1;
             min-width: 0;
+            margin-bottom: -1px;
         }
         .chart-tab:hover {
             background: #f6f8fa;
@@ -875,19 +770,15 @@
         .chart-tab:last-child { border-right: none; }
 
         .chart-tab.active {
-            background: #f1f8ff;
+            border-bottom-color: #0366d6;
             color: #0366d6;
             font-weight: 600;
         }
 
         .chart-container {
-            background: #ffffff;
-            border: 1px solid #d0d7de;
-            border-radius: 0 0 6px 6px;
-            padding: 20px;
+            padding: 20px 0;
             position: relative;
             height: 340px;
-            box-shadow: 0 6px 18px rgba(27, 31, 36, 0.05);
         }
 
         .metrics-bar {
@@ -896,7 +787,7 @@
             gap: 0;
             margin-bottom: 36px;
             border: 1px solid #d0d7de;
-            border-radius: 6px;
+            border-radius: 0;
             overflow: hidden;
             background: #ffffff;
         }
@@ -952,7 +843,7 @@
             color: #586069;
             font-size: 14px;
             border: 1px solid #e1e4e8;
-            border-radius: 6px;
+            border-radius: 0;
             background: #ffffff;
         }
 
@@ -968,27 +859,54 @@
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        .site-header nav { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+        a:focus-visible, button:focus-visible, [tabindex]:focus-visible {
+            outline: 2px solid #0366d6;
+            outline-offset: 4px;
+        }
+        .page-intro { color: #586069; margin-bottom: 12px; }
+        .release-note { font-size: 12px; color: #6a737d; margin-bottom: 6px; }
+        .forecast-note { font-size: 14px; color: #586069; }
+        .day-condition { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
+        .day-condition img { flex-shrink: 0; }
+        .detail-label { color: #586069; }
+        .reference-map { display: block; width: 100%; max-width: 600px; margin-top: 20px; }
+        .lr-date-group { grid-area: date; }
+        .lr-icon { grid-area: icon; }
+        .lr-condition { grid-area: condition; min-width: 0; }
+        .lr-temp { grid-area: temp; white-space: nowrap; }
+        .lr-details { grid-area: details; }
         @media (max-width: 680px) {
-            body {
-                font-size: 15px;
-                padding: 40px 16px;
-            }
-
+            body { font-size: 15px; padding: 40px 16px; }
             h1 { font-size: 26px; }
             h2 { font-size: 18px; }
-            .day-card .temp-range { font-size: 22px; }
             .chart-container { height: 280px; }
             .metrics-bar { grid-template-columns: repeat(2, 1fr); }
             .metric-card:nth-child(2n) { border-right: none; }
             .metric-card { border-bottom: 1px solid #e1e4e8; }
-            .daily-grid { grid-template-columns: 1fr; width: 100%; margin-left: 0; margin-right: 0; }
-            .current-weather { margin-left: 0; margin-right: 0; flex-direction: column; text-align: left; padding: 18px; }
+            .daily-grid { grid-template-columns: 1fr; }
             .current-weather .cw-icon { padding-right: 0; border-right: none; }
-            .current-weather .cw-details { justify-content: flex-start; }
-            .weather-warnings { margin-left: 0; margin-right: 0; }
             .warning-row { padding: 10px 14px; }
-            .hourly-strip { margin-left: 0; margin-right: 0; }
-            .long-range-grid { grid-template-columns: repeat(2, 1fr); max-width: 100%; gap: 10px; }
+            .day-card { border-left: none; border-bottom: 1px solid #d0d7de; padding: 20px 0; }
+            .day-card:last-child { border-bottom: none; }
+            .day-card .day-header { margin-bottom: 0; }
+            .day-card .temp-range { font-size: 28px; }
+            .current-weather { flex-direction: row; align-items: flex-start; gap: 12px; padding: 20px 0; }
+            .current-weather .cw-icon img { width: 64px; height: 64px; }
+            .current-weather .cw-temp { font-size: 40px; }
+            .current-weather .cw-details { gap: 8px 16px; }
+            .long-range-grid { display: block; }
+            .lr-card {
+                grid-template-columns: 48px minmax(0, 1fr) auto;
+                grid-template-areas: 'date date temp' 'icon condition condition' '. details details';
+                gap: 4px 12px;
+            }
+            .lr-date-group { display: flex; align-items: baseline; gap: 8px; }
+            .lr-narrative { font-size: 13px; }
+            .chart-tab { flex: 1 0 30%; }
+            .chart-container { padding: 12px 0; }
+            .marine-tabs { overflow-x: auto; }
+            .marine-tab { flex-shrink: 0; padding: 10px 12px; }
         }
     </style>
 </head>
@@ -996,7 +914,7 @@
     <div class="site-header">
         <a href="/" class="site-name">Matija Ivanović</a>
         <nav>
-            <a href="index.html" style="color:#0366d6;font-weight:600;">Analiza</a>
+            <a href="index.html">Analiza</a>
             <a href="dugorocne-najave.html">Dugoročne najave</a>
             <a href="https://matko-iv.github.io/blog/">Blog</a>
             <a href="https://github.com/matko-iv/vrijeme" target="_blank">GitHub</a>
@@ -1005,21 +923,10 @@
     </div>
 
     <h1>Matkov model v6</h1>
-
-	<p>
-        <a href="index.html">Poruka autora</a>
-    </p>
-
-    <p>
-        Sezonske najave za ljeto 2026, zimu 2026/2027. i El Niño nalaze se na stranici <a href="dugorocne-najave.html">Dugoročne najave</a>.
-    </p>
-	
-	<p><b><span style="font-size: 12px;font-style: italic;color:#6a737d; margin: 0 0 0;">Matkov model verzija 6: objavljena 19. avgusta 2026. godine.</span></b></p>
+    <p class="page-intro">Vremenska prognoza za Budvu · <a href="index.html">Poruka autora</a></p>
+    <p class="release-note">Verzija 6 · 19. avgust 2026.</p>
     <div class="generated-time" id="genTime"></div>
-	
-	<p>
-        Ova stranica je isključivo vremenski izvještaj za Budvu, te se ne može koristiti za bilo koju drugu lokaciju.
-    </p>
+    <p class="forecast-note">Prognoza važi isključivo za Budvu. Sezonske najave za ljeto, zimu i El Niño: <a href="dugorocne-najave.html">Dugoročne najave</a>.</p>
 
     <div id="app">
         <div class="loading">
@@ -1519,22 +1426,13 @@ function iconToDesc(icon) {
     return m[icon] || 'Promjenljivo';
 }
 
-function fixLRIcon(icon, precipProb, precipTotal, cloudCover) {
-    const pt = precipTotal != null ? precipTotal : 999;
-    const pp = precipProb != null ? precipProb : 50;
-    // If rain icon but negligible probability/amount, use cloud cover to pick icon
-    if (['light_rain','rain','heavy_rain','shower','thunderstorm'].includes(icon)) {
-        if (pp < 30 || pt < 1) {
-            if (cloudCover != null) {
-                if (cloudCover < 30) return 'clear';
-                if (cloudCover < 50) return 'mostly_clear';
-                if (cloudCover < 70) return 'partly_cloudy';
-                return 'cloudy';
-            }
-            return pt < 0.1 ? 'partly_cloudy' : 'cloudy';
-        }
-    }
-    return icon;
+function dailyCondition(day) {
+    // The pipeline selects these together with the narrative, accounting for
+    // short rain/storm periods. A daytime mode or a separate PoP threshold can
+    // erase those events. Keep the published daily condition for both horizons.
+    const icon = day.weather_icon || (day.weather_code != null
+        ? wmoDailyIcon(day.weather_code) : 'partly_cloudy');
+    return { icon, description: day.weather_desc || iconToDesc(icon) };
 }
 
 function precipProbStyle(pp) {
@@ -2725,42 +2623,12 @@ function render(data) {
         });
     }
 
-    // Week-wide temperature scale shared by day cards and long-range cards:
-    // each card's bar shows where its min-max span sits within the window.
-    const tDays = [...(data.daily_summary || []), ...(data.long_range || [])];
-    let weekTMin = Infinity, weekTMax = -Infinity;
-    tDays.forEach(d => {
-        if (d.temp_min != null && d.temp_min < weekTMin) weekTMin = d.temp_min;
-        if (d.temp_max != null && d.temp_max > weekTMax) weekTMax = d.temp_max;
-    });
-    function tempBar(tmin, tmax) {
-        if (tmin == null || tmax == null || !isFinite(weekTMin) || weekTMax <= weekTMin) return '';
-        const span = weekTMax - weekTMin;
-        const left = ((tmin - weekTMin) / span) * 100;
-        const width = Math.max(((tmax - tmin) / span) * 100, 3);
-        return `<div class="temp-bar" title="Raspon ovog dana unutar cijelog prognoznog perioda (${weekTMin.toFixed(0)}°–${weekTMax.toFixed(0)}°)"><span style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%"></span></div>`;
-    }
-
     html += '<div class="daily-grid">';
     data.daily_summary.forEach(d => {
-        // Compute icon+desc from actual hourly data so they always match
-        if (data.hourly_forecast) {
-            const dh = data.hourly_forecast.filter(h => {
-                const hd = h.datetime ? h.datetime.slice(0,10) : '';
-                return hd === d.date && h.hour >= 7 && h.hour <= 19;
-            });
-            if (dh.length >= 4) {
-                const cc = {};
-                dh.forEach(h => { cc[h.weather_code] = (cc[h.weather_code]||0) + 1; });
-                let dom = 0, mx = 0;
-                for (const [c, n] of Object.entries(cc)) { if (n > mx) { mx = n; dom = parseInt(c); } }
-                d.weather_icon = wmoDailyIcon(dom);
-                d.weather_desc = wmoDescription(dom);
-            }
-        }
+        const condition = dailyCondition(d);
         const dayName = DAY_NAMES_SR[d.day_name] || d.day_name;
-        const iconKey = dailyIconKey(d.weather_icon);
-        const icon = weatherIcon(iconKey, 80);
+        const iconKey = dailyIconKey(condition.icon);
+        const icon = weatherIcon(iconKey, 56);
         const wdText = d.wind_dir_avg != null ? ' ' + windArrow(d.wind_dir_avg) + ' ' + windDirText(d.wind_dir_avg) : '';
         html += `
         <div class="day-card">
@@ -2770,31 +2638,24 @@ function render(data) {
                     <div class="day-date">${formatDate(d.date)}</div>
                 </div>
             </div>
-            <div style="text-align:center;margin:8px 0">
-                <div style="width:80px;height:80px;margin:0 auto">${icon}</div>
-                <div class="weather-desc">${d.weather_desc}</div>
-                <div class="day-narrative">${d.day_narrative || generateNarrative(d, d.weather_icon)}</div>
+            <div class="day-condition">
+                ${icon}
+                <div class="weather-desc">${condition.description}</div>
             </div>
+            <div class="day-narrative">${d.day_narrative || generateNarrative(d, condition.icon)}</div>
             <div class="temp-range">
                 <span class="temp-low">${d.temp_min.toFixed(1)}°</span>
                 <span style="color:#d1d5db">—</span>
                 <span class="temp-high">${d.temp_max.toFixed(1)}°</span>
             </div>
-            ${tempBar(d.temp_min, d.temp_max)}
+
             <div class="day-details">
-                <div class="detail-item">${weatherIcon('wind', 30)}<span class="detail-val">${d.wind_max} m/s${wdText}</span></div>
-                <div class="detail-item">${weatherIcon('rain_icon', 30)}<span class="detail-val">${d.precip_total != null ? d.precip_total + ' mm' : 'N/A'}</span></div>
-                <div class="detail-item"><img src="${ICON_CDN}humidity.svg" width="30" height="30" alt="" style="vertical-align:middle" loading="lazy"><span class="detail-val">${d.humidity_avg}%</span></div>
-                <div class="detail-item"><img src="${ICON_CDN}barometer.svg" width="30" height="30" alt="" style="vertical-align:middle" loading="lazy"><span class="detail-val">${d.pressure_avg} hPa</span></div>
-                ${sstByDate[d.date] != null ? '<div class="detail-item" title="Temperatura mora"><span style="font-size:24px;line-height:30px;vertical-align:middle">\u{1F30A}</span><span class="detail-val">' + sstByDate[d.date].toFixed(1) + '°C</span></div>' : ''}
+                <div class="detail-item"><span class="detail-label">Vjetar</span><span class="detail-val">${d.wind_max} m/s${wdText}</span></div>
+                <div class="detail-item"><span class="detail-label">Padavine</span><span class="detail-val">${d.precip_total != null ? d.precip_total + ' mm' : 'N/A'}${d.rain_hours >= 1 ? ' · ~' + d.rain_hours + ' h' : ''}</span></div>
+                <div class="detail-item"><span class="detail-label">Vlažnost</span><span class="detail-val">${d.humidity_avg}%</span></div>
+                <div class="detail-item"><span class="detail-label">Pritisak</span><span class="detail-val">${d.pressure_avg} hPa</span></div>
+                ${sstByDate[d.date] != null ? '<div class="detail-item"><span class="detail-label">More</span><span class="detail-val">' + sstByDate[d.date].toFixed(1) + '°C</span></div>' : ''}
             </div>
-            ${(d.rain_hours >= 1 || (d.precip_total != null && d.precip_total > 0.1))
-                ? '<div class="precip-badge">' + weatherIcon('rain_icon', 20) + ' '
-                    + (d.precip_total != null && d.precip_total > 0.1
-                        ? 'Padavine: ' + d.precip_total + ' mm' : 'Kratkotrajna kiša')
-                    + (d.rain_hours >= 1 ? ' · ~' + d.rain_hours + ' h' : '')
-                    + '</div>'
-                : ''}
         </div>`;
     });
     html += '</div>';
@@ -2841,7 +2702,7 @@ function render(data) {
         <div class="${cwClass}">
             <div class="cw-icon" id="cwIconBox" data-code="${currentData.weather_code}" data-cloud="${currentData.cloud_cover != null ? currentData.cloud_cover : ''}" data-hour="${currentData.hour}" data-datetime="${currentData.datetime || ''}">${weatherIcon(cwIcon, 96)}</div>
             <div class="cw-main">
-                <div class="cw-label"><span class="cw-live"></span>${String(currentHour).padStart(2,'0')}:00h</div>
+                <div class="cw-label">${String(currentHour).padStart(2,'0')}:00h</div>
                 <div class="cw-temp">${currentData.temperature_2m.toFixed(1)}°C</div>
                 <div class="cw-desc">${cwDesc}</div>
                 <div class="cw-details">
@@ -2864,7 +2725,7 @@ function render(data) {
         </div>`;
     }
 
-    html += '<div class="hourly-strip"><h3>Prognoza po satima</h3><div class="hourly-row">';
+    html += '<div class="hourly-strip" tabindex="0" role="region" aria-label="Satna prognoza"><h3>Prognoza po satima</h3><div class="hourly-row">';
     data.hourly_forecast.forEach((h, i) => {
         const t = h.temperature_2m != null ? Math.round(h.temperature_2m) + '°' : '-';
         const rain = h.precipitation > 0.05 ? h.precipitation.toFixed(1) + 'mm' : '';
@@ -2911,9 +2772,9 @@ function render(data) {
             <button class="chart-tab active" data-chart="temp">Temperatura</button>
             <button class="chart-tab" data-chart="wind">Vjetar</button>
             <button class="chart-tab" data-chart="pressure">Pritisak</button>
-            <button class="chart-tab" data-chart="humidity">Vlaznost</button>
+            <button class="chart-tab" data-chart="humidity">Vlažnost</button>
             <button class="chart-tab" data-chart="precip">Padavine</button>
-            <button class="chart-tab" data-chart="cloud">Oblacnost</button>
+            <button class="chart-tab" data-chart="cloud">Oblačnost</button>
         </div>
         <div class="chart-container">
             <canvas id="forecastChart"></canvas>
@@ -2926,39 +2787,38 @@ function render(data) {
 
     if (data.long_range && data.long_range.length > 0) {
         html += '<h2>Dugoročna prognoza</h2>';
-        html += `<div style="margin-bottom:20px"><p>
-            Vremenski modeli gube preciznost sa horizontom prognoze.
-            Na 3. dan greška temperature može biti 2x veća nego na 1. dan, a na 7. dan prognoza je tek indikacija generalnog trenda.
-            Koristite ovo kao orijentir za planiranje, ne kao garanciju.
-        </p><p style="margin-top:8px">
-            Ikonica i opis za svaki dan biraju se na osnovu ukupnih padavina, prisustva grmljavine/snijega i prosječne oblačnosti tokom dana — ne na osnovu najčešćeg koda. Detaljan opis (npr. "Kiša ujtro, razvedravanje poslijepodne") analizira jutro, poslijepodne i veče zasebno.
-        </p></div>`;
+        html += '<p class="forecast-note">Pouzdanost opada sa svakim danom. Prognozu za kraj perioda koristite kao orijentir za planiranje.</p>';
         html += '<div class="long-range-grid">';
         data.long_range.forEach(d => {
             const dayName = DAY_NAMES_SR[d.day_name] || d.day_name;
-            const fixedIc = fixLRIcon(d.weather_icon || 'partly_cloudy', d.precip_probability, d.precip_total, d.cloud_cover_day);
+            const condition = dailyCondition(d);
+            const fixedIc = condition.icon;
             const iconKey = dailyIconKey(fixedIc);
             const icon = weatherIcon(iconKey, 48);
             const windTxt = d.wind_dir_avg != null && d.wind_max != null
                 ? windDirText(d.wind_dir_avg) + ', ' + windIntensity(d.wind_max)
                 : (d.wind_max != null ? windIntensity(d.wind_max) : '');
             const pp = d.precip_probability != null ? d.precip_probability : 0;
-            const desc = fixedIc !== (d.weather_icon || 'partly_cloudy') ? iconToDesc(fixedIc) : (d.weather_desc || '');
+            const desc = condition.description;
             const narrative = d.day_narrative || generateNarrative(d, fixedIc);
             const ppStyle = precipProbStyle(pp);
             html += `
             <div class="lr-card">
-                <div class="lr-day">${dayName}</div>
-                <div class="lr-date">${formatDate(d.date)}</div>
+                <div class="lr-date-group">
+                    <div class="lr-day">${dayName}</div>
+                    <div class="lr-date">${formatDate(d.date)}</div>
+                </div>
                 <div class="lr-icon">${icon}</div>
-                <div class="lr-desc">${desc}</div>
-                <div class="lr-narrative">${narrative}</div>
+                <div class="lr-condition">
+                    <div class="lr-desc">${desc}</div>
+                    <div class="lr-narrative">${narrative}</div>
+                </div>
                 <div class="lr-temp">
                     <span class="temp-low">${d.temp_min != null ? d.temp_min.toFixed(1) + '°' : '-'}</span>
                     <span style="color:#d1d5db"> — </span>
                     <span class="temp-high">${d.temp_max != null ? d.temp_max.toFixed(1) + '°' : '-'}</span>
                 </div>
-                ${tempBar(d.temp_min, d.temp_max)}
+
                 <div class="lr-details">
                     ${windTxt ? '<span>' + windTxt + '</span>' : ''}
                     ${pp >= 30 && !['clear','mostly_clear'].includes(fixedIc) ? '<span style="' + ppStyle + '">Šansa za padavine: ' + pp + '%</span>' : ''}
@@ -3033,7 +2893,7 @@ function render(data) {
             html += '<p style="margin-top:2px">Stanje mora je korigovano smjerom talasa, jer u Bečićima velike talase pravi samo jugo (JI–J, dug razgon preko otvorenog Jadrana). Bura (SI) daje kratke i oštre, ali niže talase — najviše "Talasasto". Smjerovi sa kopna (S i Z) ne mogu dati više od blagih talasa, pa se takve vrijednosti modela tretiraju kao artefakt grube rezolucije.</p>';
         }
         if (waves && waves.hourly && waves.hourly.length > 0) {
-            html += '<div class="marine-hourly-wrap">';
+            html += '<div class="marine-hourly-wrap" tabindex="0" role="region" aria-label="Satna pomorska prognoza">';
             html += '<h4>Talasi po satima (48h)</h4>';
             html += '<div class="marine-hourly">';
             waves.hourly.forEach((h, hi) => {
@@ -3107,7 +2967,7 @@ function render(data) {
                     html += '</div>';
                 }
                 if (loc.hourly && loc.hourly.length > 0) {
-                    html += '<div class="marine-hourly-wrap">';
+                    html += '<div class="marine-hourly-wrap" tabindex="0" role="region" aria-label="Satna pomorska prognoza">';
                     html += '<h4>Vjetar po satima (48h) — ' + loc.name + '</h4>';
                     html += '<div class="marine-hourly">';
                     loc.hourly.forEach((h, hi) => {
@@ -3170,7 +3030,7 @@ function render(data) {
                     </table>
                 </div>
             </div>
-            <img src="map.png" style="width:100%;max-width:600px;margin-top:12px;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.1)" loading="lazy">
+            <img src="map.png" class="reference-map" alt="Referentne lokacije za pomorsku prognozu oko Budve" loading="lazy">
             <p>Mapa referentnih lokacija za pomorsku prognozu. Za prognoziranje visine talasa i dužine trajanja, koristim DWD EWAM i Météo-France Wave modele, dostupne preko Open-Meteo API. Finalna predikcija je rezultat korigovanja ansamblom.</p>`;
 
         html += '</div>';

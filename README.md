@@ -74,6 +74,7 @@ python test_gemini_narrative.py            # testovi guardrail-a
 python test_narrative_variants.py
 
 node test_nowcast_hourly.js                # SKALA NOWCAST gating u docs/forecast.html
+node test_daily_conditions.js              # Usklađenost dnevnih ikonica, opisa i narativa
 ```
 
 ## GPU trening
