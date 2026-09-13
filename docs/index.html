@@ -330,34 +330,35 @@
         Korigovana prognoza za narednih 48 sati, satni detalji i grafovi su dostupni na <a href="forecast.html"><strong>stranici za live prognozu</strong></a>.
     </div>
 	
-	<h2 id="evaluacija-ljeto-2026">Ljeto 2026: sistem je znao da će pasti, ali ne i kada</h2>
+	<h2 id="evaluacija-ljeto-2026">Sistematska greška se dâ ispraviti, trenutak ne</h2>
 	<p class="date">13. septembar 2026</p>
-	<p>U februaru sam objavio da je korigovana prognoza za Budvu tačnija od bilo kog pojedinačnog modela. Sada je prošlo ljeto i imam podatke da tu tvrdnju provjerim, pa je objavljujem u cjelini — i ono što je ispalo dobro i ono što nije. Ako stranica traži od ljudi da joj vjeruju, onda mora pokazati i tamo gdje ne zaslužuje povjerenje.</p>
-	<p>Uzorak je 1888 sati, od 1. juna do 18. avgusta 2026, upoređenih sa stanicom IBUDVA5. Uz to sam iz git istorije izvukao 645 prognoza koje je sajt zaista objavio tog ljeta, svaku sa vremenom nastanka, pa se korekcija mjeri na onome što su ljudi stvarno vidjeli prije nego što se vrijeme desilo. Svi brojevi ispod mogu se ponoviti iz istih fajlova.</p>
-	<h3>Temperatura: tu je posao uglavnom obavljen</h3>
-	<p>Najbolji pojedinačni model ovog ljeta bio je UKMO_SEAMLESS, sa srednjom apsolutnom greškom od 1,500 °C. Najgori je bio ICON_SEAMLESS, sa 2,185 °C. Raspon između najboljeg i najgoreg je, dakle, oko sedam desetina stepena.</p>
-	<p>Zanimljivije je nešto drugo. Običan prosjek devet različitih modela dao je grešku od 1,309 °C, sa sistematskim odstupanjem od svega −0,02 °C. Prosjek je pobijedio svaki pojedinačni model, uključujući i najbolji. To nije novost u meteorologiji, ali vrijedi reći naglas: veći dio koristi ovdje ne dolazi od pametnog učenja, nego od toga što greške različitih modela idu u različitim smjerovima i međusobno se poništavaju.</p>
-	<p>Korekcija ide dalje od toga, i ovdje mogu dati broj koji ne traži ogradu. Na 645 prognoza objavljenih tokom ljeta, korigovana temperatura ima grešku od 1,071 °C za prva 24 sata i 1,082 °C za drugi dan, naspram 1,406 i 1,455 °C koliko je imala sirova prognoza prije korekcije. To je smanjenje greške od 24 odnosno 26 odsto. Pošto su te prognoze objavljene prije nego što se vrijeme desilo, tu nema curenja podataka iz treninga.</p>
-	<h3>Vjetar: greška koja se dâ ispraviti</h3>
-	<p>Ovdje je nalaz neobično čist. Svaki model ovog ljeta precijenio je vjetar. Svaki, bez ijednog izuzetka, sa sistematskim odstupanjem od +0,14 m/s kod ECMWF_IFS025 do +1,58 m/s kod DMI_SEAMLESS.</p>
-	<p>Kada svaki model griješi u istom smjeru, to nije šum nego navika, a navika je upravo ono što korekcija dobro uklanja. Modeli ne vide da je stanica u zavjetrini, pa preko nje prevlače vjetar otvorenog mora.</p>
-	<p>Ovdje je dobitak najveći u cijelom sistemu. Na istih 645 objavljenih prognoza, greška vjetra pala je sa 1,01 m/s na 0,31 m/s, i to podjednako za prvi i za drugi dan. Korekcija skida oko 69 odsto greške. Vjetar je time najpouzdaniji dio ovog izvještaja, i to je nalaz koji me je najviše ohrabrio.</p>
-	<h3>Kiša: ovdje sistem ne zaslužuje povjerenje koje mu se ukazuje</h3>
-	<p>Od 1888 sati, kiša jačine bar 0,2 mm/h padala je u 114 sati — šest odsto ljeta. Evo kako su modeli prošli na tom satnom nivou.</p>
-	<p>Najbolji je bio ECMWF_IFS025: pogodio je 54 od 114 kišnih sati, promašio 60, i najavio kišu koja nije pala u 84 sata. To znači da hvata nešto manje od polovine kišnih sati, a da je tri od pet njegovih najava kiše lažna uzbuna. To je najbolji rezultat u grupi. Ostali su lošiji, a svaki model ovog ljeta promašio je više kišnih sati nego što ih je pogodio.</p>
-	<p>Lako je ovo odbaciti rečenicom da je ljetnja konvekcija teška i da to svi znaju. Mislim da bi to bila greška, iz dva razloga. Prvi je što korisnik ne čita brojeve nego rečenicu "očekuje se kiša", i nema načina da sazna da iza te rečenice stoji tačnost bliža bacanju novčića. Drugi je što ja te brojeve imam, a do sada ih nijesam pokazao.</p>
-	<h3>Ono što sam zapravo naučio ovog ljeta</h3>
-	<p>Postoji dio sistema koji kišu detektuje znatno bolje: model koji procjenjuje hoće li uopšte biti kišnog događaja. On hvata 92 odsto događaja, sa lažnom uzbunom u 30 odsto slučajeva. Po tome je daleko ispred svakog sirovog modela.</p>
-	<p>Ali kada sam pogledao koliko dobro pogađa trenutak početka, slika se promijenila. Medijalna greška je osam sati. Unutar jednog sata od stvarnog početka padne 9,7 odsto najava; unutar tri sata, 27 odsto.</p>
-	<p>Tako da, sasvim konkretno: sistem zna da će u utorak pasti, i u tome je pouzdan. Ne zna da li će pasti u deset ujutro ili u šest uveče, i tu nije pouzdan. Ta razlika je za nekoga ko planira dan cijela razlika, a stranica je do sada nije jasno saopštavala.</p>
-	<h3>Dvije stvari koje sam našao o svojim podacima</h3>
-	<p>Dok sam ovo računao, naišao sam na dvije greške koje nisu u modelima nego kod mene.</p>
-	<p>Prva: ARPEGE_EUROPE i METEOFRANCE ovog ljeta daju bajt-identične vrijednosti. To je isti model koji ulazi dva puta i time dobija dvostruki glas u prosjeku. Drugim riječima, ansambl nije imao deset nezavisnih mišljenja nego devet, od kojih se jedno računalo dvaput.</p>
-	<p>Druga: tri modela — BOM_ACCESS, GEM_GLOBAL i ICON_D2 — nijesu imali nijedan sat podataka poslije februara. Mjesecima su navedeni kao izvori, a nijesu doprinijeli ničemu.</p>
-	<p>Prvu sam izmjerio. Kada se duplikat izbaci, greška prosjeka padne sa 1,322 na 1,309 °C — dakle trinaest hiljaditih stepena, što ne mijenja ništa u praksi. Drugu nijesam mjerio i ne tvrdim ništa o njenom uticaju. Navodim ih zato što je broj modela jedna od stvari kojima se ovaj projekat hvali, a taj broj nije bio tačan.</p>
+	<p>U februaru sam napisao da je korigovana prognoza za Budvu tačnija od bilo kog pojedinačnog modela. To je bila tvrdnja zasnovana na unakrsnoj validaciji, dakle na podacima koje je model već vidio. Sada imam nešto bolje. U git istoriji ovog projekta stoji 645 snimaka prognoze objavljenih između 1. juna i 18. avgusta 2026, svaki sa vremenom nastanka i sa korigovanom i sirovom vrijednošću jedno uz drugo. Te prognoze su objavljene prije nego što se vrijeme desilo, pa poređenje sa osmotrenim ne može imati curenje podataka iz treninga.</p>
+	<p>Rezultat je podijeljen, i podjela nije slučajna. Korekcija dobro radi na jednoj vrsti greške i gotovo nikako na drugoj, a razlika između te dvije vrste objašnjava skoro sve ostalo u ovom tekstu.</p>
+	<h3>Šta je korekcija uradila</h3>
+	<p>Na 645 objavljenih prognoza, greška temperature je 1,071 °C za prva dvadeset četiri sata i 1,082 °C za drugi dan. Sirova prognoza, prije korekcije, imala je 1,406 i 1,455 °C. To je smanjenje od dvadeset četiri odnosno dvadeset šest odsto, i praktično se ne pogoršava sa rokom.</p>
+	<p>Vjetar je bolji od toga. Sirova prognoza imala je grešku od 1,01 m/s, korigovana 0,31 m/s, i taj odnos je isti za oba dana. Korekcija skida oko sedamdeset odsto greške vjetra.</p>
+	<p>Radi poređenja, na istom ljetu najbolji pojedinačni model za temperaturu bio je UKMO_SEAMLESS sa 1,500 °C, a najgori ICON_SEAMLESS sa 2,185 °C. Običan prosjek devet različitih modela dao je 1,309 °C. Prosjek je, dakle, pobijedio svaki pojedinačni model i prije ikakvog učenja, što znači da jedan dio koristi ovdje ne dolazi od modela nego od toga što greške različitih modela idu u suprotnim smjerovima.</p>
+	<h3>Zašto je vjetar lakši</h3>
+	<p>Ovog ljeta svih deset modela precijenilo je vjetar, bez ijednog izuzetka, sa odstupanjem od +0,14 m/s kod ECMWF_IFS025 do +1,58 m/s kod DMI_SEAMLESS.</p>
+	<p>Kada svi modeli griješe u istom smjeru i približno isto iz dana u dan, to nije šum nego pristrasnost. Razlog je poznat: mreža velikog modela je pregruba da vidi da je stanica u zavjetrini, pa preko nje prevlači režim otvorenog mora. Ta greška se ponavlja, ima predznak, i zavisi od veličina koje model daje u ulazu, kao što su doba dana, smjer vjetra i gradijent pritiska. Model sa stablima odlučivanja upravo to uči dobro.</p>
+	<p>Sedamdeset odsto smanjenja greške vjetra nije znak da je moj model pametan. Znak je da je greška bila sistematska.</p>
+	<h3>Zašto je kiša drugačija</h3>
+	<p>Od 1888 sati ljeta, kiša od bar 0,2 mm/h padala je u 114, dakle u šest odsto vremena.</p>
+	<p>Najbolji model na tom satnom nivou bio je ECMWF_IFS025. Pogodio je 54 kišna sata, promašio 60, i najavio kišu u 84 sata u kojima nije pala. To znači da hvata nešto manje od polovine kišnih sati i da su tri od pet njegovih najava lažne. Svaki model ovog ljeta promašio je više kišnih sati nego što ih je pogodio.</p>
+	<p>Lako je to odbaciti time što je ljetnja konvekcija teška, i to je tačno. Mislim ipak da zaključak nije "modeli su loši" nego nešto određenije. Greška kod vjetra ima predznak koji se ponavlja. Greška kod ljetnje kiše nema takav predznak, jer ćelija koja se formira nad morem i traje četrdeset minuta ne postoji u ulaznom signalu. Korekcija može pomjeriti broj koji model daje, ali ne može proizvesti događaj koji model nije vidio. To je razlika u vrsti, a ne u stepenu, i nijedna količina podataka za trening je ne uklanja.</p>
+	<h3>Vrijeme početka</h3>
+	<p>Jedan dio sistema kišu detektuje znatno bolje od sirovih modela: model koji procjenjuje hoće li uopšte biti kišnog događaja. On hvata devedeset dva odsto događaja, uz lažnu uzbunu u trideset odsto slučajeva.</p>
+	<p>Taj isti model, mjeren po trenutku početka, ima medijalnu grešku od osam sati. Unutar jednog sata od stvarnog početka padne 9,7 odsto najava, unutar tri sata 27 odsto.</p>
+	<p>Te dvije brojke opisuju isti model i nijesu u protivrječnosti. Pitanje hoće li u utorak biti kiše i pitanje hoće li pasti u deset ili u šest nijesu isti zadatak, i drugi je bitno teži. Za nekoga ko planira dan korisno je uglavnom ovo drugo, a izvještaj ih do sada nije razdvajao.</p>
+	<h3>Greške u ulazima</h3>
+	<p>Dvije stvari koje sam našao računajući ovo, i obje su kod mene, ne kod modela.</p>
+	<p>ARPEGE_EUROPE i METEOFRANCE ovog ljeta daju bajt-identične vrijednosti. To je isti izvor koji ulazi dvaput i u prosjeku dobija dvostruki glas. Izmjerio sam koliko to košta: kada se duplikat izbaci, greška prosjeka padne sa 1,322 na 1,309 °C. Praktično ništa, ali broj modela kojim se projekat opisuje nije bio tačan.</p>
+	<p>BOM_ACCESS, GEM_GLOBAL i ICON_D2 nemaju nijedan sat podataka poslije februara. Mjesecima su navedeni kao izvori, a ovog ljeta nijesu doprinijeli ničemu. Koliko je to koštalo nijesam mjerio i ne tvrdim ništa o tome.</p>
 	<h3>Šta dalje</h3>
-	<p>Tri stvari, po redu važnosti. Prestati saopštavati kišu rečenicom koja zvuči jednako sigurno bez obzira na to koliko je sigurna — kada je satna tačnost ovakva, to mora stajati uz najavu, a ne u posebnom tekstu koji niko ne otvori. Ukloniti duplikat i vratiti ili izbaciti tri mrtva izvora. I raditi ovakvu evaluaciju iz arhive objavljenih prognoza redovno, a ne jednom na kraju sezone; podaci su cijelo vrijeme bili u git istoriji, samo ih nijesam gledao.</p>
-	<p>Ne mislim da se satna tačnost ljetnje konvekcije može riješiti na ovoj lokaciji sa ovim ulazima. Mislim da se može izmjeriti i pošteno prijaviti, i da je to razlika između alata i prognoze na koju slegnete ramenima.</p>
+	<p>Prvo, razdvojiti dvije tvrdnje koje izvještaj sada spaja. Rečenica da se očekuje kiša nosi tačnost od devedeset dva odsto na nivou dana i znatno manju na nivou sata, a trenutno zvuči jednako sigurno u oba slučaja. Vjerovatnoća i raspon već postoje u satnoj tabeli; treba ih staviti uz samu najavu.</p>
+	<p>Drugo, ukloniti duplikat i vratiti ili izbaciti tri mrtva izvora.</p>
+	<p>Treće, ovakvu evaluaciju raditi iz arhive objavljenih prognoza u redovnom ritmu. Skripta koja je izvukla 645 snimaka iz gita ide uz ovaj tekst i može se pokrenuti kad god.</p>
+	<p>Ne očekujem da se satna tačnost ljetnje konvekcije na ovoj lokaciji bitno popravi sa ovim ulazima. Očekujem da se može izmjeriti i prijaviti, i mislim da je to ono što izvještaj duguje čitaocu.</p>
 
 	<hr>
 
