@@ -330,9 +330,54 @@
         Korigovana prognoza za narednih 48 sati, satni detalji i grafovi su dostupni na <a href="forecast.html"><strong>stranici za live prognozu</strong></a>.
     </div>
 	
+	<h2 id="evaluacija-ljeto-2026">Ljeto 2026: sistem je znao da će pasti, ali ne i kada</h2>
+	<p class="date">13. septembar 2026</p>
+	<p>U februaru sam objavio da je korigovana prognoza za Budvu tačnija od bilo kog pojedinačnog modela. Sada je prošlo ljeto i imam podatke da tu tvrdnju provjerim, pa je objavljujem u cjelini — i ono što je ispalo dobro i ono što nije. Ako stranica traži od ljudi da joj vjeruju, onda mora pokazati i tamo gdje ne zaslužuje povjerenje.</p>
+	<p>Uzorak je 1888 sati, od 1. juna do 18. avgusta 2026, upoređenih sa stanicom IBUDVA5. Svi brojevi ispod izračunati su iz istih fajlova koje pipeline koristi, i mogu se ponoviti.</p>
+	<h3>Temperatura: tu je posao uglavnom obavljen</h3>
+	<p>Najbolji pojedinačni model ovog ljeta bio je UKMO_SEAMLESS, sa srednjom apsolutnom greškom od 1,500 °C. Najgori je bio ICON_SEAMLESS, sa 2,185 °C. Raspon između najboljeg i najgoreg je, dakle, oko sedam desetina stepena.</p>
+	<p>Zanimljivije je nešto drugo. Običan prosjek devet različitih modela dao je grešku od 1,309 °C, sa sistematskim odstupanjem od svega −0,02 °C. Prosjek je pobijedio svaki pojedinačni model, uključujući i najbolji. To nije novost u meteorologiji, ali vrijedi reći naglas: veći dio koristi ovdje ne dolazi od pametnog učenja, nego od toga što greške različitih modela idu u različitim smjerovima i međusobno se poništavaju.</p>
+	<p>Korekcija koju ova stranica objavljuje ide dalje od toga — unakrsna validacija u četiri preklopa daje 0,888 °C. Moram odmah dodati ogradu: taj broj je računat na cijelom periodu treninga, a ne izolovano na ovom ljetu, pa ga ne treba čitati kao "ljetnju" grešku. Pošteno poređenje za ljeto 2026 tražilo bi model treniran isključivo na podacima prije 1. juna, i to je prva stvar koju ću uraditi do sljedeće sezone.</p>
+	<h3>Vjetar: greška koja se dâ ispraviti</h3>
+	<p>Ovdje je nalaz neobično čist. Svaki model ovog ljeta precijenio je vjetar. Svaki, bez ijednog izuzetka, sa sistematskim odstupanjem od +0,14 m/s kod ECMWF_IFS025 do +1,58 m/s kod DMI_SEAMLESS.</p>
+	<p>Kada svaki model griješi u istom smjeru, to nije šum nego navika, a navika je upravo ono što korekcija dobro uklanja. Modeli ne vide da je stanica u zavjetrini, pa preko nje prevlače vjetar otvorenog mora. To je greška koju je lako naučiti i skinuti, i vjerujem da je vjetar trenutno najpouzdaniji dio ovog izvještaja.</p>
+	<h3>Kiša: ovdje sistem ne zaslužuje povjerenje koje mu se ukazuje</h3>
+	<p>Od 1888 sati, kiša jačine bar 0,2 mm/h padala je u 114 sati — šest odsto ljeta. Evo kako su modeli prošli na tom satnom nivou.</p>
+	<p>Najbolji je bio ECMWF_IFS025: pogodio je 54 od 114 kišnih sati, promašio 60, i najavio kišu koja nije pala u 84 sata. To znači da hvata nešto manje od polovine kišnih sati, a da je tri od pet njegovih najava kiše lažna uzbuna. To je najbolji rezultat u grupi. Ostali su lošiji, a svaki model ovog ljeta promašio je više kišnih sati nego što ih je pogodio.</p>
+	<p>Lako je ovo odbaciti rečenicom da je ljetnja konvekcija teška i da to svi znaju. Mislim da bi to bila greška, iz dva razloga. Prvi je što korisnik ne čita brojeve nego rečenicu "očekuje se kiša", i nema načina da sazna da iza te rečenice stoji tačnost bliža bacanju novčića. Drugi je što ja te brojeve imam, a do sada ih nijesam pokazao.</p>
+	<h3>Ono što sam zapravo naučio ovog ljeta</h3>
+	<p>Postoji dio sistema koji kišu detektuje znatno bolje: model koji procjenjuje hoće li uopšte biti kišnog događaja. On hvata 92 odsto događaja, sa lažnom uzbunom u 30 odsto slučajeva. Po tome je daleko ispred svakog sirovog modela.</p>
+	<p>Ali kada sam pogledao koliko dobro pogađa trenutak početka, slika se promijenila. Medijalna greška je osam sati. Unutar jednog sata od stvarnog početka padne 9,7 odsto najava; unutar tri sata, 27 odsto.</p>
+	<p>Tako da, sasvim konkretno: sistem zna da će u utorak pasti, i u tome je pouzdan. Ne zna da li će pasti u deset ujutro ili u šest uveče, i tu nije pouzdan. Ta razlika je za nekoga ko planira dan cijela razlika, a stranica je do sada nije jasno saopštavala.</p>
+	<h3>Dvije stvari koje sam našao o svojim podacima</h3>
+	<p>Dok sam ovo računao, naišao sam na dvije greške koje nisu u modelima nego kod mene.</p>
+	<p>Prva: ARPEGE_EUROPE i METEOFRANCE ovog ljeta daju bajt-identične vrijednosti. To je isti model koji ulazi dva puta i time dobija dvostruki glas u prosjeku. Drugim riječima, ansambl nije imao deset nezavisnih mišljenja nego devet, od kojih se jedno računalo dvaput.</p>
+	<p>Druga: tri modela — BOM_ACCESS, GEM_GLOBAL i ICON_D2 — nijesu imali nijedan sat podataka poslije februara. Mjesecima su navedeni kao izvori, a nijesu doprinijeli ničemu.</p>
+	<p>Prvu sam izmjerio. Kada se duplikat izbaci, greška prosjeka padne sa 1,322 na 1,309 °C — dakle trinaest hiljaditih stepena, što ne mijenja ništa u praksi. Drugu nijesam mjerio i ne tvrdim ništa o njenom uticaju. Navodim ih zato što je broj modela jedna od stvari kojima se ovaj projekat hvali, a taj broj nije bio tačan.</p>
+	<h3>Šta dalje</h3>
+	<p>Tri stvari, po redu važnosti. Trenirati model na podacima zaključno sa 31. majem i objaviti pošten out-of-sample rezultat za ovo ljeto. Ukloniti duplikat i vratiti ili izbaciti tri mrtva izvora. I prestati saopštavati kišu rečenicom koja zvuči jednako sigurno bez obzira na to koliko je sigurna.</p>
+	<p>Ne mislim da se satna tačnost ljetnje konvekcije može riješiti na ovoj lokaciji sa ovim ulazima. Mislim da se može izmjeriti i pošteno prijaviti, i da je to razlika između alata i prognoze na koju slegnete ramenima.</p>
+
+	<hr>
+
 	<h2>Poruka autora i šta treba imati na umu</h2>
 
-    <p>Iako je <a href="forecast.html">ovo</a> legitimno i provjereno najtačniji vremenski izvještaj za Budvu (a čiji je kod primjenjiv i na drugim lokacijama), postoje nedoumice o samom značenju ove rečenice. Treba imati na umu da postoje limitacije u ovom pristupu.<br><b>Naime, ovaj projekat NIJE zamjena za visoko-rezolucijski regionalni (ili pak državni) model. On je korekcija kontinuiranih grešaka koje regionalni i kontinentalni modeli prave za datu lokaciju. Ali postoje tri glavna problema:</b><br>
+    <p>Ovu prognozu održavam zato što vjerujem da je za jednu tačku na karti moguće napraviti izvještaj tačniji od svega što je javno dostupno, i zato što mislim da su brojevi iza ove stranice to pokazali. Šest godina mjerenja sa stanice IBUDVA5, deset globalnih modela, i korekcija naučena na razlici između onoga što su modeli obećali i onoga što se stvarno izmjerilo u Budvi. Kada radi, radi bolje nego sirova prognoza koju biste dobili bilo gdje drugo.</p>
+
+    <p>Ali svaka tehnologija koja ljudima daje osnov za odluku nosi i rizik da ih odvede u pogrešnu, a ovdje su te odluke konkretne: da li isploviti, da li zatvoriti terasu, da li krenuti na put preko Lovćena. Zato hoću da limitacije iznesem sam, prije nego što ih neko otkrije na teži način — u subotu popodne, kada padne ono što je stranica rekla da neće.</p>
+
+    <p><b>Prvo i najvažnije: ovaj projekat nije zamjena za visoko-rezolucijski regionalni model.</b> On je korekcija sistematskih grešaka koje kontinentalni modeli prave baš na ovoj tački. Ta tvrdnja je uža nego što zvuči, i ta razlika nije formalnost. Ako model iz ciklusa u ciklus precjenjuje temperaturu u Budvi za dva stepena zato što mu je mreža isuviše gruba da bi vidio more ispred stanice i planinu iza grada, tu grešku mogu naučiti i skinuti. Ako model uopšte ne vidi ćeliju koja se formira nad Jadranom, nemam šta da korigujem. U prvom slučaju ispravljam naviku. U drugom bih morao da pogodim nešto što u ulaznim podacima ne postoji, a to ne umijem i ne tvrdim da umijem.</p>
+
+    <p>Tokom posljednjih mjeseci uvjerio sam se u nešto što u početku nijesam htio da priznam: prosječna tačnost i tačnost u trenutku kada je bitna nijesu ista stvar. Sistem je najjači tamo gdje je najmanje potreban — kod stabilnog vremena koje bi i sirovi model dobro pogodio. Najslabiji je tačno tamo gdje bi najviše vrijedio: kod ljetnjeg pljuska koji nastane i nestane za četrdeset minuta nad nekoliko kvadratnih kilometara. Statistika na kraju sezone izgleda odlično, a čovjeku koji je pokisao ne znači mnogo to što je sistem ostatak sezone bio u pravu.</p>
+
+    <p>Lako je na ovo odgovoriti da je svaka prognoza nesigurna i da je to opšte mjesto koje svi već znaju. Mislim da bi to bila greška. Razlika je u tome što ovdje nesigurnost nije ravnomjerno raspoređena, nego je skoncentrisana u malom broju situacija koje su istovremeno najrjeđe i najskuplje. Zbog toga sam prešao sa jednog broja na kvantilne trake p05–p95: ne zato što je to modernije, nego zato što jedan broj sakriva upravo onu informaciju koja vam treba — koliko je taj broj ovaj put nesiguran.</p>
+
+    <p>Ovo ne govorim o tuđim modelima. Govorim i o svom. Bilo je ciklusa u kojima je korekcija pogoršala sirovu prognozu, najčešće tako što je izgladila vrh koji je veliki model tačno predvidio. Bilo je ljetnjih dana kada je sistem prijavio kišu koja nije pala, i dana kada je ćutao dok je padalo. Te slučajeve ne brišem iz evaluacije, jer bi tada broj kojim se ova stranica hvali prestao da znači išta.</p>
+
+    <p>Ne tvrdim da se ovi problemi mogu riješiti. Tvrdim da se mogu izmjeriti, ograničiti i pošteno prijaviti, i to je ono što ovdje pokušavam da radim. U nastavku iznosim tri koja smatram najozbiljnijim. Ne pišem ih kao ogradu. Pišem ih zato što je poznavanje granica alata dio njegovog korišćenja.</p>
+
+    <p><b>Tri problema koja slijede nijesu jedina, ali su ona koja najčešće odlučuju da li će izvještaj tog dana biti koristan ili pogrešan.</b></p>
+
 	<h3>Problem iz programskog ugla</h3>
 	<p>Kada interfejsi mašinskog učenja, uprkos velikom setu podataka, NE MOGU uočiti grešku koju model napravi, prilikom uzorkovanja naspram <u>stvarnog</u>, osmotrenog mjerenja na stanici, onda ni korigovana prognoza kao rezultat ne može ispraviti tu grešku, koja se može ponoviti u budućnosti. Modeli mašinskog učenja ponekad propuštaju vremenske obrasce jer im prvenstveno nedostaje inherentno razumijevanje fizičkih atmosferskih zakona. Zbog toga izglađuju ili pogrešno izračunavaju neke događaje. Atmosfera je haotični medijum, što znači da brze promjene i neosmotreni parametri kontinuirano dovode do grešaka koje modeli bazirani na stablu odlučivanja ne mogu očekivati ili ispraviti.</p>
 	
