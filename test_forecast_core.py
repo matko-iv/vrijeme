@@ -713,5 +713,75 @@ class MarineLogicTests(unittest.TestCase):
             narrative)
 
 
+class BurstWindBoostTests(unittest.TestCase):
+    def _burst_frames(self):
+        """One 2h cell (5.8 then 19.4 mm/h) over an otherwise dead-calm bay."""
+        n = 8
+        idx = pd.date_range('2026-09-18 11:00', periods=n, freq='h')
+        italia = [0.0] * n
+        italia[4] = 5.8      # shift(-1) lands these on rows 3 and 4
+        italia[5] = 19.4
+        fc_df = pd.DataFrame({
+            'datetime': idx,
+            f'{fc.TRUSTED_RAIN_MODEL}_precipitation_model': italia,
+        })
+        gust = [3.3, 3.4, 4.8, 2.7, 2.1, 3.3, 1.7, 1.6]
+        wind = [1.4, 1.5, 2.6, 1.4, 1.3, 2.2, 0.7, 0.6]
+        corrected = pd.DataFrame({
+            'datetime': idx,
+            'wind_gusts_10m_xgb': gust,
+            'wind_gusts_10m_ensemble': gust,
+            'wind_gusts_10m_q90': [3.7, 3.7, 3.5, 3.5, 3.2, 2.7, 2.4, 2.2],
+            'wind_speed_10m_xgb': wind,
+            'wind_speed_10m_ensemble': wind,
+            'wind_speed_10m_q90': [1.6, 1.9, 1.9, 1.9, 1.9, 1.6, 1.1, 0.9],
+        })
+        return corrected, fc_df
+
+    def test_burst_wind_boost_is_bounded_by_the_ambient_gust_field(self):
+        # A heavy cell over a calm bay used to saturate the rain-keyed floors
+        # (gust 18.0, wind 8.0 m/s) for an hour whose own band topped out at
+        # q90 = 3.2 m/s. Rain rate alone cannot conjure a downdraft.
+        corrected, fc_df = self._burst_frames()
+        fc._apply_burst_wind_boost(corrected, fc_df)
+
+        gust = corrected['wind_gusts_10m_xgb'].values
+        wind = corrected['wind_speed_10m_xgb'].values
+
+        for i in (3, 4):
+            self.assertLessEqual(
+                gust[i],
+                max(fc.BURST_GUST_FLOOR_BASE,
+                    corrected['wind_gusts_10m_q90'].values[i] * fc.BURST_AMBIENT_GUST_FACTOR),
+                f'gust boost at row {i} ignored the ambient band: {gust[i]}')
+            self.assertLessEqual(
+                wind[i],
+                max(fc.BURST_WIND_FLOOR_BASE,
+                    corrected['wind_speed_10m_q90'].values[i] * fc.BURST_AMBIENT_WIND_FACTOR),
+                f'wind boost at row {i} ignored the ambient band: {wind[i]}')
+
+        # The UI raises a wind warning at gusts >= 17 m/s; a calm-bay shower
+        # must never reach it on rain rate alone.
+        self.assertLess(gust.max(), 17.0)
+
+    def test_burst_wind_boost_still_lifts_a_windy_cell(self):
+        # The boost exists because models miss convective gusts. A cell in a
+        # genuinely breezy field must still get lifted above its ambient band.
+        corrected, fc_df = self._burst_frames()
+        corrected['wind_gusts_10m_q90'] = [9.0] * 8
+        corrected['wind_speed_10m_q90'] = [5.0] * 8
+        fc._apply_burst_wind_boost(corrected, fc_df)
+        self.assertGreater(corrected['wind_gusts_10m_xgb'].values[4], 9.0)
+
+    def test_burst_wind_boost_survives_missing_quantile_columns(self):
+        # Model bundles predating the quantile upgrade have no q90 band; the
+        # boost must fall back to the ensemble point value, not to NaN.
+        corrected, fc_df = self._burst_frames()
+        corrected = corrected.drop(columns=['wind_gusts_10m_q90', 'wind_speed_10m_q90'])
+        fc._apply_burst_wind_boost(corrected, fc_df)
+        self.assertTrue(np.isfinite(corrected['wind_gusts_10m_xgb'].values).all())
+        self.assertLess(corrected['wind_gusts_10m_xgb'].max(), 17.0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

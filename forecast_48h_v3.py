@@ -768,6 +768,15 @@ BURST_HALO_GUST_DELTA = 1.5
 BURST_GUST_MAX = 40.0          # absolute cap (safety)
 BURST_WIND_MAX = 25.0
 
+# A downdraft scales off the wind field the cell falls into; rain rate alone
+# cannot conjure one. Keyed to italia precip only, the floors saturated on any
+# heavy hour: an 11.6 mm cell over a dead-calm bay published gust 18.0 m/s for
+# an hour whose own band read q90 = 3.2 and P(gust > 17) = 0.00, which is a red
+# wind warning on the page. Bound each floor by that q90 band, which the boost
+# never touches, while still allowing the base floor.
+BURST_AMBIENT_GUST_FACTOR = 2.5
+BURST_AMBIENT_WIND_FACTOR = 2.0
+
 
 # Single wave location: at this resolution (~5km grid for DWD EWAM, ~10km for
 # MeteoFrance WAM) close coastal points snap to the same offshore grid cells,
@@ -7229,6 +7238,22 @@ def _detect_short_rain_bursts(precip_vals, wet_threshold,
     return burst_mask
 
 
+def _burst_ambient_ceiling(corrected, base, factor, floor_base):
+    """Highest value the burst floor may lift `base` to, per hour.
+
+    Reads the hour's calibrated q90 band, falling back to the pre-boost
+    ensemble point value for model bundles that predate the quantile upgrade,
+    and to the base floor where neither is finite.
+    """
+    ambient = corrected.get(f'{base}_q90')
+    if ambient is None:
+        ambient = corrected.get(f'{base}_ensemble')
+    if ambient is None:
+        return np.full(len(corrected), floor_base)
+    vals = pd.to_numeric(ambient, errors='coerce').values.astype(float)
+    return np.where(np.isnan(vals), floor_base, np.maximum(vals * factor, floor_base))
+
+
 def _apply_burst_wind_boost(corrected, fc):
     """Boost wind & gust predictions for short isolated rain bursts.
 
@@ -7236,8 +7261,8 @@ def _apply_burst_wind_boost(corrected, fc):
     trusted-model precip column from `fc`, detects bursts (1-2h always, 3-4h
     only when intensity carries), then applies the wind boost only on hours
     where italia precip >= BURST_BOOST_PRECIP_MM. Floors scale linearly with
-    in-hour intensity; halo (+/-1h around boosted hours) gets a weak additive
-    bump.
+    in-hour intensity and are bounded by the hour's own q90 band; halo (+/-1h
+    around boosted hours) gets a weak additive bump.
 
     NaN handling: NaN inputs stay NaN — we don't manufacture observations.
     """
@@ -7290,11 +7315,15 @@ def _apply_burst_wind_boost(corrected, fc):
     n_halo = int(halo_mask.sum())
 
     boost_spec = [
-        ('wind_gusts_10m', gust_floor_per_hour, BURST_HALO_GUST_DELTA, BURST_GUST_MAX),
-        ('wind_speed_10m', wind_floor_per_hour, BURST_HALO_WIND_DELTA, BURST_WIND_MAX),
+        ('wind_gusts_10m', gust_floor_per_hour, BURST_HALO_GUST_DELTA, BURST_GUST_MAX,
+         BURST_AMBIENT_GUST_FACTOR, BURST_GUST_FLOOR_BASE),
+        ('wind_speed_10m', wind_floor_per_hour, BURST_HALO_WIND_DELTA, BURST_WIND_MAX,
+         BURST_AMBIENT_WIND_FACTOR, BURST_WIND_FLOOR_BASE),
     ]
 
-    for base, floor_per_hour, halo_delta, hard_cap in boost_spec:
+    for base, floor_per_hour, halo_delta, hard_cap, amb_factor, floor_base in boost_spec:
+        ceiling = _burst_ambient_ceiling(corrected, base, amb_factor, floor_base)
+        effective_floor = np.minimum(floor_per_hour, ceiling)
         for suffix in ['_xgb', '_ensemble']:
             col = f'{base}{suffix}'
             if col not in corrected.columns:
@@ -7302,7 +7331,7 @@ def _apply_burst_wind_boost(corrected, fc):
             w = corrected[col].values.astype(float).copy()
             # Core: keep original if already above the dynamic floor; otherwise lift.
             w[boost_mask] = np.minimum(
-                np.maximum(w[boost_mask], floor_per_hour[boost_mask]),
+                np.maximum(w[boost_mask], effective_floor[boost_mask]),
                 hard_cap,
             )
             # Halo: weak additive boost, no floor, same cap. NaN propagates.
