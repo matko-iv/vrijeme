@@ -1,0 +1,42 @@
+{
+  "mountains": {
+    "source": "sources/mountain_alps.jpg",
+    "crop": [
+      0,
+      230,
+      1024,
+      710
+    ],
+    "size": [
+      1024,
+      480
+    ],
+    "worldPeriod": [
+      128,
+      60
+    ],
+    "processing": "Periodic boundary colour correction only. No warp, shear, mirroring, or rotated duplicate."
+  },
+  "fields": {
+    "source": "sources/agriculture_kansas_aster.jpg",
+    "crop": [
+      600,
+      500,
+      1624,
+      1524
+    ],
+    "size": [
+      1024,
+      1024
+    ],
+    "worldPeriod": [
+      160,
+      160
+    ],
+    "page": "https://science.nasa.gov/earth/earth-observatory/crop-circles-in-kansas-5772/",
+    "image": "https://assets.science.nasa.gov/dynamicimage/assets/science/esd/eo/images/imagerecords/5000/5772/kansas_AST_2001175_lrg.jpg?crop=faces%2Cfocalpoint&fit=clip&h=2481&w=2589",
+    "credit": "NASA/GSFC/METI/ERSDAC/JAROS, and U.S./Japan ASTER Science Team",
+    "acquired": "2001-06-24",
+    "processing": "Square crop, reduced saturation/brightness and periodic boundary colour correction. Representative terrain material, not geographic placement."
+  }
+}

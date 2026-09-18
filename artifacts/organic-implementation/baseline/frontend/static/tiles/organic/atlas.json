@@ -1,0 +1,78 @@
+{
+  "credit": "NASA Earth Observatory, Blue Marble Next Generation",
+  "atlasSize": 2048,
+  "slotSize": 512,
+  "gutter": 1,
+  "slots": {
+    "1": {
+      "source": "plains_kansas.jpg",
+      "crop": null
+    },
+    "2": {
+      "source": "forest_appalachia.jpg",
+      "crop": null
+    },
+    "3": {
+      "source": "mountain_alps.jpg",
+      "crop": [
+        0,
+        230,
+        1024,
+        710
+      ]
+    },
+    "4": {
+      "source": "desert_sahara.jpg",
+      "crop": null
+    },
+    "5": {
+      "source": "tundra_yamal.jpg",
+      "crop": null
+    },
+    "6": {
+      "source": "swamp_sudd.jpg",
+      "crop": null
+    },
+    "7": {
+      "source": "coastal_redsea.jpg",
+      "crop": [
+        0,
+        0,
+        400,
+        1024
+      ]
+    },
+    "8": {
+      "source": "hills_ethiopia.jpg",
+      "crop": [
+        0,
+        0,
+        700,
+        1024
+      ]
+    },
+    "9": {
+      "source": "jungle_congo.jpg",
+      "crop": null
+    },
+    "10": {
+      "source": "grassland_kazakh.jpg",
+      "crop": null
+    },
+    "11": {
+      "source": "mountain_alps.jpg",
+      "crop": [
+        0,
+        230,
+        1024,
+        710
+      ]
+    },
+    "12": {
+      "source": "arctic_greenland.jpg",
+      "crop": null
+    }
+  },
+  "water": "Procedural colours; shaded bathymetry is intentionally not sampled.",
+  "volcanic": "Mountain imagery plus procedural dormant crater shading."
+}

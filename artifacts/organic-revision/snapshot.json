@@ -1,0 +1,133 @@
+{
+  "source": "https://play.roleplay-nations.xyz/api/v1/map/tiles",
+  "fetchedAt": "2026-09-15T10:27:16.143Z",
+  "world": "Public World 1",
+  "hexes": 22500,
+  "cities": 108,
+  "tick": 179,
+  "season": "autumn",
+  "views": [
+    {
+      "id": "city",
+      "q": 130,
+      "r": 82,
+      "z": 8,
+      "title": "Russom and its suburbs",
+      "description": "Actual Public World 1. Neighborhoods spread into suitable neighboring hexes along roads, rather than ending in isolated circles.",
+      "zoom": 8,
+      "visibleTiles": 97,
+      "redrawMs": 1472.300000000745,
+      "roofs": 35
+    },
+    {
+      "id": "streets",
+      "q": 130,
+      "r": 82,
+      "z": 24,
+      "title": "Russom — building detail",
+      "description": "Detached houses, terraces, villas and apartments vary in footprint, roof form and height. The layout stays fixed when zooming."
+    },
+    {
+      "id": "region",
+      "q": 129,
+      "r": 79,
+      "z": 2.6,
+      "title": "Eastern cities",
+      "description": "The current world layout with continuous city districts and lower-density outskirts.",
+      "zoom": 2.6,
+      "visibleTiles": 507,
+      "redrawMs": 2521.699999999255
+    },
+    {
+      "id": "mountains-before",
+      "q": 122,
+      "r": 15,
+      "z": 5,
+      "title": "Mountains — previous rendering",
+      "description": "Previous shader and atlas, on the same live-world location and camera as the revised view. The source was stretched to a square, warped and blended with a rotated copy."
+    },
+    {
+      "id": "mountains",
+      "q": 122,
+      "r": 15,
+      "z": 5,
+      "title": "Mountains — revised rendering",
+      "description": "NASA Alps relief in square ground pixels. Unrotated windows of the photograph sit at random offsets, so there is no repeat, stretch, warp or mirroring."
+    },
+    {
+      "id": "mountains-overview",
+      "q": 138,
+      "r": 38,
+      "z": 1.4,
+      "title": "Mountain ranges of the northeast",
+      "description": "Glacial, temperate and tropical ranges side by side. Character follows the terrain beyond each range's foothills and shifts regionally, with glaciers gathering toward range cores."
+    },
+    {
+      "id": "mountains-arid",
+      "q": 73,
+      "r": 93,
+      "z": 4,
+      "title": "Arid range",
+      "description": "A range whose foothills give onto desert: Hindu Kush relief, brown ridges with snow only on the highest ground."
+    },
+    {
+      "id": "mountains-temperate",
+      "q": 140,
+      "r": 42,
+      "z": 4,
+      "title": "Temperate range",
+      "description": "Forest and grassland beyond the foothills: Alpine relief, with patches of glacier where the range is deepest."
+    },
+    {
+      "id": "mountains-tropical",
+      "q": 145,
+      "r": 50,
+      "z": 4,
+      "title": "Tropical range",
+      "description": "Jungle beyond the foothills: New Guinea highland relief, densely forested and snow-free, blending into temperate relief across the range."
+    },
+    {
+      "id": "world",
+      "q": 74.5,
+      "r": 74.5,
+      "z": 0.15,
+      "title": "Public World 1",
+      "description": "The full current world with the revised terrain and settlements.",
+      "zoom": 0.15,
+      "visibleTiles": 22500,
+      "redrawMs": 4724.299999998882
+    },
+    {
+      "id": "border",
+      "q": 91,
+      "r": 86,
+      "z": 4,
+      "title": "Forest meets desert",
+      "description": "Actual Public World 1 terrain. Each terrain claims ground with its own fractal noise, so the border wanders and interlocks instead of following hex edges."
+    },
+    {
+      "id": "border-close",
+      "q": 91,
+      "r": 86,
+      "z": 24,
+      "title": "Forest meets desert — maximum zoom",
+      "description": "The same border at 24× zoom, rendered at device resolution. NASA Landsat 45 m detail keeps the ground sharp where Blue Marble imagery alone would blur."
+    },
+    {
+      "id": "farms",
+      "q": 0,
+      "r": 0,
+      "z": 5,
+      "title": "Farmland among forest, plains and grassland",
+      "description": "A demonstration with known farm tiles; the public map hides Public World 1 farm locations. Farmland keeps the colour of the terrain it sits on and takes Kansas field structure from NASA Landsat."
+    },
+    {
+      "id": "farms-close",
+      "q": 0,
+      "r": 0,
+      "z": 16,
+      "title": "Farmland — close zoom",
+      "description": "Field boundaries and centre-pivot circles at 16× zoom, in the same palette as the surrounding plains."
+    }
+  ]
+}

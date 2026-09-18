@@ -1,0 +1,69 @@
+{
+  "source": "https://play.roleplay-nations.xyz/api/v1/map/tiles",
+  "fetchedAt": "2026-09-15T09:54:48.508Z",
+  "world": "Public World 1",
+  "hexes": 22500,
+  "cities": 108,
+  "tick": 179,
+  "season": "autumn",
+  "views": [
+    {
+      "id": "world",
+      "q": 74.5,
+      "r": 74.5,
+      "z": 0.15,
+      "title": "Public World 1",
+      "description": "The complete live world. Terrain and all 108 city locations are unchanged.",
+      "zoom": 0.15,
+      "visibleTiles": 22500,
+      "redrawMs": 58.19999998807907
+    },
+    {
+      "id": "region",
+      "q": 129,
+      "r": 79,
+      "z": 2.6,
+      "title": "Cities of the eastern coast",
+      "description": "Paris, Toulouse, Metz and the Republic of Rats. Roads and rivers use the live world geometry.",
+      "zoom": 2.6,
+      "visibleTiles": 510,
+      "redrawMs": 2428.300000011921
+    },
+    {
+      "id": "city",
+      "q": 130,
+      "r": 82,
+      "z": 11,
+      "title": "City of Russom",
+      "description": "The largest current city by building count, at hex 130, 82. Irregular streets, individual roofs, gardens and tree cover.",
+      "zoom": 11,
+      "visibleTiles": 71,
+      "redrawMs": 2375.7000000178814,
+      "roofs": 63
+    },
+    {
+      "id": "streets",
+      "q": 130,
+      "r": 82,
+      "z": 24,
+      "title": "Russom — close-up",
+      "description": "24× zoom, captured at double pixel density. Roof tiles, hipped roofs, walls, chimneys, foliage and soft shadows.",
+      "zoom": 24,
+      "visibleTiles": 31,
+      "redrawMs": 1372.2000000178814,
+      "roofs": 63
+    },
+    {
+      "id": "paris",
+      "q": 125,
+      "r": 75,
+      "z": 16,
+      "title": "Paris",
+      "description": "A second real city, at hex 125, 75. Architecture and local streets are generated deterministically from its location.",
+      "zoom": 16,
+      "visibleTiles": 49,
+      "redrawMs": 1324.8999999761581,
+      "roofs": 73
+    }
+  ]
+}

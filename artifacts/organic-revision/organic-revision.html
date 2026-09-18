@@ -1,0 +1,158 @@
+<title>Public World 1 Terrain Revision</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* One committed look: a night map table. Dark ground so aerial imagery keeps its true values. */
+:root{
+  --ground:#0e1512;--panel:#151e1a;--line:#2b3830;--text:#e3e8dc;--muted:#97a497;
+  --lichen:#cdd8b4;--ochre:#c99f67;--focus:#e9f0d6;
+  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--text);font:15px/1.55 var(--body);padding-inline:20px;padding-block:0 24px}
+.wrap{max-width:1360px;margin:0 auto;display:grid;gap:14px}
+header{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:12px 32px;padding-block:24px 4px}
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--lichen)}
+h1{font:650 clamp(26px,3.2vw,36px)/1.05 var(--display);letter-spacing:-.02em;margin:8px 0 0;text-wrap:balance}
+.meta{font:400 12px/1.6 var(--mono);color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+nav{display:flex;flex-wrap:wrap;gap:10px 22px}
+.group{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.group-label{font:500 10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-right:4px}
+nav button{font:500 13px/1 var(--body);color:var(--text);background:transparent;border:1px solid var(--line);border-radius:4px;padding:8px 13px;cursor:pointer}
+nav button:hover{border-color:var(--muted)}
+nav button[aria-pressed="true"]{background:var(--lichen);border-color:var(--lichen);color:var(--ground)}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+#viewer{position:relative;height:min(68vh,760px);min-height:320px;overflow:hidden;background:#0a100d;border:1px solid var(--line);border-radius:6px;touch-action:none;cursor:grab}
+#viewer.dragging{cursor:grabbing}
+#stage{position:absolute;inset:0;transform-origin:50% 50%}
+#stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;user-select:none;pointer-events:none}
+#before{clip-path:inset(0 calc(100% - var(--split,50%)) 0 0)}
+.tag{position:absolute;top:12px;font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:6px 8px;border-radius:3px;background:#0e1512dd;pointer-events:none}
+.tag.before{left:12px;color:var(--ochre)}
+.tag.after{right:12px;color:var(--lichen)}
+#divider{position:absolute;top:0;bottom:0;left:var(--split,50%);width:2px;margin-left:-1px;background:var(--text);box-shadow:0 0 0 1px #0008;pointer-events:none}
+.tools{position:absolute;right:12px;bottom:12px;display:flex;gap:6px;align-items:center}
+.tools button,.tools a{font:500 12px/1 var(--body);color:var(--text);background:#0e1512e6;border:1px solid var(--line);border-radius:4px;padding:7px 11px;text-decoration:none;cursor:pointer}
+.tools button:hover,.tools a:hover{border-color:var(--muted)}
+.compare{position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:8px;background:#0e1512e6;border:1px solid var(--line);border-radius:4px;padding:6px 10px;font:500 11px/1 var(--mono);color:var(--muted)}
+.compare input{width:min(220px,34vw);accent-color:var(--lichen)}
+.caption{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:start;gap:6px 28px}
+.caption h2{font:650 19px/1.25 var(--display);letter-spacing:-.01em;margin:0;text-wrap:balance}
+.caption p{margin:4px 0 0;color:var(--muted);max-width:68ch}
+.coords{font:400 12px/1.7 var(--mono);color:var(--lichen);white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right}
+footer{border-top:1px solid var(--line);padding-top:12px;color:var(--muted);font-size:12px;max-width:90ch}
+[hidden]{display:none!important}
+@media (max-width:640px){
+  body{padding-inline:16px}
+  .meta{text-align:left}
+  #viewer{height:58vh}
+  .coords{text-align:left}
+  .compare input{width:28vw}
+}
+</style>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Organic renderer · revision 2</div>
+      <h1>Public World 1 terrain revision</h1>
+    </div>
+    <div class="meta">22,500 hexes · 108 cities<br>15 Sep 2026 · autumn · tick 179</div>
+  </header>
+
+  <nav aria-label="Map views">
+    <div class="group" role="group" aria-label="Terrain"><span class="group-label">Terrain</span>
+      <button type="button" id="tab-border" data-id="border">Forest meets desert</button>
+      <button type="button" id="tab-border-close" data-id="border-close">Border at 24×</button>
+      <button type="button" id="tab-world" data-id="world">Whole world</button>
+    </div>
+    <div class="group" role="group" aria-label="Mountains"><span class="group-label">Mountains</span>
+      <button type="button" id="tab-mountains-overview" data-id="mountains-overview">Ranges</button>
+      <button type="button" id="tab-mountains-arid" data-id="mountains-arid">Arid</button>
+      <button type="button" id="tab-mountains-temperate" data-id="mountains-temperate">Temperate</button>
+      <button type="button" id="tab-mountains-tropical" data-id="mountains-tropical">Tropical</button>
+      <button type="button" id="tab-mountains" data-id="mountains">Before and after</button>
+    </div>
+    <div class="group" role="group" aria-label="Cities"><span class="group-label">Cities</span>
+      <button type="button" id="tab-city" data-id="city">Russom suburbs</button>
+      <button type="button" id="tab-streets" data-id="streets">Building detail</button>
+      <button type="button" id="tab-region" data-id="region">Eastern cities</button>
+    </div>
+    <div class="group" role="group" aria-label="Farms"><span class="group-label">Farms</span>
+      <button type="button" id="tab-farms" data-id="farms">Farmland</button>
+      <button type="button" id="tab-farms-close" data-id="farms-close">Farmland at 16×</button>
+    </div>
+  </nav>
+
+  <main>
+    <div id="viewer">
+      <div id="stage">
+        <img id="after" draggable="false" alt="">
+        <img id="before" draggable="false" alt="" hidden>
+      </div>
+      <div id="divider" hidden></div>
+      <span class="tag before" id="tag-before" hidden>Previous</span>
+      <span class="tag after" id="tag-after" hidden>Revised</span>
+      <label class="compare" id="compare" for="split" hidden>Previous<input type="range" id="split" min="0" max="100" value="50">Revised</label>
+      <div class="tools">
+        <button type="button" id="reset">Fit view</button>
+        <a id="full" target="_blank" rel="noopener">Full size ↗</a>
+      </div>
+    </div>
+  </main>
+
+  <section class="caption" aria-live="polite">
+    <div><h2 id="title"></h2><p id="description"></p></div>
+    <div class="coords" id="coords"></div>
+  </section>
+
+  <footer>Rendered locally from the live Public World 1 map, with the revised renderer. Terrain imagery via NASA GIBS: Blue Marble colour, Blue Marble shaded relief, and Landsat WELD 2000 detail at 45 m. Buildings are procedural geometry, not generated images. Scroll to magnify, drag to pan.</footer>
+</div>
+<script>
+const views={
+  border:{q:91,r:86,z:4,title:'Forest meets desert',description:'Actual Public World 1 terrain. Each terrain claims ground with its own fractal noise, so borders, shorelines included, wander and interlock instead of following hex edges.'},
+  'border-close':{q:91,r:86,z:24,title:'The same border at maximum zoom',description:'24× zoom at device resolution. NASA Landsat detail at 45 m per pixel keeps the ground sharp where Blue Marble imagery alone turns to blur.'},
+  'mountains-overview':{q:138,r:38,z:1.4,title:'Mountain ranges of the northeast',description:'Glacial, temperate and tropical ranges side by side. Each range takes its character from the terrain beyond its foothills, shifts regionally through large-scale noise, and gathers glaciers toward its core.'},
+  'mountains-arid':{q:73,r:93,z:4,title:'Arid range',description:'Desert beyond the foothills gives Hindu Kush relief: brown ridges with snow only on the highest ground, meeting temperate relief along real ridgelines.'},
+  'mountains-temperate':{q:140,r:42,z:4,title:'Temperate range',description:'Forest and grassland beyond the foothills give Alpine relief, with glaciers where the range is deepest.'},
+  'mountains-tropical':{q:145,r:50,z:4,title:'Tropical range',description:'Jungle beyond the foothills gives New Guinea highland relief: densely forested and nearly snow-free.'},
+  mountains:{q:122,r:15,z:5,before:'mountains-before.webp',title:'Glacial range: previous and revised',description:'Same hex, same camera. The previous source was stretched to a square, warped, and blended with a rotated copy. This arctic-bordered range now uses St Elias glacier relief mixed with Alpine relief, in square ground pixels, without repeats, warping or mirroring.'},
+  world:{q:74.5,r:74.5,z:.15,title:'Public World 1',description:'The full current world with the revised terrain and settlements.'},
+  city:{q:130,r:82,z:8,title:'Russom and its suburbs',description:'Neighborhoods spread along roads into suitable neighboring hexes, thinning toward the edges instead of stopping at a hex boundary. They stay off foreign land and existing farms.'},
+  streets:{q:130,r:82,z:24,title:'Russom, building detail',description:'Detached houses, terraces, villas, apartments and warehouses differ in footprint, roof form and height. The layout stays fixed at every zoom.'},
+  region:{q:129,r:79,z:2.6,title:'Eastern cities',description:'The current world layout with continuous city districts and lower-density outskirts.'},
+  farms:{q:0,r:0,z:5,title:'Farmland among forest, plains and grassland',description:'Example farm tiles; the public map hides Public World 1 farm locations. Farmland keeps the colour of the terrain under it and takes its field pattern from Landsat imagery of Kansas, so it sits in the same palette as its neighbours.'},
+  'farms-close':{q:0,r:0,z:16,title:'Farmland up close',description:'Field boundaries and centre-pivot circles at 16× zoom. Each farmstead has its own position, heading, barns, track and windbreak.'}
+};
+const $=s=>document.querySelector(s);
+const viewer=$('#viewer'),stage=$('#stage'),after=$('#after'),before=$('#before'),split=$('#split');
+let scale=1,x=0,y=0,drag=null,current='mountains';
+const apply=()=>{stage.style.transform=`translate(${x}px,${y}px) scale(${scale})`};
+const reset=()=>{scale=1;x=y=0;apply()};
+const setSplit=()=>viewer.style.setProperty('--split',split.value+'%');
+function select(id){
+  const v=views[id];current=id;
+  after.src=id+'.webp';after.alt=v.title;
+  const compare=Boolean(v.before);
+  before.hidden=!compare;for(const el of ['#divider','#tag-before','#tag-after','#compare'])$(el).hidden=!compare;
+  if(compare){before.src=v.before;before.alt=v.title+', previous rendering';}
+  $('#title').textContent=v.title;$('#description').textContent=v.description;
+  $('#coords').innerHTML=id==='world'?'all 22,500 hexes<br>0.15× zoom':(id.startsWith('farms')?'example tiles':`hex ${v.q}, ${v.r}`)+`<br>${v.z}× zoom · 3200 × 2000 px`;
+  $('#full').href=id+'.webp';
+  for(const b of document.querySelectorAll('nav button'))b.setAttribute('aria-pressed',String(b.dataset.id===id));
+  try{localStorage.setItem('organic-revision-view',id)}catch(e){}
+  reset();
+}
+for(const b of document.querySelectorAll('nav button'))b.addEventListener('click',()=>select(b.dataset.id));
+split.addEventListener('input',setSplit);setSplit();
+viewer.addEventListener('wheel',e=>{e.preventDefault();scale=Math.max(1,Math.min(4,scale*Math.exp(-e.deltaY*.0012)));if(scale===1){x=y=0}apply()},{passive:false});
+viewer.addEventListener('pointerdown',e=>{if(e.target.closest('.tools,.compare'))return;drag={x:e.clientX-x,y:e.clientY-y};viewer.setPointerCapture(e.pointerId);viewer.classList.add('dragging')});
+viewer.addEventListener('pointermove',e=>{if(drag){x=e.clientX-drag.x;y=e.clientY-drag.y;apply()}});
+for(const n of ['pointerup','pointercancel'])viewer.addEventListener(n,()=>{drag=null;viewer.classList.remove('dragging')});
+$('#reset').addEventListener('click',reset);
+let saved=null;try{saved=localStorage.getItem('organic-revision-view')}catch(e){}
+select(views[saved]?saved:'border');
+</script>

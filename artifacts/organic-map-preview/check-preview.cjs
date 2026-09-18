@@ -1,0 +1,27 @@
+const { chromium } = require('C:/Users/Matija/Documents/GitHub/rpn-web/node_modules/playwright');
+const { pathToFileURL } = require('node:url');
+const path = require('node:path');
+(async () => {
+  const browser = await chromium.launch({headless:true});
+  const page = await browser.newPage({viewport:{width:1500,height:1200},deviceScaleFactor:1});
+  const errors=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(pathToFileURL(path.join(__dirname,'organic-map-preview.html')).href);
+  await page.evaluate(()=>Promise.all([...document.images].map(i=>i.decode())));
+  await page.screenshot({path:path.join(__dirname,'preview-desktop.jpg'),fullPage:true,type:'jpeg',quality:85});
+  await page.getByRole('button',{name:'Compare',exact:true}).click();
+  await page.locator('#split').fill('35');
+  if(await page.locator('#original').evaluate(el=>el.style.clipPath)!=='inset(0px 65% 0px 0px)') throw Error('Comparison slider failed');
+  await page.getByLabel('Hex grid').check();
+  if(!await page.locator('#grid').isVisible()) throw Error('Grid failed');
+  await page.getByRole('button',{name:'Original',exact:true}).click();
+  if(await page.locator('#original').evaluate(el=>el.style.clipPath)!=='inset(0px 0% 0px 0px)') throw Error('Original mode failed');
+  await page.getByRole('button',{name:'Refined Organic',exact:true}).click();
+  await page.getByLabel('Hex grid').uncheck();
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:path.join(__dirname,'preview-mobile.jpg'),fullPage:true,type:'jpeg',quality:85});
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)) throw Error('Mobile overflow');
+  if(errors.length) throw Error(errors.join('\n'));
+  console.log('Preview verified: images decode, comparison slider, original/refined modes, grid toggle, mobile layout; no page errors.');
+  await browser.close();
+})().catch(e=>{console.error(e);process.exit(1)});

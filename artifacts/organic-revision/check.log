@@ -1,0 +1,28 @@
+﻿{
+  "checks": [
+    "Organic shader is active",
+    "Legacy sprite artwork is not used",
+    "Cities are cached architectural surfaces",
+    "Every vehicle fits inside a lane",
+    "City neighborhoods cross into adjacent non-city hexes",
+    "Districts contain varied building forms",
+    "Deep zoom enabled",
+    "Zoom keeps identical city layout",
+    "High zoom draws roof and glazing detail",
+    "Retina city material has 64 samples per world unit",
+    "Surface bounds stay at architectural scale",
+    "City has individual roofs and connected streets",
+    "Architectural dimensions are finite",
+    "Analytical overlays disable Organic art",
+    "Texture toggle still works",
+    "Unchanged map refresh reuses city geometry",
+    "Imagery fallback keeps architectural surfaces above flat ground",
+    "Suburbs do not claim a neighboring foreign hex",
+    "Known farms select the NASA field material",
+    "Suburban growth leaves existing farms clear",
+    "Removing a farm clears its imagery flag"
+  ],
+  "roofs": 35,
+  "visibleTiles": 39,
+  "redrawMs": 1060.699999999255
+}
