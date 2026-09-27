@@ -783,5 +783,106 @@ class BurstWindBoostTests(unittest.TestCase):
         self.assertLess(corrected['wind_gusts_10m_xgb'].max(), 17.0)
 
 
+class RainOccurrenceTests(unittest.TestCase):
+    MODELS3 = ['ARPEGE_EUROPE', 'GFS_SEAMLESS', 'ITALIAMETEO_ICON2I']
+
+    class _ProbaFromFeature:
+        """Stand-in classifier: P(rain) = one engineered feature."""
+        def __init__(self, column):
+            self.column = column
+
+        def predict_proba(self, X):
+            p = X[self.column].fillna(0.0).to_numpy(dtype=float)
+            return np.column_stack([1.0 - p, p])
+
+    def _bundle(self, tau=0.5):
+        return {
+            'clf': self._ProbaFromFeature('frac_wet01'),
+            'amount_model': _ConstantModel(1.2),  # sqrt target -> 1.44 mm
+            'meta': {'features': ['frac_wet01', 'n_avail'], 'tau': tau,
+                     'models': self.MODELS3, 'min_models': 3,
+                     'max_lead_h': 72.0},
+        }
+
+    def test_station_rain_pairs_with_open_meteo_interval(self):
+        # WU labels an hour by its start, Open-Meteo by its end: the model row
+        # 13:00 covers 12:00-13:00, which the station files under 12:00.
+        rate = pd.Series([0.0, 2.5, 0.0], index=pd.date_range(
+            '2026-06-03 11:00', periods=3, freq='h'))
+        rows = pd.Series(pd.date_range('2026-06-03 12:00', periods=4, freq='h'))
+        np.testing.assert_allclose(
+            fc.station_rain_for_model_rows(rows, rate),
+            [0.0, 2.5, 0.0, np.nan], equal_nan=True,
+        )
+
+    def test_rain_features_tolerate_one_hour_timing_and_respect_gaps(self):
+        frame = pd.DataFrame({
+            'datetime': pd.date_range('2026-07-01 10:00', periods=5, freq='h'),
+            'ARPEGE_EUROPE_precipitation_model': [0.0, 0.0, 1.0, 0.0, 0.0],
+            'GFS_SEAMLESS_precipitation_model': [0.0, 0.0, 0.0, 0.3, np.nan],
+            'ITALIAMETEO_ICON2I_precipitation_model': [0.0, 2.0, 0.0, 0.0, 0.0],
+        })
+        feats = fc.rain_occurrence_features(frame, models=self.MODELS3)
+        np.testing.assert_allclose(feats['ARPEGE_EUROPE_w3max'], [0, 1, 1, 1, 0])
+        np.testing.assert_allclose(
+            feats['ITALIAMETEO_ICON2I_pp1'], [2, 0, 0, 0, np.nan], equal_nan=True)
+        np.testing.assert_allclose(feats['frac_wet01'], [0, 1 / 3, 1 / 3, 1 / 3, 0])
+        np.testing.assert_allclose(feats['n_avail'], [3, 3, 3, 3, 2])
+        # ICON-2I at 11:00 and ARPEGE at 12:00 fall in the same +/-1h window.
+        np.testing.assert_allclose(feats['frac_w3_wet01'].iloc[1], 2 / 3)
+
+        # A missing hour must not let the windows bridge the gap.
+        gappy = frame.drop(index=2).reset_index(drop=True)
+        feats_gap = fc.rain_occurrence_features(gappy, models=self.MODELS3)
+        self.assertTrue(np.isnan(feats_gap['ARPEGE_EUROPE_pp1'].iloc[1]))
+        self.assertTrue(np.isnan(feats_gap['ARPEGE_EUROPE_pm1'].iloc[2]))
+
+    def test_rain_threshold_ramps_down_with_lead(self):
+        np.testing.assert_allclose(
+            fc.rain_occurrence_threshold([0, 6, 18, 30, 48], 0.34),
+            [0.34, 0.34, 0.34 * 0.8, 0.34 * 0.6, 0.34 * 0.6],
+        )
+
+    def test_classifier_decides_rain_without_icon2i_veto(self):
+        now = fc.local_now().floor('h')
+        n = 80
+        arpege = np.zeros(n)
+        gfs = np.zeros(n)
+        icon = np.zeros(n)
+        arpege[2] = gfs[2] = 1.0           # ICON-2I dry, two models wet
+        arpege[40] = 1.0                   # one of three wet at 40h lead
+        icon[5] = 3.0                      # ICON-2I alone at short lead
+        gfs[10] = np.nan                   # only two members -> unknown
+        frame = pd.DataFrame({
+            'datetime': pd.date_range(now, periods=n, freq='h'),
+            'ARPEGE_EUROPE_precipitation_model': arpege,
+            'GFS_SEAMLESS_precipitation_model': gfs,
+            'ITALIAMETEO_ICON2I_precipitation_model': icon,
+        })
+        lead = np.arange(n, dtype=float)
+        occ = fc.predict_rain_occurrence(frame, self._bundle(), lead)
+        self.assertAlmostEqual(occ['precipitation'][2], 1.44)
+        self.assertAlmostEqual(occ['proba'][2], 2 / 3)
+        # 1/3 is below tau at short lead but above the ramped 0.3 at 40h.
+        self.assertEqual(occ['precipitation'][5], 0.0)
+        self.assertAlmostEqual(occ['precipitation'][40], 1.44)
+        self.assertTrue(np.isnan(occ['precipitation'][10]))
+        self.assertTrue(np.isnan(occ['precipitation'][75]))  # beyond 72h
+
+        decision = fc._classifier_precip_decision(frame, self._bundle())
+        self.assertAlmostEqual(decision['pop'][2], 2 / 3)
+        self.assertFalse(decision['italiameteo_raw_signal'][2])
+        self.assertTrue(decision['italiameteo_raw_signal'][5])
+        self.assertTrue(decision['unknown'][10])
+
+        # No ICON-2I column at all is not an error for the classifier.
+        no_icon = frame.drop(columns=['ITALIAMETEO_ICON2I_precipitation_model'])
+        bundle = self._bundle()
+        bundle['meta']['min_models'] = 2
+        decision = fc._classifier_precip_decision(no_icon, bundle)
+        self.assertTrue(decision['trusted_nan'].all())
+        self.assertAlmostEqual(decision['pred'][2], 1.44)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

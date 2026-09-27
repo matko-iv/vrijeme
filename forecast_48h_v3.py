@@ -724,7 +724,9 @@ CORRECTED_RAIN_THRESHOLD_MM = 0.2
 # storm, not "Slaba/Sitna kiša". See escalate_storm_code().
 STORM_WIND_MS = 5.0
 TRUSTED_RAIN_THRESHOLD = 0.1
-LOCAL_DRY_NOWCAST_HOURS = 4
+# Station-dry-now suppression window. Backtested with the rain classifier it
+# helps only in the first hour (CSI 0.440 -> 0.451) and costs hits at 2-4h.
+LOCAL_DRY_NOWCAST_HOURS = 1
 LOCAL_DRY_LIGHT_RAIN_MAX_MM = 0.7
 
 # Isolated warm-season ICON-2I rain is normally precision-filtered, but native
@@ -1400,6 +1402,17 @@ def _validate_precip_observations(frame, precipitation, source,
     return rows
 
 
+def station_rain_for_model_rows(datetimes, rate_by_start):
+    """Station rain over [t-1, t) for Open-Meteo rows labelled t.
+
+    WU hours are labelled by their start ([t, t+1)), Open-Meteo accumulations
+    by their end (row t = [t-1, t]). Pairing equal labels made the target one
+    hour late relative to every model's precipitation.
+    """
+    rate = pd.to_numeric(rate_by_start, errors='coerce')
+    return rate.reindex(pd.to_datetime(datetimes) - pd.Timedelta(hours=1)).values
+
+
 def load_historical_data():
     print("\n[1/6] Ucitavanje istorijskih podataka...")
     all_dfs = {}
@@ -1513,7 +1526,9 @@ def load_historical_data():
     if (vals.dropna() < 0).any() or np.isinf(vals.to_numpy(dtype=float)).any():
         raise RuntimeError('Canonical precipitation contains negative/infinite values')
     _validate_precip_observations(base, vals, '_canonical_precip_rate_mm')
-    base['_derived_precip_obs'] = vals
+    base['_derived_precip_obs'] = station_rain_for_model_rows(
+        base['datetime'], canonical_obs.set_index('datetime')['precip_rate_mm']
+    )
     base.drop(columns=['_canonical_precip_rate_mm'], inplace=True)
     n_valid = int(vals.notna().sum())
     n_nonzero = int((vals > 0).sum())
@@ -3996,6 +4011,379 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val,
     }
 
 
+# ---------------------------------------------------------------------------
+# Multi-model rain-occurrence classifier
+# ---------------------------------------------------------------------------
+# Decides "rain >= 0.2 mm in this hour" from every NWP member instead of the
+# single-model ICON-2I gate. Verified against true hourly station rain (the
+# summer-2026 report had scored WU's daily running total), the gate capped POD
+# at ICON-2I's own POD and its summer abstention removed correct cells. In the
+# walk-forward backtest (analysis_output/rain_classifier_backtest.py, 13
+# seasons 2023-06..2026-08) the classifier won 12 seasons: pooled CSI 0.44 vs
+# 0.36 for the ensemble mean and <= 0.35 for any single model, and 0.46 vs
+# 0.39 for the ICON-2I gate on the hours where ICON-2I exists.
+# Rows follow Open-Meteo's convention: row t holds rain over [t-1, t].
+RAIN_OCC_CLF_PATH = os.path.join(MODEL_DIR, 'xgb_rain_occurrence.json')
+RAIN_OCC_AMOUNT_PATH = os.path.join(MODEL_DIR, 'xgb_rain_amount.json')
+RAIN_OCC_META_PATH = os.path.join(MODEL_DIR, 'rain_occurrence_meta.json')
+RAIN_OCC_FEATURE_VERSION = 1
+RAIN_OCC_LAMS = ("ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS")
+RAIN_OCC_CONTEXT_VARS = (
+    ('cloud_cover', 'cc'), ('cloud_cover_low', 'ccl'), ('cloud_cover_mid', 'ccm'),
+    ('cloud_cover_high', 'cch'), ('relative_humidity_2m', 'rh'),
+    ('pressure_msl', 'mslp'), ('wind_speed_10m', 'ws'), ('wind_gusts_10m', 'wg'),
+    ('temperature_2m', 't2m'), ('dew_point_2m', 'td'), ('shortwave_radiation', 'sw'),
+)
+RAIN_OCC_CLF_PARAMS = dict(
+    objective='binary:logistic', max_depth=4, learning_rate=0.03,
+    n_estimators=700, subsample=0.8, colsample_bytree=0.6,
+    min_child_weight=5, reg_lambda=2.0, eval_metric='logloss', random_state=42,
+)
+# Conditional amount: sqrt target + absolute error = median wet-hour amount.
+RAIN_OCC_AMOUNT_PARAMS = dict(
+    objective='reg:absoluteerror', max_depth=4, learning_rate=0.03,
+    n_estimators=500, subsample=0.8, colsample_bytree=0.6,
+    min_child_weight=10, reg_lambda=2.0, random_state=42,
+)
+# The decision threshold is chosen on walk-forward out-of-fold predictions.
+RAIN_OCC_OOF_BLOCKS = 4
+RAIN_OCC_OOF_BLOCK_MONTHS = 6
+RAIN_OCC_EMBARGO_DAYS = 3
+RAIN_OCC_TAU_GRID = np.round(np.arange(0.05, 0.80, 0.01), 2)
+# Training rows are short-lead archive forecasts. On 24-60h old runs the same
+# classifier needs a lower threshold (CSI-optimal ~0.6x), so the threshold
+# ramps linearly from 1x at 6h to 0.6x at 30h lead.
+RAIN_OCC_LEAD_RAMP_H = (6.0, 30.0)
+RAIN_OCC_LONG_LEAD_FACTOR = 0.6
+RAIN_OCC_MAX_LEAD_H = 72.0
+RAIN_OCC_MIN_MODELS = 3
+
+
+def rain_occurrence_features(frame, models=None):
+    """Timing-tolerant multi-model rain features, one row per input row.
+
+    ``frame`` needs ``datetime`` plus ``{M}_{var}_model`` columns. Features are
+    computed on a gap-free hourly grid so the +/-1h windows never span a data
+    gap, then mapped back to the input rows.
+    """
+    models = list(models or MODELS)
+    dt = pd.to_datetime(frame['datetime'])
+    grid = pd.date_range(dt.min().floor('h'), dt.max().ceil('h'), freq='h')
+    variables = (['precipitation', 'weather_code', 'wind_direction_10m']
+                 + [var for var, _ in RAIN_OCC_CONTEXT_VARS])
+    needed = [f'{m}_{var}_model' for m in models for var in variables
+              if f'{m}_{var}_model' in frame.columns]
+    src = frame[needed].copy()
+    src.index = dt.values
+    src = src[~src.index.duplicated(keep='first')].reindex(grid)
+
+    def _block(var):
+        return pd.DataFrame({
+            m: (pd.to_numeric(src[f'{m}_{var}_model'], errors='coerce')
+                if f'{m}_{var}_model' in src.columns
+                else pd.Series(np.nan, index=grid))
+            for m in models
+        }, index=grid)
+
+    P = _block('precipitation')
+    Pm1, Pp1 = P.shift(1), P.shift(-1)
+    # Max over the +/-1h window; NaN only where the whole window is missing.
+    W3 = pd.concat([Pm1, P, Pp1]).groupby(level=0).max().reindex(grid)
+    W3 = W3.where(P.notna() | Pm1.notna() | Pp1.notna())
+    S3 = (Pm1.fillna(0) + P.fillna(0) + Pp1.fillna(0)).where(P.notna())
+    WC = _block('weather_code')
+
+    out = {}
+    avail = P.notna().sum(axis=1).astype(float)
+    den = avail.where(avail > 0)
+    avail_w3 = W3.notna().sum(axis=1).astype(float)
+    den_w3 = avail_w3.where(avail_w3 > 0)
+    out['n_avail'] = avail
+    for thr, tag in ((0.1, '01'), (0.2, '02'), (0.5, '05'), (1.0, '1'), (3.0, '3')):
+        out[f'frac_wet{tag}'] = (P >= thr).sum(axis=1) / den
+        out[f'frac_w3_wet{tag}'] = (W3 >= thr).sum(axis=1) / den_w3
+    out['ens_mean'] = P.mean(axis=1)
+    out['ens_median'] = P.median(axis=1)
+    out['ens_max'] = P.max(axis=1)
+    out['ens_p75'] = P.quantile(0.75, axis=1)
+    out['ens_w3max_mean'] = W3.mean(axis=1)
+    out['ens_w3max_median'] = W3.median(axis=1)
+    out['ens_s3_mean'] = S3.mean(axis=1)
+    out['ens_mean_wet'] = P.where(P >= 0.1).mean(axis=1).fillna(0).where(avail > 0)
+    ens_mean = out['ens_mean']
+    ens_rev = ens_mean[::-1]
+    out['ens_prev3'] = ens_mean.shift(1).rolling(3, min_periods=1).sum()
+    out['ens_next3'] = ens_rev.shift(1).rolling(3, min_periods=1).sum()[::-1]
+    out['ens_prev6'] = ens_mean.shift(1).rolling(6, min_periods=1).sum()
+    out['ens_next6'] = ens_rev.shift(1).rolling(6, min_periods=1).sum()[::-1]
+
+    lams = [m for m in RAIN_OCC_LAMS if m in models]
+    lam_avail = P[lams].notna().sum(axis=1).astype(float)
+    lam_w3_avail = W3[lams].notna().sum(axis=1).astype(float)
+    out['lam_n_avail'] = lam_avail
+    out['lam_frac_wet01'] = (P[lams] >= 0.1).sum(axis=1) / lam_avail.where(lam_avail > 0)
+    out['lam_frac_w3_wet01'] = (
+        (W3[lams] >= 0.1).sum(axis=1) / lam_w3_avail.where(lam_w3_avail > 0)
+    )
+    out['lam_max'] = P[lams].max(axis=1)
+    out['lam_w3max'] = W3[lams].max(axis=1)
+    globals_ = [m for m in models if m not in RAIN_OCC_LAMS]
+    glob_avail = P[globals_].notna().sum(axis=1).astype(float)
+    out['glob_frac_wet01'] = (
+        (P[globals_] >= 0.1).sum(axis=1) / glob_avail.where(glob_avail > 0)
+    )
+
+    # WMO weather codes: drizzle/rain >= 51, showers 80-82, thunder >= 95.
+    out['wc_frac_rain'] = (WC >= 51).sum(axis=1) / den
+    out['wc_frac_shower'] = ((WC >= 80) & (WC <= 82)).sum(axis=1) / den
+    out['wc_frac_thunder'] = (WC >= 95).sum(axis=1) / den
+    out['wc_n_thunder'] = (WC >= 95).sum(axis=1).astype(float)
+
+    for var, name in RAIN_OCC_CONTEXT_VARS:
+        values = _block(var)
+        out[f'{name}_mean'] = values.mean(axis=1)
+        if name in ('cc', 'rh', 'mslp'):
+            out[f'{name}_std'] = values.std(axis=1)
+    out['tdd_mean'] = out['t2m_mean'] - out['td_mean']
+    out['mslp_tend3'] = out['mslp_mean'].diff(3)
+    out['mslp_tend6'] = out['mslp_mean'].diff(6)
+    out['mslp_tend12'] = out['mslp_mean'].diff(12)
+    out['rh_tend3'] = out['rh_mean'].diff(3)
+    direction = np.radians(_block('wind_direction_10m'))
+    speed = _block('wind_speed_10m')
+    out['wind_u'] = (-speed * np.sin(direction)).mean(axis=1)
+    out['wind_v'] = (-speed * np.cos(direction)).mean(axis=1)
+
+    hour = grid.hour.values
+    doy = grid.dayofyear.values
+    out['hour_sin'] = np.sin(2 * np.pi * hour / 24)
+    out['hour_cos'] = np.cos(2 * np.pi * hour / 24)
+    out['doy_sin'] = np.sin(2 * np.pi * doy / 365.25)
+    out['doy_cos'] = np.cos(2 * np.pi * doy / 365.25)
+    for m in models:
+        out[f'{m}_p0'] = P[m]
+        out[f'{m}_pm1'] = Pm1[m]
+        out[f'{m}_pp1'] = Pp1[m]
+        out[f'{m}_w3max'] = W3[m]
+        out[f'{m}_wc'] = WC[m]
+
+    feats = pd.DataFrame(out, index=grid).replace([np.inf, -np.inf], np.nan)
+    feats = feats.reindex(dt.values)
+    feats.index = frame.index
+    return feats
+
+
+def rain_occurrence_threshold(lead_hours, tau):
+    """Lead-dependent decision threshold (see RAIN_OCC_LEAD_RAMP_H)."""
+    lead = np.asarray(lead_hours, dtype=float)
+    lo, hi = RAIN_OCC_LEAD_RAMP_H
+    ramp = np.clip((np.nan_to_num(lead, nan=0.0) - lo) / (hi - lo), 0.0, 1.0)
+    return tau * (1.0 - ramp * (1.0 - RAIN_OCC_LONG_LEAD_FACTOR))
+
+
+def _rain_occ_best_threshold(y, proba):
+    """Threshold that maximises CSI, plus that CSI."""
+    y = np.asarray(y).astype(int)
+    proba = np.asarray(proba, dtype=float)
+    best_tau, best_csi = 0.5, -1.0
+    for tau in RAIN_OCC_TAU_GRID:
+        csi = meteorological_metrics(y, proba >= tau)['csi']
+        if csi > best_csi:
+            best_tau, best_csi = float(tau), csi
+    return best_tau, best_csi
+
+
+def _rain_occ_scorecard(y, decisions):
+    """POD/FAR/CSI per decision rule on the hours where every rule has data."""
+    y = np.asarray(y).astype(int)
+    stacked = np.column_stack([np.asarray(d, dtype=float) for d in decisions.values()])
+    common = np.isfinite(stacked).all(axis=1)
+    card = {}
+    for col, name in enumerate(decisions):
+        m = meteorological_metrics(y[common], stacked[common, col] >= 0.5)
+        card[name] = {k: round(float(m[k]), 4) for k in ('pod', 'far', 'csi', 'hss')}
+        card[name]['n'] = int(m['n'])
+    return card
+
+
+def rain_occurrence_baselines(frame):
+    """Reference rain decisions (1/0, NaN = no data) for Open-Meteo rows:
+    each raw model and the ensemble mean at >= 0.2 mm, and the retired ICON-2I
+    gate with its summer abstention (the archive has no CAPE/lightning, so the
+    convective rescue cannot be replayed)."""
+    thr = CORRECTED_RAIN_THRESHOLD_MM
+    P = pd.DataFrame({
+        m: (pd.to_numeric(frame[f'{m}_precipitation_model'], errors='coerce')
+            if f'{m}_precipitation_model' in frame.columns
+            else pd.Series(np.nan, index=frame.index))
+        for m in MODELS
+    })
+    decisions = {m: (P[m] >= thr).astype(float).where(P[m].notna()).values
+                 for m in MODELS}
+    decisions['ensemble_mean'] = (
+        (P.mean(axis=1) >= thr).astype(float).where(P.notna().any(axis=1)).values
+    )
+    icon = P[TRUSTED_RAIN_MODEL]
+    _, _, agreement, _ = _rain_consensus_stats(P)
+    summer = pd.to_datetime(frame['datetime']).dt.month.isin([6, 7, 8, 9]).values
+    gate = (icon >= TRUSTED_RAIN_THRESHOLD).values
+    isolated = gate & summer & (agreement.fillna(0.0).values <= 0.30)
+    decisions['icon2i_gate'] = np.where(icon.notna(), (gate & ~isolated).astype(float), np.nan)
+    return decisions
+
+
+def rain_occurrence_walk_forward_oof(feats, y, times, labelled, data_end):
+    """Out-of-fold probabilities for the RAIN_OCC_OOF_BLOCKS blocks before
+    ``data_end``; each block is predicted by a model fit only on rows older
+    than the block start minus RAIN_OCC_EMBARGO_DAYS. Other rows stay NaN."""
+    times = pd.to_datetime(pd.Series(times)).reset_index(drop=True)
+    y = np.asarray(y)
+    labelled = np.asarray(labelled, dtype=bool)
+    embargo = pd.Timedelta(days=RAIN_OCC_EMBARGO_DAYS)
+    oof = np.full(len(feats), np.nan)
+    for i in range(RAIN_OCC_OOF_BLOCKS):
+        start = data_end - pd.DateOffset(
+            months=RAIN_OCC_OOF_BLOCK_MONTHS * (RAIN_OCC_OOF_BLOCKS - i))
+        end = data_end - pd.DateOffset(
+            months=RAIN_OCC_OOF_BLOCK_MONTHS * (RAIN_OCC_OOF_BLOCKS - i - 1))
+        fit_mask = labelled & (times < start - embargo).values
+        pred_mask = labelled & (times >= start).values & (times <= end).values
+        if fit_mask.sum() < 5000 or pred_mask.sum() == 0:
+            continue
+        clf = _new_xgb_classifier(**RAIN_OCC_CLF_PARAMS)
+        clf.fit(feats[fit_mask], y[fit_mask], verbose=False)
+        oof[pred_mask] = clf.predict_proba(feats[pred_mask])[:, 1]
+    return oof
+
+
+def train_rain_occurrence_model(df):
+    """Fit and persist the rain classifier and the wet-hour amount model.
+
+    Needs the raw ``{M}_{var}_model`` columns and ``_derived_precip_obs``
+    (station rain aligned to the Open-Meteo interval, see load_historical_data).
+    The threshold comes from walk-forward out-of-fold predictions over the last
+    RAIN_OCC_OOF_BLOCKS blocks, the same protocol as the backtest.
+    """
+    print("\n  [Rain] Multi-model klasifikator kiše...")
+    cols = ['datetime', '_derived_precip_obs'] + [
+        c for c in df.columns if c.endswith('_model')]
+    frame = df[cols].sort_values('datetime').reset_index(drop=True)
+    feats = rain_occurrence_features(frame)
+    obs = pd.to_numeric(frame['_derived_precip_obs'], errors='coerce')
+    wet = obs >= CORRECTED_RAIN_THRESHOLD_MM
+    labelled = obs.notna().values
+    times = pd.to_datetime(frame['datetime'])
+    feature_cols = list(feats.columns)
+    y = wet.astype(int).values
+
+    data_end = times[labelled].max()
+    oof = rain_occurrence_walk_forward_oof(feats, y, times, labelled, data_end)
+    oof_mask = np.isfinite(oof)
+    if oof_mask.sum() < 2000 or y[oof_mask].sum() < 50:
+        raise RuntimeError(
+            f"premalo out-of-fold redova za rain prag ({int(oof_mask.sum())})"
+        )
+    tau, oof_csi = _rain_occ_best_threshold(y[oof_mask], oof[oof_mask])
+
+    # Report the chosen rule next to every raw model and the old ICON-2I gate
+    # on the same out-of-fold hours.
+    decisions = {'rain_classifier': (oof >= tau).astype(float)}
+    decisions.update(rain_occurrence_baselines(frame))
+    card = _rain_occ_scorecard(
+        y[oof_mask], {k: np.asarray(v)[oof_mask] for k, v in decisions.items()}
+    )
+    print(f"    OOF prag tau={tau:.2f} (CSI={oof_csi:.3f}, "
+          f"{int(oof_mask.sum())} sati, {int(y[oof_mask].sum())} kišnih)")
+    for name, row in sorted(card.items(), key=lambda kv: -kv[1]['csi']):
+        print(f"      {name:20s} POD={row['pod']:.3f} FAR={row['far']:.3f} "
+              f"CSI={row['csi']:.3f} (n={row['n']})")
+
+    clf = _new_xgb_classifier(**RAIN_OCC_CLF_PARAMS)
+    clf.fit(feats[labelled], y[labelled], verbose=False)
+    amount_mask = labelled & wet.values
+    amount_model = _new_xgb_regressor(**RAIN_OCC_AMOUNT_PARAMS)
+    amount_model.fit(feats[amount_mask], np.sqrt(obs[amount_mask].values),
+                     verbose=False)
+
+    meta = {
+        'feature_version': RAIN_OCC_FEATURE_VERSION,
+        'features': feature_cols,
+        'models': list(MODELS),
+        'tau': round(float(tau), 4),
+        'oof_csi': round(float(oof_csi), 4),
+        'lead_ramp_h': list(RAIN_OCC_LEAD_RAMP_H),
+        'long_lead_factor': RAIN_OCC_LONG_LEAD_FACTOR,
+        'max_lead_h': RAIN_OCC_MAX_LEAD_H,
+        'min_models': RAIN_OCC_MIN_MODELS,
+        'rain_threshold_mm': CORRECTED_RAIN_THRESHOLD_MM,
+        'label': 'station rate over [t-1, t) vs Open-Meteo row t',
+        'train_rows': int(labelled.sum()),
+        'train_wet_rows': int(amount_mask.sum()),
+        'data_start': str(times[labelled].min()),
+        'data_end': str(data_end),
+        'oof_hours': int(oof_mask.sum()),
+        'oof_scorecard': card,
+        'trained_at': local_now().isoformat(timespec='seconds'),
+    }
+    clf.save_model(RAIN_OCC_CLF_PATH)
+    amount_model.save_model(RAIN_OCC_AMOUNT_PATH)
+    _write_json_atomic(RAIN_OCC_META_PATH, meta, indent=2, ensure_ascii=False)
+    print(f"    Sačuvano: {os.path.basename(RAIN_OCC_CLF_PATH)}, "
+          f"{os.path.basename(RAIN_OCC_AMOUNT_PATH)}, "
+          f"{os.path.basename(RAIN_OCC_META_PATH)}")
+    return load_rain_occurrence_bundle()
+
+
+def load_rain_occurrence_bundle():
+    """Load the persisted rain classifier bundle, or None if unavailable."""
+    paths = (RAIN_OCC_CLF_PATH, RAIN_OCC_AMOUNT_PATH, RAIN_OCC_META_PATH)
+    if not all(os.path.exists(p) for p in paths):
+        return None
+    try:
+        with open(RAIN_OCC_META_PATH, encoding='utf-8') as f:
+            meta = json.load(f)
+        if meta.get('feature_version') != RAIN_OCC_FEATURE_VERSION:
+            print(f"  [Rain] feature_version {meta.get('feature_version')} != "
+                  f"{RAIN_OCC_FEATURE_VERSION}; klasifikator se ne koristi")
+            return None
+        clf = _new_xgb_classifier()
+        clf.load_model(RAIN_OCC_CLF_PATH)
+        _restore_xgb_device(clf)
+        amount_model = _new_xgb_regressor()
+        amount_model.load_model(RAIN_OCC_AMOUNT_PATH)
+        _restore_xgb_device(amount_model)
+    except Exception as exc:
+        if _DEVICE_REQUEST == 'cuda':
+            raise
+        print(f"  [Rain] klasifikator nije učitan ({exc})")
+        return None
+    return {'clf': clf, 'amount_model': amount_model, 'meta': meta}
+
+
+def predict_rain_occurrence(frame, bundle, lead_hours):
+    """Rain probability, decision and amount for Open-Meteo-convention rows.
+
+    Rows beyond RAIN_OCC_MAX_LEAD_H or with fewer than RAIN_OCC_MIN_MODELS
+    precipitation members are unknown (NaN), never dry.
+    """
+    meta = bundle['meta']
+    feats = rain_occurrence_features(frame, models=meta.get('models'))
+    X = feats.reindex(columns=meta['features'])
+    proba = bundle['clf'].predict_proba(X)[:, 1]
+    lead = np.asarray(lead_hours, dtype=float)
+    tau = rain_occurrence_threshold(lead, float(meta['tau']))
+    amount = np.square(np.clip(bundle['amount_model'].predict(X), 0.0, None))
+    amount = np.clip(amount, CORRECTED_RAIN_THRESHOLD_MM, 50.0)
+    usable = ((feats['n_avail'].values >= meta.get('min_models', RAIN_OCC_MIN_MODELS))
+              & (lead <= meta.get('max_lead_h', RAIN_OCC_MAX_LEAD_H)))
+    rain = usable & (proba >= tau)
+    precipitation = np.where(rain, amount, 0.0)
+    precipitation[~usable] = np.nan
+    proba = np.where(usable, proba, np.nan)
+    return {'proba': proba, 'rain': rain, 'precipitation': precipitation,
+            'threshold': tau, 'usable': usable}
+
+
 # Rain-onset timing: discrete-time conditional-hazard model. The historical
 # data is a continuous valid-time series (no archived per-run lead tables),
 # so the discrete-time hazard is adapted to "dry spells":
@@ -6009,6 +6397,10 @@ def load_trained_models():
                 except Exception as _e:
                     print(f"    WARN: pop_blend reload failed ({_e})")
 
+            precip_info['rain_occurrence'] = load_rain_occurrence_bundle()
+            if precip_info['rain_occurrence'] is None:
+                print("    Rain klasifikator: nema bundle-a, ostaje ICON-2I gate")
+
             trained[param] = {
                 'precip_info': precip_info,
                 'features': features,
@@ -7346,6 +7738,253 @@ def _apply_burst_wind_boost(corrected, fc):
     print(f"    Boost sati: {sample}")
 
 
+def _trusted_gate_precip_decision(fc, X, pinfo):
+    """Legacy rain decision: the ICON-2I hard gate with summer abstention.
+
+    Used only when no rain-occurrence classifier bundle is available. The
+    amount comes from the two-stage XGB models; rain is allowed only where
+    ICON-2I sees >= TRUSTED_RAIN_THRESHOLD.
+    """
+    param = 'precipitation'
+    method = pinfo['best_method']
+
+    cls_proba_raw = pinfo['cls_model'].predict_proba(X)[:, 1]
+    _iso = pinfo.get('iso_calibrator')
+    cls_proba = _iso.transform(cls_proba_raw) if _iso is not None else cls_proba_raw
+    thresh = pinfo['threshold']
+
+    if pinfo.get('use_sqrt', False):
+        reg_pred = np.square(np.clip(pinfo['reg_model'].predict(X), 0, None))
+    else:
+        reg_pred = np.clip(pinfo['reg_model'].predict(X), 0, None)
+
+    single_pred = np.clip(pinfo['single_model'].predict(X), 0, None)
+    single_pred[single_pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
+
+    if method == 'hard':
+        pred = np.where(cls_proba >= thresh, reg_pred, 0.0)
+    elif method == 'soft':
+        pred = cls_proba * reg_pred
+    elif method == 'sharp':
+        pred = np.where(cls_proba >= thresh, 0.7 * reg_pred + 0.3 * single_pred, single_pred * cls_proba)
+    elif method == 'adaptive':
+        confidence = np.abs(cls_proba - 0.5) * 2
+        pred = np.where(cls_proba >= thresh, confidence * reg_pred + (1 - confidence) * single_pred, (1 - confidence) * single_pred * 0.5)
+    elif method == 'tweedie':
+        pred = np.clip(pinfo['tweedie_model'].predict(X), 0, None)
+    else:
+        pred = single_pred
+
+    pred = np.clip(pred, 0, 50)
+    p_blend_alpha = pinfo.get('blend_alpha', 1.0)
+    if p_blend_alpha < 1.0:
+        ens_col_p = f'{param}_ens_mean'
+        ens_vals_p = pd.to_numeric(fc[ens_col_p], errors='coerce').fillna(0).values if ens_col_p in fc.columns else np.zeros(len(X))
+        pred = p_blend_alpha * pred + (1 - p_blend_alpha) * ens_vals_p
+        pred = np.clip(pred, 0, 50)
+
+    # False-alarm clamping with trusted-model rain gate.
+    #
+    # For this experiment, rain is allowed only when ItaliaMeteo sees
+    # at least 0.1mm. KNMI and DMI still feed the ensemble/model, but
+    # they do not open the rain gate.
+    #
+    # Hard-fail policy: if the trusted model column is missing entirely,
+    # OR every hour in the 48h horizon is NaN, raise TrustedRainGateError
+    # so main can fall back to the previous run instead of silently
+    # producing a fully-dry forecast.
+    def _trusted_precip_values(model_name):
+        col = f'{model_name}_precipitation_model'
+        if col not in fc.columns:
+            raise TrustedRainGateError(
+                f"Trusted rain model '{model_name}' nije fetched - "
+                f"kolona '{col}' nedostaje u live prognozama. "
+                f"Trusted gate ne moze da radi. Provjeri "
+                f"fetch_live_forecasts log iznad za FAIL poruke."
+            )
+        vals = pd.to_numeric(fc[col], errors='coerce').values
+        nan_mask = np.isnan(vals)
+        horizon = min(48, len(vals))
+        if horizon > 0 and int(nan_mask[:horizon].sum()) >= horizon:
+            raise TrustedRainGateError(
+                f"Trusted rain model '{model_name}' ima sve NaN u "
+                f"prvih {horizon} sati. Trusted gate ne moze da radi."
+            )
+        return vals, nan_mask
+
+    trusted_vals, trusted_nan = _trusted_precip_values(TRUSTED_RAIN_MODEL)
+    n_nan = int(trusted_nan.sum())
+    if n_nan > 0:
+        print(f"  UPOZORENJE: {TRUSTED_RAIN_MODEL} ima NaN za "
+              f"{n_nan}/{len(trusted_vals)} sati. Ti sati se "
+              f"oznacavaju kao nepoznati, ne kao suvi.")
+    # NaN -> 0 is only an internal comparison convenience. Before the
+    # precipitation branch returns, those rows are restored to NaN so
+    # "trusted model has no data" can never become a dry forecast.
+    trusted_vals_filled = np.where(trusted_nan, 0.0, trusted_vals)
+    trusted_signal = trusted_vals_filled >= TRUSTED_RAIN_THRESHOLD
+    italiameteo_raw_signal = trusted_signal.copy()
+
+    trusted_amount_alpha = float(
+        pinfo.get('trusted_amount_alpha', 1.0)
+    )
+    if trusted_amount_alpha < 1.0:
+        valid_trusted_amount = ~trusted_nan
+        pred[valid_trusted_amount] = (
+            trusted_amount_alpha * pred[valid_trusted_amount]
+            + (1.0 - trusted_amount_alpha)
+            * trusted_vals_filled[valid_trusted_amount]
+        )
+        pred = np.clip(pred, 0.0, 50.0)
+
+    # Hard trusted rain gate:
+    # - ItaliaMeteo can trigger rain alone at 0.1mm.
+    # - Otherwise (or NaN), the corrected model is forced dry.
+    trusted_signal_amount = np.where(trusted_signal, trusted_vals_filled, 0)
+    no_signal = ~trusted_signal
+
+    # Summer convection abstention.
+    # ItaliaMeteo's own May-2025 admission: ICON-2I systematically over-
+    # predicts weakly-forced summer convection. When in summer AND only
+    # high-res LAMs see rain (low global agreement), DON'T let ICON-2I
+    # alone open the gate. Suppress the false-alarm fingerprint.
+    convective_rescue = np.zeros(len(fc), dtype=bool)
+    try:
+        hours_dt = pd.to_datetime(fc['datetime'])
+        month_arr = hours_dt.dt.month.values
+        is_warm_season = np.isin(month_arr, [6, 7, 8, 9])
+        rain_agree = pd.to_numeric(
+            fc.get('rain_agreement', pd.Series(0, index=fc.index)),
+            errors='coerce').fillna(0).values
+        italiameteo_isolated_signal = (
+            is_warm_season & trusted_signal & (rain_agree <= 0.30)
+        )
+        convective_rescue = _convective_rescue_mask(
+            fc, italiameteo_isolated_signal
+        )
+        suppress_signal = (
+            italiameteo_isolated_signal & ~convective_rescue
+        )
+        n_rescued = int(convective_rescue.sum())
+        n_suppressed = int(suppress_signal.sum())
+        if n_suppressed > 0:
+            # Treat as no_signal unless native/spatial convective
+            # diagnostics independently support the isolated cell.
+            trusted_signal = trusted_signal & ~suppress_signal
+            no_signal = ~trusted_signal
+            trusted_signal_amount = np.where(trusted_signal, trusted_vals_filled, 0)
+            print(f"  Abstention: {n_suppressed} summer hour(s) with isolated "
+                  f"ICON-2I rain signal SUPPRESSED (weakly-forced convection regime)")
+        if n_rescued > 0:
+            print(f"  Convective rescue: {n_rescued} isolated ICON-2I "
+                  f"hour(s) retained by lightning/showers/neighborhood + CAPE/CIN")
+    except Exception as _e:
+        pass  # be defensive; don't break inference if any field missing
+
+    # Preserve the dedicated ICON-2I support signal separately from the
+    # final gate.  The latter may later be replaced by a validated PoP
+    # blend or adjusted by SKALA; this field always answers the useful
+    # diagnostic question "did the trusted LAM support rain here?".
+    italiameteo_signal = trusted_signal.copy()
+
+    # --- calibrated PoP-blend gate (only when it beat the
+    # single-LAM veto in the regime-conditional eval). The fetch-level
+    # TrustedRainGateError integrity check above applies either way;
+    # the summer abstention is ICON-2I-specific and stays trusted-only.
+    _pb = pinfo.get('pop_blend') or {}
+    pinfo_mode = pinfo.get('rain_gate_mode') or _pb.get('mode', 'trusted')
+    if pinfo_mode == 'pop_blend':
+        _pb_lr = pinfo.get('pop_blend_lr') or _pb.get('lr')
+        _pb_cols = pinfo.get('pop_blend_cols') or _pb.get('cols')
+        _pb_tau = float(pinfo.get('pop_blend_tau') or _pb.get('tau') or 0.5)
+        if _pb_lr is not None and _pb_cols:
+            try:
+                M_live = _pop_blend_inputs(fc, cls_proba, _pb_cols)
+                pop_blend_p = _pb_lr.predict_proba(M_live)[:, 1]
+                trusted_signal = pop_blend_p >= _pb_tau
+                no_signal = ~trusted_signal
+                _anchor = pd.to_numeric(
+                    fc.get('precip_ens_mean_rainy', pd.Series(0, index=fc.index)),
+                    errors='coerce').fillna(0).values
+                trusted_signal_amount = np.where(
+                    trusted_signal, np.maximum(_anchor, trusted_vals_filled), 0)
+                print(f"  PoP-blend gate aktivan (tau={_pb_tau:.2f}): "
+                      f"{int(trusted_signal.sum())}h otvoreno")
+            except Exception as _e:
+                print(f"  PoP-blend gate fail ({_e}) — fallback na trusted gate")
+
+    # 1. Sub-threshold noise -> 0 (always)
+    pred[pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
+    # 2. No trusted gate -> no rain.
+    pred[no_signal] = 0.0
+    # 3. Amplification cap. Avoid a hard 0.5mm minimum when the ensemble
+    #    is mostly dry; trusted support scales the cap with trusted amount.
+    if 'precip_ens_p75' in fc.columns:
+        p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
+        cap = np.maximum(np.full(len(fc), CORRECTED_RAIN_THRESHOLD_MM), 1.5 * p75_vals)
+        trusted_cap = 1.2 * trusted_signal_amount
+        cap[trusted_signal] = np.maximum(cap[trusted_signal], trusted_cap[trusted_signal])
+        pred = np.minimum(pred, cap)
+    # 4. If the trusted gate sees rain, the corrected precipitation must
+    #    track ItaliaMeteo more closely. Floor scales as 0.6 * italia
+    #    so a 5 mm Italia hour can't collapse to 0.5 mm under a
+    #    conservative XGBoost. Cap above (1.2 * italia) still bounds
+    #    the upside, so we never fully equal trusted — just stop
+    #    diverging when XGBoost is too dry.
+    if trusted_signal.any():
+        trusted_floor = np.maximum(
+            CORRECTED_RAIN_THRESHOLD_MM,
+            0.6 * trusted_signal_amount,
+        )
+        pred[trusted_signal] = np.maximum(pred[trusted_signal], trusted_floor[trusted_signal])
+
+    # calibrated PoP (isotonic classifier proba), GATED by the trusted rain
+    # gate so the probabilistic view agrees with the deterministic one.
+    pop = np.clip(np.where(no_signal, 0.0, np.maximum(cls_proba, thresh)), 0.0, 1.0)
+    label = method + (f'+blend({p_blend_alpha:.2f})' if p_blend_alpha < 1.0 else '')
+    return {
+        'pred': pred, 'pop': pop, 'unknown': trusted_nan, 'label': label,
+        'trusted_nan': trusted_nan, 'trusted_vals_filled': trusted_vals_filled,
+        'italiameteo_raw_signal': italiameteo_raw_signal,
+        'italiameteo_accepted': italiameteo_signal,
+        'convective_rescue': convective_rescue,
+    }
+
+
+def _icon2i_precip_values(fc):
+    """ICON-2I precipitation for the diagnostic rain-signal fields."""
+    col = f'{TRUSTED_RAIN_MODEL}_precipitation_model'
+    if col in fc.columns:
+        vals = pd.to_numeric(fc[col], errors='coerce').values.astype(float)
+    else:
+        vals = np.full(len(fc), np.nan)
+    missing = np.isnan(vals)
+    return np.where(missing, 0.0, vals), missing
+
+
+def _classifier_precip_decision(fc, bundle):
+    """Rain decision from the multi-model rain-occurrence classifier."""
+    lead = ((pd.to_datetime(fc['datetime']) - local_now().floor('h'))
+            .dt.total_seconds() / 3600.0).values
+    occ = predict_rain_occurrence(fc, bundle, lead)
+    unknown = ~occ['usable']
+    pred = np.where(unknown, 0.0, occ['precipitation'])
+    pop = np.where(unknown, 0.0, occ['proba'])
+    icon_vals, icon_nan = _icon2i_precip_values(fc)
+    n_rain = int((occ['rain'] & (lead >= 0)).sum())
+    print(f"  Rain klasifikator (tau={float(bundle['meta']['tau']):.2f}, "
+          f"x{RAIN_OCC_LONG_LEAD_FACTOR:.1f} nakon {RAIN_OCC_LEAD_RAMP_H[1]:.0f}h): "
+          f"{n_rain} kišnih sati u horizontu, {int(unknown.sum())} bez odluke")
+    return {
+        'pred': pred, 'pop': pop, 'unknown': unknown,
+        'label': f"rain-classifier tau={float(bundle['meta']['tau']):.2f}",
+        'trusted_nan': icon_nan, 'trusted_vals_filled': icon_vals,
+        'italiameteo_raw_signal': icon_vals >= TRUSTED_RAIN_THRESHOLD,
+        'italiameteo_accepted': None,
+        'convective_rescue': None,
+    }
+
+
 def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
     print("\n[5/6] Primjena korekcije...")
 
@@ -7384,207 +8023,16 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
 
         if param == 'precipitation' and 'precip_info' in minfo:
             pinfo = minfo['precip_info']
-            method = pinfo['best_method']
-
-            cls_proba_raw = pinfo['cls_model'].predict_proba(X)[:, 1]
-            _iso = pinfo.get('iso_calibrator')
-            cls_proba = _iso.transform(cls_proba_raw) if _iso is not None else cls_proba_raw
-            thresh = pinfo['threshold']
-
-            if pinfo.get('use_sqrt', False):
-                reg_pred = np.square(np.clip(pinfo['reg_model'].predict(X), 0, None))
+            rain_bundle = pinfo.get('rain_occurrence')
+            if rain_bundle is not None:
+                decision = _classifier_precip_decision(fc, rain_bundle)
             else:
-                reg_pred = np.clip(pinfo['reg_model'].predict(X), 0, None)
-
-            single_pred = np.clip(pinfo['single_model'].predict(X), 0, None)
-            single_pred[single_pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
-
-            if method == 'hard':
-                pred = np.where(cls_proba >= thresh, reg_pred, 0.0)
-            elif method == 'soft':
-                pred = cls_proba * reg_pred
-            elif method == 'sharp':
-                pred = np.where(cls_proba >= thresh, 0.7 * reg_pred + 0.3 * single_pred, single_pred * cls_proba)
-            elif method == 'adaptive':
-                confidence = np.abs(cls_proba - 0.5) * 2
-                pred = np.where(cls_proba >= thresh, confidence * reg_pred + (1 - confidence) * single_pred, (1 - confidence) * single_pred * 0.5)
-            elif method == 'tweedie':
-                pred = np.clip(pinfo['tweedie_model'].predict(X), 0, None)
-            else:
-                pred = single_pred
-
-            pred = np.clip(pred, 0, 50)
-            p_blend_alpha = pinfo.get('blend_alpha', 1.0)
-            if p_blend_alpha < 1.0:
-                ens_col_p = f'{param}_ens_mean'
-                ens_vals_p = pd.to_numeric(fc[ens_col_p], errors='coerce').fillna(0).values if ens_col_p in fc.columns else np.zeros(len(X))
-                pred = p_blend_alpha * pred + (1 - p_blend_alpha) * ens_vals_p
-                pred = np.clip(pred, 0, 50)
-
-            # False-alarm clamping with trusted-model rain gate.
-            #
-            # For this experiment, rain is allowed only when ItaliaMeteo sees
-            # at least 0.1mm. KNMI and DMI still feed the ensemble/model, but
-            # they do not open the rain gate.
-            #
-            # Hard-fail policy: if the trusted model column is missing entirely,
-            # OR every hour in the 48h horizon is NaN, raise TrustedRainGateError
-            # so main can fall back to the previous run instead of silently
-            # producing a fully-dry forecast.
-            def _trusted_precip_values(model_name):
-                col = f'{model_name}_precipitation_model'
-                if col not in fc.columns:
-                    raise TrustedRainGateError(
-                        f"Trusted rain model '{model_name}' nije fetched - "
-                        f"kolona '{col}' nedostaje u live prognozama. "
-                        f"Trusted gate ne moze da radi. Provjeri "
-                        f"fetch_live_forecasts log iznad za FAIL poruke."
-                    )
-                vals = pd.to_numeric(fc[col], errors='coerce').values
-                nan_mask = np.isnan(vals)
-                horizon = min(48, len(vals))
-                if horizon > 0 and int(nan_mask[:horizon].sum()) >= horizon:
-                    raise TrustedRainGateError(
-                        f"Trusted rain model '{model_name}' ima sve NaN u "
-                        f"prvih {horizon} sati. Trusted gate ne moze da radi."
-                    )
-                return vals, nan_mask
-
-            trusted_vals, trusted_nan = _trusted_precip_values(TRUSTED_RAIN_MODEL)
-            n_nan = int(trusted_nan.sum())
-            if n_nan > 0:
-                print(f"  UPOZORENJE: {TRUSTED_RAIN_MODEL} ima NaN za "
-                      f"{n_nan}/{len(trusted_vals)} sati. Ti sati se "
-                      f"oznacavaju kao nepoznati, ne kao suvi.")
-            # NaN -> 0 is only an internal comparison convenience. Before the
-            # precipitation branch returns, those rows are restored to NaN so
-            # "trusted model has no data" can never become a dry forecast.
-            trusted_vals_filled = np.where(trusted_nan, 0.0, trusted_vals)
-            trusted_signal = trusted_vals_filled >= TRUSTED_RAIN_THRESHOLD
-            italiameteo_raw_signal = trusted_signal.copy()
-
-            trusted_amount_alpha = float(
-                pinfo.get('trusted_amount_alpha', 1.0)
-            )
-            if trusted_amount_alpha < 1.0:
-                valid_trusted_amount = ~trusted_nan
-                pred[valid_trusted_amount] = (
-                    trusted_amount_alpha * pred[valid_trusted_amount]
-                    + (1.0 - trusted_amount_alpha)
-                    * trusted_vals_filled[valid_trusted_amount]
-                )
-                pred = np.clip(pred, 0.0, 50.0)
-
-            # Hard trusted rain gate:
-            # - ItaliaMeteo can trigger rain alone at 0.1mm.
-            # - Otherwise (or NaN), the corrected model is forced dry.
-            trusted_signal_amount = np.where(trusted_signal, trusted_vals_filled, 0)
-            no_signal = ~trusted_signal
-
-            # Summer convection abstention.
-            # ItaliaMeteo's own May-2025 admission: ICON-2I systematically over-
-            # predicts weakly-forced summer convection. When in summer AND only
-            # high-res LAMs see rain (low global agreement), DON'T let ICON-2I
-            # alone open the gate. Suppress the false-alarm fingerprint.
-            convective_rescue = np.zeros(len(fc), dtype=bool)
-            try:
-                hours_dt = pd.to_datetime(fc['datetime'])
-                month_arr = hours_dt.dt.month.values
-                is_warm_season = np.isin(month_arr, [6, 7, 8, 9])
-                rain_agree = pd.to_numeric(
-                    fc.get('rain_agreement', pd.Series(0, index=fc.index)),
-                    errors='coerce').fillna(0).values
-                italiameteo_isolated_signal = (
-                    is_warm_season & trusted_signal & (rain_agree <= 0.30)
-                )
-                convective_rescue = _convective_rescue_mask(
-                    fc, italiameteo_isolated_signal
-                )
-                suppress_signal = (
-                    italiameteo_isolated_signal & ~convective_rescue
-                )
-                n_rescued = int(convective_rescue.sum())
-                n_suppressed = int(suppress_signal.sum())
-                if n_suppressed > 0:
-                    # Treat as no_signal unless native/spatial convective
-                    # diagnostics independently support the isolated cell.
-                    trusted_signal = trusted_signal & ~suppress_signal
-                    no_signal = ~trusted_signal
-                    trusted_signal_amount = np.where(trusted_signal, trusted_vals_filled, 0)
-                    print(f"  Abstention: {n_suppressed} summer hour(s) with isolated "
-                          f"ICON-2I rain signal SUPPRESSED (weakly-forced convection regime)")
-                if n_rescued > 0:
-                    print(f"  Convective rescue: {n_rescued} isolated ICON-2I "
-                          f"hour(s) retained by lightning/showers/neighborhood + CAPE/CIN")
-            except Exception as _e:
-                pass  # be defensive; don't break inference if any field missing
-
-            # Preserve the dedicated ICON-2I support signal separately from the
-            # final gate.  The latter may later be replaced by a validated PoP
-            # blend or adjusted by SKALA; this field always answers the useful
-            # diagnostic question "did the trusted LAM support rain here?".
-            italiameteo_signal = trusted_signal.copy()
-
-            # --- calibrated PoP-blend gate (only when it beat the
-            # single-LAM veto in the regime-conditional eval). The fetch-level
-            # TrustedRainGateError integrity check above applies either way;
-            # the summer abstention is ICON-2I-specific and stays trusted-only.
-            _pb = pinfo.get('pop_blend') or {}
-            pinfo_mode = pinfo.get('rain_gate_mode') or _pb.get('mode', 'trusted')
-            if pinfo_mode == 'pop_blend':
-                _pb_lr = pinfo.get('pop_blend_lr') or _pb.get('lr')
-                _pb_cols = pinfo.get('pop_blend_cols') or _pb.get('cols')
-                _pb_tau = float(pinfo.get('pop_blend_tau') or _pb.get('tau') or 0.5)
-                if _pb_lr is not None and _pb_cols:
-                    try:
-                        M_live = _pop_blend_inputs(fc, cls_proba, _pb_cols)
-                        pop_blend_p = _pb_lr.predict_proba(M_live)[:, 1]
-                        trusted_signal = pop_blend_p >= _pb_tau
-                        no_signal = ~trusted_signal
-                        _anchor = pd.to_numeric(
-                            fc.get('precip_ens_mean_rainy', pd.Series(0, index=fc.index)),
-                            errors='coerce').fillna(0).values
-                        trusted_signal_amount = np.where(
-                            trusted_signal, np.maximum(_anchor, trusted_vals_filled), 0)
-                        print(f"  PoP-blend gate aktivan (tau={_pb_tau:.2f}): "
-                              f"{int(trusted_signal.sum())}h otvoreno")
-                    except Exception as _e:
-                        print(f"  PoP-blend gate fail ({_e}) — fallback na trusted gate")
-
-            # 1. Sub-threshold noise -> 0 (always)
-            pred[pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
-            # 2. No trusted gate -> no rain.
-            pred[no_signal] = 0.0
-            # 3. Amplification cap. Avoid a hard 0.5mm minimum when the ensemble
-            #    is mostly dry; trusted support scales the cap with trusted amount.
-            if 'precip_ens_p75' in fc.columns:
-                p75_vals = pd.to_numeric(fc['precip_ens_p75'], errors='coerce').fillna(0).values
-                cap = np.maximum(np.full(len(fc), CORRECTED_RAIN_THRESHOLD_MM), 1.5 * p75_vals)
-                trusted_cap = 1.2 * trusted_signal_amount
-                cap[trusted_signal] = np.maximum(cap[trusted_signal], trusted_cap[trusted_signal])
-                pred = np.minimum(pred, cap)
-            # 4. If the trusted gate sees rain, the corrected precipitation must
-            #    track ItaliaMeteo more closely. Floor scales as 0.6 * italia
-            #    so a 5 mm Italia hour can't collapse to 0.5 mm under a
-            #    conservative XGBoost. Cap above (1.2 * italia) still bounds
-            #    the upside, so we never fully equal trusted — just stop
-            #    diverging when XGBoost is too dry.
-            if trusted_signal.any():
-                trusted_floor = np.maximum(
-                    CORRECTED_RAIN_THRESHOLD_MM,
-                    0.6 * trusted_signal_amount,
-                )
-                pred[trusted_signal] = np.maximum(pred[trusted_signal], trusted_floor[trusted_signal])
-
-            # calibrated PoP (isotonic classifier proba), GATED by the
-            # trusted rain gate so the probabilistic view agrees with the
-            # deterministic one. Where the gate is closed (ICON-2I dry / summer
-            # abstention), the system asserts dry, so PoP -> 0. Set BEFORE the
-            # radar block so the radar nowcast can blend it.
-            corrected['precipitation_pop'] = np.clip(
-                np.where(no_signal, 0.0, np.maximum(cls_proba, thresh)),
-                0.0, 1.0,
-            )
+                decision = _trusted_gate_precip_decision(fc, X, pinfo)
+            pred = np.asarray(decision['pred'], dtype=float).copy()
+            unknown = np.asarray(decision['unknown'], dtype=bool)
+            trusted_nan = decision['trusted_nan']
+            # Set BEFORE the radar block so the radar nowcast can blend it.
+            corrected['precipitation_pop'] = decision['pop']
 
             # --- SKALA radar nowcast as a WEIGHTED 0-6h member ---
             # Replaces "hard override" thinking: weight w(lead) falls linearly
@@ -7648,37 +8096,41 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
             pred[pred < CORRECTED_RAIN_THRESHOLD_MM] = 0.0
 
             # Explicit rain-signal contract for downstream consumers.  This is
-            # intentionally distinct from precipitation amount: it exposes the
-            # trusted-model support, the final ITALIAMETEO/XGB/SKALA decision,
-            # and its calibrated probability without making clients reverse-
-            # engineer those semantics from a rounded mm value.
+            # intentionally distinct from precipitation amount: it exposes
+            # ICON-2I's own support, the final classifier/SKALA decision, and
+            # its probability without making clients reverse-engineer those
+            # semantics from a rounded mm value.
             corrected['italiameteo_precipitation'] = np.where(
-                trusted_nan, np.nan, trusted_vals_filled
+                trusted_nan, np.nan, decision['trusted_vals_filled']
             )
+            icon_signal = np.asarray(decision['italiameteo_raw_signal'], dtype=bool)
             corrected['italiameteo_rain_signal'] = np.where(
-                trusted_nan, np.nan, italiameteo_raw_signal.astype(float)
+                trusted_nan, np.nan, icon_signal.astype(float)
             )
+            accepted = decision['italiameteo_accepted']
+            if accepted is None:
+                # Classifier path: ICON-2I agreed with the final decision.
+                accepted = icon_signal & (pred >= CORRECTED_RAIN_THRESHOLD_MM)
             corrected['italiameteo_rain_accepted'] = np.where(
-                trusted_nan, np.nan, italiameteo_signal.astype(float)
+                trusted_nan, np.nan, np.asarray(accepted, dtype=float)
             )
-            corrected['rain_signal_convective_rescue'] = np.where(
-                trusted_nan, np.nan, convective_rescue.astype(float)
-            )
+            if decision['convective_rescue'] is not None:
+                corrected['rain_signal_convective_rescue'] = np.where(
+                    trusted_nan, np.nan,
+                    np.asarray(decision['convective_rescue'], dtype=float),
+                )
             corrected['rain_signal_skala_support'] = skala_rain_support.astype(float)
+
+            # An hour without a usable decision is unknown, not dry.
+            pred[unknown] = np.nan
+            corrected.loc[unknown, 'precipitation_pop'] = np.nan
             corrected['rain_signal'] = np.where(
-                trusted_nan, np.nan,
+                unknown, np.nan,
                 (pred >= CORRECTED_RAIN_THRESHOLD_MM).astype(float),
             )
             corrected['rain_signal_confidence'] = corrected[
                 'precipitation_pop'
             ].values
-
-            # A missing trusted-gate value is unknown, not evidence of dry
-            # weather. Other global models may still extend farther, but this
-            # policy cannot make a trusted-gate decision for that hour.
-            pred[trusted_nan] = np.nan
-            if 'precipitation_pop' in corrected.columns:
-                corrected.loc[trusted_nan, 'precipitation_pop'] = np.nan
 
             # Missing NWP input means unknown, not dry. The precipitation
             # branch returns before the generic missing-data guard below, so it
@@ -7694,8 +8146,7 @@ def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
                     corrected.loc[no_precip_data, 'precipitation_pop'] = np.nan
 
             corrected[f'{param}_xgb'] = pred
-            # (precipitation_pop set above, before the radar block, and gated)
-            method_lbl = method + (f'+blend({p_blend_alpha:.2f})' if p_blend_alpha < 1.0 else '')
+            method_lbl = decision['label']
             _mae_s = (f"{minfo['mae']:.3f}{TARGET_PARAMS[param]['unit']}"
                       if minfo.get('mae') is not None else "n/a (resumed)")
             print(f"  {TARGET_PARAMS[param]['display']:20s} (MAE={_mae_s}) [{method_lbl}]")
@@ -8765,6 +9216,23 @@ def generate_output(corrected, trained, results, fc_raw=None, marine=None, onset
     all_hourly = all_data.to_dict('records')
     _enrich_narratives_with_ai(all_days_for_ai, all_hourly)
 
+    training_metrics = results
+    rain_bundle = ((trained.get('precipitation') or {}).get('precip_info') or {}).get(
+        'rain_occurrence')
+    if rain_bundle is not None and 'precipitation' in results:
+        rain_meta = rain_bundle['meta']
+        training_metrics = {**results, 'precipitation': {
+            **results['precipitation'],
+            'rain_gate_mode': 'rain_classifier',
+            'rain_classifier': {
+                'tau': rain_meta.get('tau'),
+                'oof_csi': rain_meta.get('oof_csi'),
+                'data_end': rain_meta.get('data_end'),
+                'oof_csi_by_rule': {k: v.get('csi') for k, v in
+                                    (rain_meta.get('oof_scorecard') or {}).items()},
+            },
+        }}
+
     output = {
         "generated": now_str,
         "location": {"name": "Budva, Crna Gora", "lat": LAT, "lon": LON,
@@ -8773,7 +9241,7 @@ def generate_output(corrected, trained, results, fc_raw=None, marine=None, onset
         "method": "XGBoost Multi-Model Ensemble + Historical Bias + Forecast Revision v3",
         "description": f"{len(MODELS)} modela, 6 godina podataka (2020-2026), pametna korekcija + Day1/Day2 revizije",
         "models": MODELS,
-        "training_metrics": results,
+        "training_metrics": training_metrics,
         "daily_summary": daily,
         "hourly_forecast": forecast_hours,
         "long_range": long_range,
@@ -8845,7 +9313,7 @@ if __name__ == "__main__":
     _allowed_args = {
         '--gpu', '--cpu', '--check-device', '--check_device',
         '--skip-training', '--skip_training', '--dry-now', '--dry_now',
-        '--aux-diagnostics',
+        '--aux-diagnostics', '--train-rain', '--train_rain',
     }
     _backend_args = [arg for arg in sys.argv[1:]
                      if arg.startswith('--check-backend=')]
@@ -8917,6 +9385,11 @@ if __name__ == "__main__":
         print(f"  LightGBM: {LIGHTGBM_DEVICE_PARAMS['device_type']} (fit + predict passed)")
         sys.exit(0)
 
+    if '--train-rain' in sys.argv or '--train_rain' in sys.argv:
+        # Fast path: refit only the rain-occurrence classifier (minutes, CPU).
+        train_rain_occurrence_model(load_historical_data())
+        sys.exit(0)
+
     skip_training = '--skip-training' in sys.argv or '--skip_training' in sys.argv
     local_dry_nowcast = '--dry-now' in sys.argv or '--dry_now' in sys.argv
 
@@ -8945,6 +9418,15 @@ if __name__ == "__main__":
         print(f"  Bias tabele: {bias_path}")
 
         trained, results = train_all_models(hist, lead_frames=lead_frames)
+        try:
+            rain_bundle = train_rain_occurrence_model(hist)
+        except Exception as _e:
+            if _DEVICE_REQUEST == 'cuda':
+                raise
+            print(f"  [Rain] trening preskočen ({_e}); koristim sačuvani bundle")
+            rain_bundle = load_rain_occurrence_bundle()
+        if 'precipitation' in trained and 'precip_info' in trained['precipitation']:
+            trained['precipitation']['precip_info']['rain_occurrence'] = rain_bundle
         try:
             onset_bundle = train_onset_model(hist)
         except Exception as _e:

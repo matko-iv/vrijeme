@@ -11,8 +11,9 @@ mjerenja i objavljuje JSON koji pokreće web stranicu.
    Weather Underground stanice.
 2. **Trening** — produkcione korekcije koriste XGBoost direct/residual/MSE
    modele i validaciono izabran blend. LightGBM trenira kvantilne modele (CQR).
-   Za padavine se koriste focal loss, izotonička kalibracija i precision-first
-   prag na odvojenim hronološkim blokovima. CatBoost, dodatni LightGBM i Ridge
+   Za količinu padavina se koriste focal loss, izotonička kalibracija i
+   precision-first prag na odvojenim hronološkim blokovima; odluku da li pada
+   kiša donosi multi-model klasifikator (vidi *Šansa za padavine*). CatBoost, dodatni LightGBM i Ridge
    meta-model dostupni su kao eksplicitna dijagnostika, ali nijesu kandidati za
    produkciju dok Ridge ne dobije temporalne OOF predikcije.
 3. **Live prognoza** — GitHub Actions pokreće pipeline na svakih 5 sati
@@ -66,6 +67,7 @@ pip install -r requirements.txt
 
 python forecast_48h_v3.py                  # puni pipeline (trening + prognoza)
 python forecast_48h_v3.py --skip-training  # samo prognoza, postojeći modeli
+python forecast_48h_v3.py --train-rain     # samo klasifikator kiše (~1 min, CPU)
 
 # opciono: skupi CatBoost/LightGBM/Ridge dijagnostički kandidati
 python forecast_48h_v3.py --gpu --aux-diagnostics
@@ -118,17 +120,30 @@ bez ključa pipeline koristi pravilo-bazirane rečenice.
 ## Šansa za padavine
 
 `precip_probability` na dnevnoj kartici je procenat NWP modela (od 10) koji
-predviđaju >0.1 mm u bilo kom satu tog dana — consensus metrika. Satna
-kalibrisana PoP (izotonička kalibracija + prag) i kvantilna traka postoje
-kao poseban sloj u JSON-u kad su modeli trenirani.
+predviđaju >0.1 mm u bilo kom satu tog dana — consensus metrika.
 
-Satni JSON takođe izlaže eksplicitni `rain_signal`: konačnu binarnu odluku
-ITALIAMETEO ICON-2I + XGBoost + SKALA sistema, `rain_signal_confidence`,
-`italiameteo_rain_signal`, `italiameteo_rain_accepted`, convective/SKALA support
-zastavice i sirovi `italiameteo_precipitation`. Izolovani ljetnji ICON-2I signal
-se zadržava samo uz native lightning/thunder dokaz ili uz CAPE + slabi CIN i
-showers/neighborhood podršku. Tako klijent ne mora da zaključuje signal kiše iz
-zaokružene količine padavina.
+Satnu odluku „pada kiša (≥ 0.2 mm)” donosi multi-model XGBoost klasifikator
+(`train_rain_occurrence_model`). Vidi svih 10 modela, njihov ±1h vremenski
+prozor, weather code-ove, vlažnost i oblačnost, a prag bira van uzorka
+(walk-forward, maksimalan CSI). Od 6h do 30h lead-a prag se spušta na 0.6×
+jer su starije prognoze manje oštre. `precipitation_pop` je vjerovatnoća tog
+klasifikatora (više se ne gasi na 0 kad je ICON-2I suv), a količina u kišnom
+satu dolazi iz posebnog regresora (medijana). U walk-forward testu 2023–2026
+(`analysis_output/rain_classifier_backtest.py`) klasifikator je bio bolji od
+svakog pojedinačnog modela, ansambla i ranijeg ICON-2I gate-a. Stari gate
+ostaje samo kao rezerva kad bundle klasifikatora ne postoji.
+
+Satni JSON i dalje izlaže `rain_signal` (konačna odluka),
+`rain_signal_confidence`, SKALA support i ICON-2I dijagnostiku
+(`italiameteo_precipitation`, `italiameteo_rain_signal`,
+`italiameteo_rain_accepted` = ICON-2I se slaže sa konačnom odlukom). Tako
+klijent ne mora da zaključuje signal kiše iz zaokružene količine padavina.
+
+Verifikacija kiše: stanični sat je označen početkom (`precip_rate_mm` za
+[t, t+1)), a Open-Meteo red t sadrži kišu za [t-1, t], pa se stanični sat t
+upoređuje sa modelskim redom t+1 (objavljeni JSON je već pomjeren).
+`precipitation_obs` u `budva_*_detailed.csv` je WU dnevni kumulativ
+(resetuje se u ponoć) i nije satna kiša.
 
 Odvojeni `rain_onset_signal` važi za svaki sat cijelog +48h horizonta. Uz njega
 se objavljuju kalibrisani `rain_onset_hazard`, vjerovatnoća do tog sata,
