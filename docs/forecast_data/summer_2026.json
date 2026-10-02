@@ -1,0 +1,909 @@
+{
+  "reviewed_on": "2026-10-02",
+  "period": [
+    "2026-06-01",
+    "2026-08-31"
+  ],
+  "timezone": "Europe/Podgorica",
+  "requested_coordinates": [
+    42.28,
+    18.84
+  ],
+  "baseline_years": [
+    1991,
+    2020
+  ],
+  "sources": {
+    "air_and_rain": {
+      "provider": "ECMWF ERA5 via Open-Meteo",
+      "url": "https://archive-api.open-meteo.com/v1/archive?latitude=42.28&longitude=18.84&start_date=1991-01-01&end_date=2026-08-31&daily=temperature_2m_max,temperature_2m_min,temperature_2m_mean,precipitation_sum&models=era5&timezone=Europe%2FPodgorica",
+      "grid_coordinates": [
+        42.25,
+        19.0
+      ],
+      "grid_resolution_degrees": 0.25,
+      "elevation_m": 0.0
+    },
+    "sea": {
+      "provider": "Open-Meteo Marine, default SST model",
+      "url": "https://marine-api.open-meteo.com/v1/marine?latitude=42.28&longitude=18.84&start_date=2026-06-01&end_date=2026-08-31&hourly=sea_surface_temperature&timezone=Europe%2FPodgorica",
+      "grid_coordinates": [
+        42.291664,
+        18.791672
+      ],
+      "kind": "Archived model data, not an in-situ beach measurement"
+    }
+  },
+  "method": "Air means: arithmetic means of daily means. Rain: daily totals summed. Monthly air normals: mean of the same month in 1991-2020; rain normals: mean monthly sum over those 30 years. Summer means use all 92 days. SST daily means, minima and maxima use all 24 hourly model values per local day. All summer and baseline days are complete. No all-time station ranking is inferred.",
+  "summary": {
+    "air_mean_c": 27.9739,
+    "air_normal_c": 26.0898,
+    "precipitation_mm": 160.1,
+    "precipitation_normal_mm": 186.22,
+    "sst_mean_c": 25.9539,
+    "air_anomaly_c": 1.8841,
+    "precipitation_percent_of_normal": 85.97
+  },
+  "months": [
+    {
+      "month": "2026-06",
+      "days": 30,
+      "air_mean_c": 26.3033,
+      "air_normal_c": 24.1741,
+      "air_anomaly_c": 2.1292,
+      "precipitation_mm": 73.6,
+      "precipitation_normal_mm": 71.98,
+      "sst_mean_c": 24.1517
+    },
+    {
+      "month": "2026-07",
+      "days": 31,
+      "air_mean_c": 27.7968,
+      "air_normal_c": 26.8248,
+      "air_anomaly_c": 0.9719,
+      "precipitation_mm": 85.1,
+      "precipitation_normal_mm": 49.9367,
+      "sst_mean_c": 25.9769
+    },
+    {
+      "month": "2026-08",
+      "days": 31,
+      "air_mean_c": 29.7677,
+      "air_normal_c": 27.2087,
+      "air_anomaly_c": 2.559,
+      "precipitation_mm": 1.4,
+      "precipitation_normal_mm": 64.3033,
+      "sst_mean_c": 27.6751
+    }
+  ],
+  "daily": [
+    {
+      "date": "2026-06-01",
+      "air_mean_c": 23.3,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 21.4542,
+      "sst_min_c": 20.6,
+      "sst_max_c": 22.2,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-02",
+      "air_mean_c": 23.1,
+      "precipitation_mm": 0.5,
+      "sst_mean_c": 21.8083,
+      "sst_min_c": 21.2,
+      "sst_max_c": 22.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-03",
+      "air_mean_c": 21.4,
+      "precipitation_mm": 19.7,
+      "sst_mean_c": 22.2583,
+      "sst_min_c": 21.7,
+      "sst_max_c": 22.7,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-04",
+      "air_mean_c": 20.7,
+      "precipitation_mm": 34.8,
+      "sst_mean_c": 22.3125,
+      "sst_min_c": 21.7,
+      "sst_max_c": 22.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-05",
+      "air_mean_c": 22.7,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 22.825,
+      "sst_min_c": 22.2,
+      "sst_max_c": 23.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-06",
+      "air_mean_c": 24.3,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 23.1708,
+      "sst_min_c": 22.5,
+      "sst_max_c": 23.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-07",
+      "air_mean_c": 25.5,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 23.4042,
+      "sst_min_c": 22.8,
+      "sst_max_c": 24.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-08",
+      "air_mean_c": 26.3,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 23.6125,
+      "sst_min_c": 23.1,
+      "sst_max_c": 24.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-09",
+      "air_mean_c": 25.9,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 23.9625,
+      "sst_min_c": 23.3,
+      "sst_max_c": 24.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-10",
+      "air_mean_c": 26.0,
+      "precipitation_mm": 0.1,
+      "sst_mean_c": 24.275,
+      "sst_min_c": 23.5,
+      "sst_max_c": 25.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-11",
+      "air_mean_c": 25.2,
+      "precipitation_mm": 7.7,
+      "sst_mean_c": 24.2708,
+      "sst_min_c": 23.7,
+      "sst_max_c": 24.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-12",
+      "air_mean_c": 23.2,
+      "precipitation_mm": 6.8,
+      "sst_mean_c": 24.2792,
+      "sst_min_c": 23.9,
+      "sst_max_c": 24.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-13",
+      "air_mean_c": 23.0,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 23.8917,
+      "sst_min_c": 23.7,
+      "sst_max_c": 24.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-14",
+      "air_mean_c": 24.7,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 23.8125,
+      "sst_min_c": 23.3,
+      "sst_max_c": 24.3,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-15",
+      "air_mean_c": 24.9,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 23.7083,
+      "sst_min_c": 23.4,
+      "sst_max_c": 24.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-16",
+      "air_mean_c": 25.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 23.95,
+      "sst_min_c": 23.5,
+      "sst_max_c": 24.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-17",
+      "air_mean_c": 25.4,
+      "precipitation_mm": 1.8,
+      "sst_mean_c": 24.1583,
+      "sst_min_c": 23.7,
+      "sst_max_c": 24.7,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-18",
+      "air_mean_c": 25.9,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 24.2167,
+      "sst_min_c": 23.8,
+      "sst_max_c": 24.7,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-19",
+      "air_mean_c": 27.4,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 24.2458,
+      "sst_min_c": 23.8,
+      "sst_max_c": 24.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-20",
+      "air_mean_c": 27.8,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 24.3625,
+      "sst_min_c": 24.0,
+      "sst_max_c": 24.9,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-21",
+      "air_mean_c": 28.0,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 24.6833,
+      "sst_min_c": 23.9,
+      "sst_max_c": 25.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-22",
+      "air_mean_c": 28.2,
+      "precipitation_mm": 0.7,
+      "sst_mean_c": 24.9958,
+      "sst_min_c": 24.4,
+      "sst_max_c": 25.7,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-23",
+      "air_mean_c": 29.2,
+      "precipitation_mm": 0.2,
+      "sst_mean_c": 25.1,
+      "sst_min_c": 24.5,
+      "sst_max_c": 25.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-24",
+      "air_mean_c": 28.7,
+      "precipitation_mm": 0.8,
+      "sst_mean_c": 25.325,
+      "sst_min_c": 24.8,
+      "sst_max_c": 25.9,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-25",
+      "air_mean_c": 29.3,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.45,
+      "sst_min_c": 25.0,
+      "sst_max_c": 26.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-26",
+      "air_mean_c": 30.4,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.5375,
+      "sst_min_c": 24.9,
+      "sst_max_c": 26.2,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-27",
+      "air_mean_c": 30.9,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.5625,
+      "sst_min_c": 25.0,
+      "sst_max_c": 26.2,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-28",
+      "air_mean_c": 31.1,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.675,
+      "sst_min_c": 25.1,
+      "sst_max_c": 26.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-29",
+      "air_mean_c": 30.7,
+      "precipitation_mm": 0.1,
+      "sst_mean_c": 25.9833,
+      "sst_min_c": 25.4,
+      "sst_max_c": 26.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-06-30",
+      "air_mean_c": 30.3,
+      "precipitation_mm": 0.4,
+      "sst_mean_c": 26.2583,
+      "sst_min_c": 25.5,
+      "sst_max_c": 27.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-01",
+      "air_mean_c": 28.0,
+      "precipitation_mm": 0.1,
+      "sst_mean_c": 26.4417,
+      "sst_min_c": 25.8,
+      "sst_max_c": 27.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-02",
+      "air_mean_c": 27.7,
+      "precipitation_mm": 1.0,
+      "sst_mean_c": 26.5708,
+      "sst_min_c": 26.0,
+      "sst_max_c": 27.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-03",
+      "air_mean_c": 28.4,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.4708,
+      "sst_min_c": 26.1,
+      "sst_max_c": 26.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-04",
+      "air_mean_c": 28.2,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.1458,
+      "sst_min_c": 25.8,
+      "sst_max_c": 26.5,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-05",
+      "air_mean_c": 26.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.3125,
+      "sst_min_c": 24.7,
+      "sst_max_c": 25.7,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-06",
+      "air_mean_c": 27.1,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 24.6958,
+      "sst_min_c": 24.4,
+      "sst_max_c": 25.2,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-07",
+      "air_mean_c": 27.5,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 24.8417,
+      "sst_min_c": 24.1,
+      "sst_max_c": 25.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-08",
+      "air_mean_c": 26.4,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.5333,
+      "sst_min_c": 24.6,
+      "sst_max_c": 26.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-09",
+      "air_mean_c": 27.4,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.55,
+      "sst_min_c": 25.3,
+      "sst_max_c": 25.9,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-10",
+      "air_mean_c": 26.7,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.0875,
+      "sst_min_c": 24.7,
+      "sst_max_c": 25.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-11",
+      "air_mean_c": 27.1,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.2167,
+      "sst_min_c": 24.5,
+      "sst_max_c": 26.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-12",
+      "air_mean_c": 26.6,
+      "precipitation_mm": 1.3,
+      "sst_mean_c": 25.4417,
+      "sst_min_c": 24.9,
+      "sst_max_c": 26.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-13",
+      "air_mean_c": 27.7,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.275,
+      "sst_min_c": 24.9,
+      "sst_max_c": 25.7,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-14",
+      "air_mean_c": 28.0,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.0917,
+      "sst_min_c": 24.6,
+      "sst_max_c": 25.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-15",
+      "air_mean_c": 28.7,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.4625,
+      "sst_min_c": 24.9,
+      "sst_max_c": 26.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-16",
+      "air_mean_c": 29.1,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.0208,
+      "sst_min_c": 25.3,
+      "sst_max_c": 26.7,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-17",
+      "air_mean_c": 29.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.4167,
+      "sst_min_c": 25.7,
+      "sst_max_c": 27.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-18",
+      "air_mean_c": 30.3,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.775,
+      "sst_min_c": 26.1,
+      "sst_max_c": 27.5,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-19",
+      "air_mean_c": 29.4,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.0542,
+      "sst_min_c": 26.3,
+      "sst_max_c": 27.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-20",
+      "air_mean_c": 30.8,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.3333,
+      "sst_min_c": 26.6,
+      "sst_max_c": 27.9,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-21",
+      "air_mean_c": 29.9,
+      "precipitation_mm": 1.0,
+      "sst_mean_c": 27.4875,
+      "sst_min_c": 26.9,
+      "sst_max_c": 28.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-22",
+      "air_mean_c": 27.3,
+      "precipitation_mm": 6.3,
+      "sst_mean_c": 27.2042,
+      "sst_min_c": 26.7,
+      "sst_max_c": 27.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-23",
+      "air_mean_c": 25.9,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.4667,
+      "sst_min_c": 26.1,
+      "sst_max_c": 26.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-24",
+      "air_mean_c": 24.2,
+      "precipitation_mm": 4.2,
+      "sst_mean_c": 25.9583,
+      "sst_min_c": 25.7,
+      "sst_max_c": 26.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-25",
+      "air_mean_c": 24.4,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.6625,
+      "sst_min_c": 25.4,
+      "sst_max_c": 25.9,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-26",
+      "air_mean_c": 24.9,
+      "precipitation_mm": 2.4,
+      "sst_mean_c": 25.15,
+      "sst_min_c": 25.0,
+      "sst_max_c": 25.3,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-27",
+      "air_mean_c": 24.9,
+      "precipitation_mm": 68.8,
+      "sst_mean_c": 25.125,
+      "sst_min_c": 24.8,
+      "sst_max_c": 25.5,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-28",
+      "air_mean_c": 28.3,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 25.9417,
+      "sst_min_c": 25.4,
+      "sst_max_c": 26.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-29",
+      "air_mean_c": 29.8,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.0917,
+      "sst_min_c": 25.5,
+      "sst_max_c": 26.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-30",
+      "air_mean_c": 30.1,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.55,
+      "sst_min_c": 25.9,
+      "sst_max_c": 27.2,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-07-31",
+      "air_mean_c": 30.7,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.9083,
+      "sst_min_c": 26.3,
+      "sst_max_c": 27.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-01",
+      "air_mean_c": 30.9,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.8667,
+      "sst_min_c": 26.4,
+      "sst_max_c": 27.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-02",
+      "air_mean_c": 29.4,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.9167,
+      "sst_min_c": 26.3,
+      "sst_max_c": 27.5,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-03",
+      "air_mean_c": 28.5,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.0042,
+      "sst_min_c": 26.5,
+      "sst_max_c": 27.5,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-04",
+      "air_mean_c": 29.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.1583,
+      "sst_min_c": 26.6,
+      "sst_max_c": 27.7,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-05",
+      "air_mean_c": 30.0,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.1667,
+      "sst_min_c": 26.7,
+      "sst_max_c": 27.7,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-06",
+      "air_mean_c": 30.2,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.2125,
+      "sst_min_c": 26.7,
+      "sst_max_c": 27.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-07",
+      "air_mean_c": 30.3,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.3792,
+      "sst_min_c": 26.8,
+      "sst_max_c": 27.9,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-08",
+      "air_mean_c": 31.3,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.5083,
+      "sst_min_c": 26.9,
+      "sst_max_c": 28.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-09",
+      "air_mean_c": 31.1,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.4792,
+      "sst_min_c": 27.0,
+      "sst_max_c": 28.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-10",
+      "air_mean_c": 30.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.5458,
+      "sst_min_c": 27.0,
+      "sst_max_c": 28.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-11",
+      "air_mean_c": 30.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.6583,
+      "sst_min_c": 27.1,
+      "sst_max_c": 28.2,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-12",
+      "air_mean_c": 31.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.2042,
+      "sst_min_c": 26.6,
+      "sst_max_c": 27.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-13",
+      "air_mean_c": 30.5,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.6,
+      "sst_min_c": 26.1,
+      "sst_max_c": 27.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-14",
+      "air_mean_c": 30.2,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.3542,
+      "sst_min_c": 25.9,
+      "sst_max_c": 26.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-15",
+      "air_mean_c": 29.5,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.0708,
+      "sst_min_c": 25.7,
+      "sst_max_c": 26.5,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-16",
+      "air_mean_c": 27.8,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.35,
+      "sst_min_c": 25.8,
+      "sst_max_c": 27.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-17",
+      "air_mean_c": 27.4,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 26.625,
+      "sst_min_c": 26.2,
+      "sst_max_c": 27.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-18",
+      "air_mean_c": 27.4,
+      "precipitation_mm": 1.3,
+      "sst_mean_c": 26.325,
+      "sst_min_c": 26.0,
+      "sst_max_c": 26.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-19",
+      "air_mean_c": 28.5,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 27.5583,
+      "sst_min_c": 26.2,
+      "sst_max_c": 28.2,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-20",
+      "air_mean_c": 29.4,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 28.3375,
+      "sst_min_c": 27.9,
+      "sst_max_c": 28.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-21",
+      "air_mean_c": 29.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 28.55,
+      "sst_min_c": 28.1,
+      "sst_max_c": 29.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-22",
+      "air_mean_c": 29.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 28.65,
+      "sst_min_c": 28.3,
+      "sst_max_c": 29.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-23",
+      "air_mean_c": 30.5,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 28.6833,
+      "sst_min_c": 28.4,
+      "sst_max_c": 29.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-24",
+      "air_mean_c": 29.7,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 28.7083,
+      "sst_min_c": 28.5,
+      "sst_max_c": 29.0,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-25",
+      "air_mean_c": 29.2,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 28.65,
+      "sst_min_c": 28.4,
+      "sst_max_c": 28.9,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-26",
+      "air_mean_c": 29.5,
+      "precipitation_mm": 0.1,
+      "sst_mean_c": 28.5333,
+      "sst_min_c": 28.3,
+      "sst_max_c": 28.8,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-27",
+      "air_mean_c": 29.5,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 28.6167,
+      "sst_min_c": 28.3,
+      "sst_max_c": 29.1,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-28",
+      "air_mean_c": 29.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 28.875,
+      "sst_min_c": 28.4,
+      "sst_max_c": 29.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-29",
+      "air_mean_c": 30.6,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 29.1167,
+      "sst_min_c": 28.6,
+      "sst_max_c": 29.6,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-30",
+      "air_mean_c": 30.1,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 29.0625,
+      "sst_min_c": 28.7,
+      "sst_max_c": 29.4,
+      "sst_hour_count": 24
+    },
+    {
+      "date": "2026-08-31",
+      "air_mean_c": 30.1,
+      "precipitation_mm": 0.0,
+      "sst_mean_c": 29.1625,
+      "sst_min_c": 28.8,
+      "sst_max_c": 29.6,
+      "sst_hour_count": 24
+    }
+  ]
+}
