@@ -867,6 +867,7 @@
         .page-intro { color: #586069; margin-bottom: 12px; }
         .release-note { font-size: 12px; color: #6a737d; margin-bottom: 6px; }
         .forecast-note { font-size: 14px; color: #586069; }
+        .update-note { font-size: 13px; color: #586069; border-left: 3px solid #d0d7de; padding-left: 10px; margin: 8px 0 12px; }
         .day-condition { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
         .day-condition img { flex-shrink: 0; }
         .detail-label { color: #586069; }
@@ -925,6 +926,7 @@
     <h1>Matkov model v6</h1>
     <p class="page-intro">Vremenska prognoza za Budvu · <a href="index.html">Poruka autora</a> · <a href="index.html#evaluacija-ljeto-2026">Evaluacija: ljeto 2026</a></p>
     <p class="release-note">Verzija 6 · 19. avgust 2026.</p>
+    <p class="update-note"><strong>Nova prognoza kiše (27. septembar 2026):</strong> Ljetnja evaluacija je za kišu koristila dnevni zbir sa stanice, pa se svaki sat poslije pljuska, sve do ponoći, računao kao kišni: 114 kišnih sati, a stvarno ih je bilo 23. Ni uz ispravno brojanje korigovana kiša nije bila dobra, jer je o kiši odlučivao samo model ICON-2I, a ljetno pravilo mu je brisalo i tačne pljuskove. Sada o kiši i njenoj vjerovatnoći odlučuje klasifikator koji gleda svih deset modela i dozvoljava da model pogriješi vrijeme pljuska za sat. U provjeri kroz 13 sezona (2023–2026) bolji je od svakog pojedinačnog modela i od njihovog prosjeka: indeks uspjeha 0,44 naspram najviše 0,36.</p>
     <div class="generated-time" id="genTime"></div>
     <p class="forecast-note">Prognoza važi isključivo za Budvu. Sezonske najave za ljeto, zimu i El Niño: <a href="dugorocne-najave.html">Dugoročne najave</a>.</p>
 
