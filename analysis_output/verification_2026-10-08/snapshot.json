@@ -1,0 +1,88 @@
+{
+  "day": "2026-10-08",
+  "frozen_at_utc": "2026-10-07T18:58:33Z",
+  "published_runs": {
+    "2026-10-06 03:28:44": {
+      "hours": 3,
+      "rain_mm": 0.0,
+      "icon2i_seen_mm": 0.0
+    },
+    "2026-10-06 14:19:55": {
+      "hours": 14,
+      "rain_mm": 18.0,
+      "icon2i_seen_mm": 28.0
+    },
+    "2026-10-06 22:34:57": {
+      "hours": 22,
+      "rain_mm": 23.3,
+      "icon2i_seen_mm": 15.8
+    },
+    "2026-10-07 08:19:20": {
+      "hours": 24,
+      "rain_mm": 32.4,
+      "icon2i_seen_mm": 11.4
+    },
+    "2026-10-07 11:06:08": {
+      "hours": 24,
+      "rain_mm": 37.4,
+      "icon2i_seen_mm": 11.4
+    },
+    "2026-10-07 19:40:17": {
+      "hours": 24,
+      "rain_mm": 24.4,
+      "icon2i_seen_mm": 8.3
+    }
+  },
+  "cached_models": {
+    "ARPEGE": {
+      "fetched": "2026-10-07T17:20:56Z",
+      "upstream": "2026-10-07T15:52:11Z"
+    },
+    "DMI": {
+      "fetched": "2026-10-07T17:26:12Z",
+      "upstream": "2026-10-07T14:44:45Z"
+    },
+    "ECMWF_IFS025": {
+      "fetched": "2026-10-07T17:25:46Z",
+      "upstream": "2026-10-07T13:06:14Z"
+    },
+    "ECMWF_IFS": {
+      "fetched": "2026-10-07T17:25:58Z",
+      "upstream": "2026-10-07T06:28:18Z"
+    },
+    "GFS": {
+      "fetched": "2026-10-07T17:20:58Z"
+    },
+    "ICON_EU": {
+      "fetched": "2026-10-07T08:49:13Z",
+      "upstream": "2026-10-07T07:23:53Z"
+    },
+    "ICON2I": {
+      "fetched": "2026-10-07T17:20:53Z",
+      "upstream": "2026-10-07T14:02:13Z"
+    },
+    "KNMI": {
+      "fetched": "2026-10-07T17:26:09Z",
+      "upstream": "2026-10-07T08:35:49Z"
+    },
+    "METEOFRANCE": {
+      "fetched": "2026-10-07T17:25:08Z",
+      "upstream": "2026-10-07T15:52:11Z"
+    },
+    "UKMO": {
+      "fetched": "2026-10-07T17:25:48Z"
+    }
+  },
+  "cached_model_rain_mm": {
+    "ARPEGE": 21.7,
+    "DMI": 44.1,
+    "ECMWF_IFS": 73.6,
+    "ECMWF_IFS025": 99.8,
+    "GFS": 13.5,
+    "ICON2I": 8.3,
+    "ICON_EU": 45.9,
+    "KNMI": 71.2,
+    "METEOFRANCE": 21.7,
+    "UKMO": 45.6
+  }
+}
