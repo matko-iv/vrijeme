@@ -33,7 +33,7 @@ const src = html.slice(start, end);
 const api = new Function(src + `
     return { nowcastHour, nowcastCellMm, gateWeatherCode, nowcastFresh, nowcastIntensityCode,
              nowcastImminent, nowcastImminentCode, nowcastNowRate, escalateCloud, cloudToCode,
-             cellIsCurrentHour, HOUR_COVER_MIN,
+             cellIsCurrentHour, HOUR_COVER_MIN, rainCellParts, POSSIBLE_RAIN_POP,
              setState: (ns, rs) => { nowcastState = ns; radarState = rs; } };
 `)();
 
@@ -300,6 +300,28 @@ at(W_BASE + 5 * 60000, () => {
     eq(w14 && w14.hour, '2026-01-15T13:00:00Z', 'winter: 14:00 local cell -> 13:00Z bucket');
     eq(w14 && w14.mm, 0.0, 'winter: 14:00 cell mm = 0.0');
 });
+
+// 9. Rain-cell text: rain shown below POSSIBLE_RAIN_POP is "possible" (dimmed icon,
+// "do X mm" = what falls if it rains, "moguća NN%"); at or above it, "X mm" + "NN%".
+eq(api.POSSIBLE_RAIN_POP, 0.6, 'possible-rain PoP threshold is 60%');
+let rp = api.rainCellParts(1.84, 0.47);
+eq(rp.rain, 'do 1.8mm', 'possible rain: amount reads "do 1.8mm"');
+eq(rp.pop, 'moguća 47%', 'possible rain: PoP line reads "moguća 47%"');
+eq(rp.possible, true, 'possible rain: flagged for the dimmed icon');
+rp = api.rainCellParts(4.1, 0.6);
+eq(rp.rain, '4.1mm', 'likely rain (PoP = threshold): plain amount');
+eq(rp.pop, '60%', 'likely rain: PoP shown without "moguća"');
+eq(rp.possible, false, 'likely rain: icon not dimmed');
+rp = api.rainCellParts(1.2, 0.598);
+eq(rp.pop + '|' + rp.possible, '60%|false', 'PoP 59.8% shows as 60%, so it is not labelled "moguća"');
+eq(api.rainCellParts(1.2, 0.594).pop, 'moguća 59%', 'PoP 59.4% shows as "moguća 59%"');
+rp = api.rainCellParts(0.0, 0.25);
+eq(rp.rain + rp.pop, '', 'dry hour: no rain or PoP text even with a PoP');
+eq(api.rainCellParts(0.04, 0.9).rain, '', 'amounts <= 0.05 mm are not shown');
+rp = api.rainCellParts(2.2, null);
+eq(rp.rain, '2.2mm', 'JSON without PoP: old amount text');
+eq(rp.pop + String(rp.possible), 'false', 'JSON without PoP: no PoP line, not dimmed');
+eq(api.rainCellParts(NaN, 0.5).rain, '', 'missing amount: nothing shown');
 
 if (failures) { console.error(`\n${failures} test(s) failed`); process.exit(1); }
 console.log('\nall tests passed');

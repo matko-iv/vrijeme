@@ -429,6 +429,20 @@
             font-weight: 600;
         }
         .hourly-cell .h-rain:empty { display: none; }
+        /* Rain the model shows at PoP < POSSIBLE_RAIN_POP: dimmed icon + "moguća NN%". */
+        .hourly-cell .h-icon.is-possible img { opacity: 0.45; }
+        .hourly-cell .h-pop {
+            color: #57606a;
+            font-size: 11px;
+            margin-top: 1px;
+        }
+        .hourly-cell .h-pop:empty { display: none; }
+        .hourly-strip h3 .h-legend {
+            font-weight: 400;
+            font-size: 12px;
+            color: #6a737d;
+            margin-left: 8px;
+        }
         .hourly-cell .h-wind {
             color: #586069;
             font-size: 12px;
@@ -1101,6 +1115,28 @@ function nowcastImminentCode() {
 }
 
 function isRainCode(c) { return c >= 51 && c <= 82; }  // drizzle/rain/showers; thunder 95-99 excluded
+
+// A rain hour shown with a PoP below this is "possible": in the day-ahead test
+// behind RAIN_OCC_DAY_AHEAD_PLATT (Jun 2024 - Feb 2026), hours shown as rain at
+// 35-60% got rain in that exact hour 49% of the time (68% within an hour), so the
+// card says so instead of looking like a certain hour: dimmed icon, "do X mm" (what
+// falls if it rains) and "moguća NN%". Hours at or above it show "X mm" and the PoP.
+const POSSIBLE_RAIN_POP = 0.6;
+
+// Text for an hourly cell's rain lines from the model mm and PoP (0-1, or null on
+// JSONs without PoP, which keep the old "X.Xmm" line).
+function rainCellParts(mm, pop) {
+    if (mm == null || isNaN(mm) || mm <= 0.05) return { rain: '', pop: '', possible: false, title: '' };
+    const amount = mm.toFixed(1) + 'mm';
+    if (pop == null || isNaN(pop)) return { rain: amount, pop: '', possible: false, title: '' };
+    const pct = Math.round(pop * 100);
+    if (pct < Math.round(POSSIBLE_RAIN_POP * 100)) {      // on the shown number: 59.8% reads 60%
+        return { rain: 'do ' + amount, pop: 'moguća ' + pct + '%', possible: true,
+                 title: `Moguća kiša: ${pct}% šanse. Ako padne, do ${amount} u ovom satu.` };
+    }
+    return { rain: amount, pop: pct + '%', possible: false,
+             title: `Kiša: ${pct}% šanse, oko ${amount} u ovom satu.` };
+}
 function cloudToCode(cc) {
     if (cc == null || isNaN(cc)) return 2;
     if (cc < 10) return 0;
@@ -1223,24 +1259,37 @@ function applyRadarGating() {
         const iconEl = cell.querySelector('.h-icon');
         let cellCode = gateWeatherCode(code, cloud, bucket, isNow, radarState);
         if (imminent && isNow && wcSeverity(cellCode) === 0) cellCode = imminentCode;  // raining NOW -> force rain
-        if (iconEl) iconEl.innerHTML = weatherIcon(getWeatherIcon(cellCode, hour), 48);
         // SKALA NOWCAST mm override: over its ~80 min horizon the DGMR forecast is more
         // accurate than the NWP precipitation, so replace the mm of the hours it covers.
         const rainEl = cell.querySelector('.h-rain');
+        const popEl = cell.querySelector('.h-pop');
         const mm = nowcastCellMm(bucket, isNow);
+        const popAttr = cell.dataset.pop;
+        const parts = rainCellParts(parseFloat(cell.dataset.mm),
+                                    popAttr == null || popAttr === '' ? null : parseFloat(popAttr));
+        // Dim only the model's own uncertain rain: not when SKALA supplies the mm or
+        // upgraded the code (rain is falling or about to), nor once it stripped the rain.
+        const possible = parts.possible && mm == null && wcSeverity(cellCode) > 0
+                         && wcSeverity(cellCode) <= wcSeverity(code);
+        if (iconEl) {
+            iconEl.innerHTML = weatherIcon(getWeatherIcon(cellCode, hour), 48);
+            iconEl.classList.toggle('is-possible', possible);
+        }
         if (rainEl && mm != null) {
             rainEl.textContent = mm > 0.05 ? mm.toFixed(1) + 'mm' : '';
             rainEl.style.color = '#0366d6';
             rainEl.title = 'SKALA NOWCAST (DGMR) — kiša u ovom satu (pokriveno ' +
                            (bucket.covered_min || 0) + ' od 60 min)';
+            if (popEl) popEl.textContent = '';
         } else if (rainEl) {
             // render() runs once, this every 120 s: a cell overridden earlier can fall out
             // of the horizon as the base advances, so put the NWP mm back instead of
             // leaving a stale nowcast number (and its "pokriveno N od 60 min" tooltip).
-            const nwp = parseFloat(cell.dataset.mm);
-            rainEl.textContent = nwp > 0.05 ? nwp.toFixed(1) + 'mm' : '';
+            rainEl.textContent = parts.rain;
             rainEl.style.color = '';
-            rainEl.removeAttribute('title');
+            if (parts.title) rainEl.title = parts.title;
+            else rainEl.removeAttribute('title');
+            if (popEl) popEl.textContent = parts.pop;
         }
     });
 }
@@ -2472,10 +2521,17 @@ function computeWarnings(hourly, currentHour, currentDate) {
         const slice = hourly.slice(r.start, r.end + 1);
         const maxRain = Math.max(...slice.map(h => h.precipitation || 0));
         const maxGust = Math.max(...slice.map(h => h.wind_gusts_10m || 0));
+        // Thunder codes on hours the model itself puts below POSSIBLE_RAIN_POP are a
+        // risk, not a certainty: say so and show the chance, like the hourly cells.
+        const pops = slice.map(h => h.precipitation_pop).filter(p => p != null);
+        const maxPop = pops.length ? Math.max(...pops) : null;
+        const possible = maxPop != null && Math.round(maxPop * 100) < Math.round(POSSIBLE_RAIN_POP * 100);
         warnings.push({
-            kind: 'thunder', sev: 'extreme', title: 'Grmljavina',
+            kind: 'thunder', sev: 'extreme', title: possible ? 'Moguća grmljavina' : 'Grmljavina',
             time: fmtSpan(r.start, r.end),
-            details: `Maks. kiša ${maxRain.toFixed(1)} mm/h, udari do ${maxGust.toFixed(0)} m/s`,
+            details: maxPop != null
+                ? `Šansa za kišu do ${Math.round(maxPop * 100)}%, ${possible ? 'ako padne do' : 'maks. kiša'} ${maxRain.toFixed(1)} mm/h, udari do ${maxGust.toFixed(0)} m/s`
+                : `Maks. kiša ${maxRain.toFixed(1)} mm/h, udari do ${maxGust.toFixed(0)} m/s`,
             active: isCovered(r.start, r.end),
             startIdx: r.start, endIdx: r.end,
         });
@@ -2711,7 +2767,11 @@ function render(data) {
                     <div class="cw-detail">${weatherIcon('wind', 20)} <span>${windArrow(currentData.wind_direction_10m)} ${currentData.wind_speed_10m.toFixed(1)} m/s ${windDirText(currentData.wind_direction_10m)}</span></div>
                     <div class="cw-detail">${weatherIcon('humidity', 20)} <span>${Math.round(currentData.relative_humidity_2m)}%</span></div>
                     <div class="cw-detail"><img src="${ICON_CDN}barometer.svg" width="20" height="20" style="vertical-align:middle"> <span>${currentData.pressure_msl.toFixed(0)} hPa</span></div>
-                    ${currentData.precipitation > 0.05 && !gatedDryNow ? '<div class="cw-detail">' + weatherIcon('rain_icon', 20) + ' <span>' + currentData.precipitation.toFixed(1) + ' mm</span></div>' : ''}
+                    ${(function() {
+                        const p = rainCellParts(currentData.precipitation, currentData.precipitation_pop);
+                        if (!p.rain || gatedDryNow) return '';
+                        return `<div class="cw-detail"${p.title ? ` title="${p.title}"` : ''}>${weatherIcon('rain_icon', 20)} <span>${p.rain}${p.pop ? ' · ' + p.pop : ''}</span></div>`;
+                    })()}
                     ${(function() {
                         const beach = beachWindAdjustment(currentData.wind_direction_10m);
                         if (!beach) return '';
@@ -2727,10 +2787,12 @@ function render(data) {
         </div>`;
     }
 
-    html += '<div class="hourly-strip" tabindex="0" role="region" aria-label="Satna prognoza"><h3>Prognoza po satima</h3><div class="hourly-row">';
+    const hasPop = data.hourly_forecast.some(h => h.precipitation_pop != null);
+    const legend = hasPop ? `<span class="h-legend">Bljeđa ikona: moguća kiša (šansa ispod ${Math.round(POSSIBLE_RAIN_POP * 100)}%), iznos je koliko padne ako pada.</span>` : '';
+    html += `<div class="hourly-strip" tabindex="0" role="region" aria-label="Satna prognoza"><h3>Prognoza po satima${legend}</h3><div class="hourly-row">`;
     data.hourly_forecast.forEach((h, i) => {
         const t = h.temperature_2m != null ? Math.round(h.temperature_2m) + '°' : '-';
-        const rain = h.precipitation > 0.05 ? h.precipitation.toFixed(1) + 'mm' : '';
+        const parts = rainCellParts(h.precipitation, h.precipitation_pop);
         const wind = h.wind_speed_10m != null ? h.wind_speed_10m.toFixed(1) : '';
         // Gust-exceedance badge (field exists only after the quantile-upgrade
         // retrain; renders nothing on old JSONs)
@@ -2740,6 +2802,8 @@ function render(data) {
         const isCurrentHour = i === currentIdx;
         const cellCode = gatedCode(h.weather_code, h.cloud_cover, h.datetime, isCurrentHour);
         const iconKey = getWeatherIcon(cellCode, h.hour);
+        const possible = parts.possible && wcSeverity(cellCode) > 0
+                         && wcSeverity(cellCode) <= wcSeverity(h.weather_code);
         const isNight = h.hour >= 21 || h.hour <= 5;
         const dayBreak = h.hour === 0 && i > 0;
         const dayLabel = dayBreak && h.datetime
@@ -2747,13 +2811,14 @@ function render(data) {
         const cellCls = 'hourly-cell' + (isNight ? ' is-night' : '')
             + (isCurrentHour ? ' is-now' : '') + (dayBreak ? ' day-break' : '');
         // data-mm keeps the NWP number so applyRadarGating() can restore it after an override.
-        const gateAttr = ` data-hour="${h.hour}" data-code="${h.weather_code}" data-cloud="${h.cloud_cover != null ? h.cloud_cover : ''}" data-datetime="${h.datetime || ''}" data-mm="${h.precipitation != null ? h.precipitation : ''}"`;
+        const gateAttr = ` data-hour="${h.hour}" data-code="${h.weather_code}" data-cloud="${h.cloud_cover != null ? h.cloud_cover : ''}" data-datetime="${h.datetime || ''}" data-mm="${h.precipitation != null ? h.precipitation : ''}" data-pop="${h.precipitation_pop != null ? h.precipitation_pop : ''}"`;
         html += `
         <div class="${cellCls}"${gateAttr} data-uvkey="${(h.datetime || '').slice(0, 13)}">
             <span class="h-time">${dayLabel ? `<span class="h-day">${dayLabel}</span> ` : ''}${String(h.hour).padStart(2,'0')}h</span>
-            <span class="h-icon">${weatherIcon(iconKey, 48)}</span>
+            <span class="h-icon${possible ? ' is-possible' : ''}">${weatherIcon(iconKey, 48)}</span>
             <span class="h-temp">${t}</span>
-            <span class="h-rain">${rain}</span>
+            <span class="h-rain"${parts.title ? ` title="${parts.title}"` : ''}>${parts.rain}</span>
+            <span class="h-pop">${parts.pop}</span>
             <span class="h-wind"${gustWarn ? ` title="P(udar > 17 m/s) = ${Math.round(h.p_gust_gt17 * 100)}%"` : ''}>${wind ? windArrow(h.wind_direction_10m) + ' ' + wind + ' m/s' + (gustWarn ? ' ⚠' : '') : ''}</span>
             <span class="h-uv" style="display:none"></span>
         </div>`;
