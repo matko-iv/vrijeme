@@ -126,9 +126,13 @@ Satnu odluku „pada kiša (≥ 0.2 mm)” donosi multi-model XGBoost klasifikat
 (`train_rain_occurrence_model`). Vidi svih 10 modela, njihov ±1h vremenski
 prozor, weather code-ove, vlažnost i oblačnost, a prag bira van uzorka
 (walk-forward, maksimalan CSI). Od 6h do 30h lead-a prag se spušta na 0.6×
-jer su starije prognoze manje oštre. `precipitation_pop` je vjerovatnoća tog
-klasifikatora (više se ne gasi na 0 kad je ICON-2I suv), a količina u kišnom
-satu dolazi iz posebnog regresora (medijana). U walk-forward testu 2023–2026
+jer su starije prognoze manje oštre. Iz istog razloga je sirova vjerovatnoća
+za sjutra preniska: u testu na prognozama starim jedan dan (jun 2024 – feb
+2026) sati sa 20–30% imali su kišu u 48% slučajeva. Zato je `precipitation_pop`
+za iste lead-ove rekalibrisana vjerovatnoća tog klasifikatora
+(`RAIN_OCC_DAY_AHEAD_PLATT`), pa kišni sat nikad ne pokazuje PoP ispod ~34%.
+Više se ne gasi na 0 kad je ICON-2I suv. Količina u kišnom satu dolazi iz
+posebnog regresora (medijana). U walk-forward testu 2023–2026
 (`analysis_output/rain_classifier_backtest.py`) klasifikator je bio bolji od
 svakog pojedinačnog modela, ansambla i ranijeg ICON-2I gate-a. Stari gate
 ostaje samo kao rezerva kad bundle klasifikatora ne postoji.

@@ -843,6 +843,20 @@ class RainOccurrenceTests(unittest.TestCase):
             [0.34, 0.34, 0.34 * 0.8, 0.34 * 0.6, 0.34 * 0.6],
         )
 
+    def test_pop_is_recalibrated_for_lead_and_matches_the_decision(self):
+        p = np.array([0.0, 0.05, 0.2, 0.5, 0.9, np.nan])
+        # Same-day: the classifier probability is the PoP.
+        np.testing.assert_allclose(fc.rain_occurrence_pop(p, np.zeros(6)), p, equal_nan=True)
+        day_ahead = fc.rain_occurrence_pop(p, np.full(6, 36.0))
+        self.assertTrue(np.isnan(day_ahead[-1]))
+        self.assertTrue((np.diff(day_ahead[:-1]) > 0).all())
+        self.assertTrue((day_ahead[1:4] > p[1:4]).all())   # day-ahead raw p is too low
+        # Every hour that is declared wet shows at least the same-day threshold.
+        tau = 0.34
+        for lead in (0, 6, 12, 18, 24, 30, 48, 72):
+            boundary = fc.rain_occurrence_threshold([lead], tau)
+            self.assertGreaterEqual(fc.rain_occurrence_pop(boundary, [lead])[0], tau - 1e-9)
+
     def test_classifier_decides_rain_without_icon2i_veto(self):
         now = fc.local_now().floor('h')
         n = 80

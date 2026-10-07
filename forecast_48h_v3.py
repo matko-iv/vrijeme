@@ -4055,6 +4055,16 @@ RAIN_OCC_TAU_GRID = np.round(np.arange(0.05, 0.80, 0.01), 2)
 # ramps linearly from 1x at 6h to 0.6x at 30h lead.
 RAIN_OCC_LEAD_RAMP_H = (6.0, 30.0)
 RAIN_OCC_LONG_LEAD_FACTOR = 0.6
+# The same lead effect makes the raw probability too low as a PoP: on 24-48h
+# old runs the members disagree more on timing, so the agreement features are
+# weaker while rain still falls. In the previous-runs test (Jun 2024 - Feb 2026,
+# 8 members) hours the classifier put at 20-30% rained 48% of the time (52% in
+# Oct-May), while same-day probabilities were calibrated. A Platt fit on those
+# day-ahead hours, logit(p') = a + b*logit(p), is blended in over
+# RAIN_OCC_LEAD_RAMP_H (held-out log-loss 0.178 -> 0.153, Brier 0.0515 ->
+# 0.0466; a separate summer fit was no better). It maps the ramped threshold
+# 0.6*0.34 to PoP ~0.40, so a rain hour never shows a PoP below ~0.34.
+RAIN_OCC_DAY_AHEAD_PLATT = (0.657, 0.790)
 RAIN_OCC_MAX_LEAD_H = 72.0
 RAIN_OCC_MIN_MODELS = 3
 
@@ -4173,12 +4183,30 @@ def rain_occurrence_features(frame, models=None):
     return feats
 
 
-def rain_occurrence_threshold(lead_hours, tau):
-    """Lead-dependent decision threshold (see RAIN_OCC_LEAD_RAMP_H)."""
+def _rain_occ_lead_ramp(lead_hours):
+    """0 up to RAIN_OCC_LEAD_RAMP_H[0], 1 from RAIN_OCC_LEAD_RAMP_H[1], linear between."""
     lead = np.asarray(lead_hours, dtype=float)
     lo, hi = RAIN_OCC_LEAD_RAMP_H
-    ramp = np.clip((np.nan_to_num(lead, nan=0.0) - lo) / (hi - lo), 0.0, 1.0)
+    return np.clip((np.nan_to_num(lead, nan=0.0) - lo) / (hi - lo), 0.0, 1.0)
+
+
+def rain_occurrence_threshold(lead_hours, tau):
+    """Lead-dependent decision threshold (see RAIN_OCC_LEAD_RAMP_H)."""
+    ramp = _rain_occ_lead_ramp(lead_hours)
     return tau * (1.0 - ramp * (1.0 - RAIN_OCC_LONG_LEAD_FACTOR))
+
+
+def rain_occurrence_pop(proba, lead_hours):
+    """Published PoP: the classifier probability recalibrated for lead time
+    (see RAIN_OCC_DAY_AHEAD_PLATT). Identity up to 6 h; NaN stays NaN."""
+    p = np.asarray(proba, dtype=float)
+    ramp = _rain_occ_lead_ramp(lead_hours)
+    a_full, b_full = RAIN_OCC_DAY_AHEAD_PLATT
+    a = ramp * a_full
+    b = 1.0 + ramp * (b_full - 1.0)
+    clipped = np.clip(p, 1e-4, 1.0 - 1e-4)
+    pop = 1.0 / (1.0 + np.exp(-(a + b * np.log(clipped / (1.0 - clipped)))))
+    return np.where(ramp > 0.0, pop, p)
 
 
 def _rain_occ_best_threshold(y, proba):
@@ -4380,8 +4408,8 @@ def predict_rain_occurrence(frame, bundle, lead_hours):
     precipitation = np.where(rain, amount, 0.0)
     precipitation[~usable] = np.nan
     proba = np.where(usable, proba, np.nan)
-    return {'proba': proba, 'rain': rain, 'precipitation': precipitation,
-            'threshold': tau, 'usable': usable}
+    return {'proba': proba, 'pop': rain_occurrence_pop(proba, lead), 'rain': rain,
+            'precipitation': precipitation, 'threshold': tau, 'usable': usable}
 
 
 # Rain-onset timing: discrete-time conditional-hazard model. The historical
@@ -7969,7 +7997,7 @@ def _classifier_precip_decision(fc, bundle):
     occ = predict_rain_occurrence(fc, bundle, lead)
     unknown = ~occ['usable']
     pred = np.where(unknown, 0.0, occ['precipitation'])
-    pop = np.where(unknown, 0.0, occ['proba'])
+    pop = np.where(unknown, 0.0, occ['pop'])
     icon_vals, icon_nan = _icon2i_precip_values(fc)
     n_rain = int((occ['rain'] & (lead >= 0)).sum())
     print(f"  Rain klasifikator (tau={float(bundle['meta']['tau']):.2f}, "
