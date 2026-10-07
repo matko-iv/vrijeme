@@ -62,10 +62,16 @@ def git(*args):
 def published_forecasts(day):
     """One row per (published run, hour on `day`)."""
     since = (pd.Timestamp(day) - pd.Timedelta(days=3)).strftime('%Y-%m-%d')
-    log = git('log', f'--since={since}', '--format=%H %s', '--', PUBLISHED).decode().splitlines()
+    log = git('log', f'--since={since}', '--format=%H|%an|%s', '--', PUBLISHED).decode().splitlines()
     rows = []
     for line in log:
-        sha, subject = line.split(' ', 1)
+        sha, author, subject = line.split('|', 2)
+        if author == 'github-actions[bot]':
+            source = 'GitHub Actions'
+        elif 'local run' in subject:
+            source = 'Claude session run'
+        else:
+            source = f'manual ({author})'
         try:
             data = json.loads(git('show', f'{sha}:{PUBLISHED}'))
         except (subprocess.CalledProcessError, json.JSONDecodeError):
@@ -77,7 +83,7 @@ def published_forecasts(day):
             valid = pd.Timestamp(h['datetime'][:19])
             rows.append({
                 'issued': issued, 'commit': sha[:7],
-                'source': 'local run' if 'local run' in subject else 'GitHub Actions',
+                'source': source,
                 'valid': valid, 'lead_h': round((valid - issued).total_seconds() / 3600, 1),
                 'precipitation': h.get('precipitation'), 'pop': h.get('precipitation_pop'),
                 'precipitation_raw': h.get('precipitation_raw'),
