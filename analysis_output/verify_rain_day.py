@@ -29,6 +29,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 import numpy as np
@@ -143,9 +144,15 @@ def snapshot(day):
 
 def station_hourly(day):
     """Hourly station rain (mm over [T, T+1)) and mean temperature from WU 5-minute data."""
-    r = requests.get(WU_URL.format(d=day), headers=WU_HEADERS, timeout=60)
-    r.raise_for_status()
-    m = re.search(r'<script[^>]*id="app-root-state"[^>]*>(.*?)</script>', r.text, re.S)
+    for attempt in range(5):           # WU sometimes serves a light page without the data
+        r = requests.get(WU_URL.format(d=day), headers=WU_HEADERS, timeout=60)
+        r.raise_for_status()
+        m = re.search(r'<script[^>]*id="app-root-state"[^>]*>(.*?)</script>', r.text, re.S)
+        if m:
+            break
+        time.sleep(15)
+    else:
+        sys.exit('WU did not return the observation data; try again later')
     raw = (m.group(1).replace('&q;', '"').replace('&a;', '&').replace('&s;', "'")
            .replace('&l;', '<').replace('&g;', '>'))
     best = []
