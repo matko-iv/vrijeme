@@ -54,7 +54,12 @@ WARM = (6, 7, 8, 9)
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--cache', default=os.path.join(ROOT, 'analysis_output', 'cache_previous_runs'))
+    p.add_argument('--partial', action='store_true',
+                   help='use whatever is cached; missing chunks become NaN instead of fetching')
     return p.parse_args()
+
+
+PARTIAL = False
 
 
 def fetch(model, start, end, cache):
@@ -65,6 +70,10 @@ def fetch(model, start, end, cache):
     while s <= end:
         e = min(s + timedelta(days=29), end)
         path = os.path.join(cache, f'{model}_{s}_{e}.csv')
+        if not os.path.exists(path) and PARTIAL:
+            print(f'  {model} {s}..{e}: not cached, left missing (--partial)', flush=True)
+            s = e + timedelta(days=1)
+            continue
         if not os.path.exists(path):
             params = dict(latitude=fc.LAT, longitude=fc.LON, hourly=hourly, models=fc.MODEL_IDS[model],
                           timezone=fc.FORECAST_TIMEZONE, start_date=s.isoformat(), end_date=e.isoformat())
@@ -87,6 +96,8 @@ def fetch(model, start, end, cache):
             time.sleep(1.0)
         frames.append(pd.read_csv(path, parse_dates=['datetime']))
         s = e + timedelta(days=1)
+    if not frames:
+        return pd.DataFrame(columns=['datetime']).set_index('datetime')
     return pd.concat(frames, ignore_index=True).drop_duplicates('datetime').set_index('datetime')
 
 
@@ -113,7 +124,9 @@ def scores(truth, decision):
 
 
 def main():
+    global PARTIAL
     args = parse_args()
+    PARTIAL = args.partial
     with contextlib.redirect_stdout(io.StringIO()):
         hist = fc.load_historical_data()
     hist = hist.sort_values('datetime').drop_duplicates('datetime').reset_index(drop=True)

@@ -1,0 +1,289 @@
+{
+  "hours": 8861,
+  "wet_hours": 636,
+  "period": [
+    "2025-06-01 00:00:00",
+    "2026-08-18 15:00:00"
+  ],
+  "same_day_csi_tau": 0.24,
+  "day_ahead_threshold": 0.144,
+  "decisions": {
+    "icon2i_ge_0.1mm": {
+      "all": {
+        "csi": 0.3895,
+        "pod": 0.5959,
+        "far": 0.4707,
+        "bias": 1.126
+      },
+      "cool_oct_may": {
+        "csi": 0.414,
+        "pod": 0.6221,
+        "far": 0.4469,
+        "bias": 1.125
+      },
+      "warm_jun_sep": {
+        "csi": 0.2119,
+        "pod": 0.3731,
+        "far": 0.6711,
+        "bias": 1.134
+      }
+    },
+    "icon2i_pm1h_ge_0.1mm": {
+      "all": {
+        "csi": 0.4032,
+        "pod": 0.7893,
+        "far": 0.5482,
+        "bias": 1.747
+      },
+      "cool_oct_may": {
+        "csi": 0.4329,
+        "pod": 0.8102,
+        "far": 0.5183,
+        "bias": 1.682
+      },
+      "warm_jun_sep": {
+        "csi": 0.2278,
+        "pod": 0.6119,
+        "far": 0.7338,
+        "bias": 2.299
+      }
+    },
+    "classifier_without_icon2i": {
+      "all": {
+        "csi": 0.4429,
+        "pod": 0.6588,
+        "far": 0.4252,
+        "bias": 1.146
+      },
+      "cool_oct_may": {
+        "csi": 0.474,
+        "pod": 0.7047,
+        "far": 0.4086,
+        "bias": 1.192
+      },
+      "warm_jun_sep": {
+        "csi": 0.18,
+        "pod": 0.2687,
+        "far": 0.6471,
+        "bias": 0.761
+      }
+    },
+    "classifier_with_icon2i": {
+      "all": {
+        "csi": 0.4336,
+        "pod": 0.6368,
+        "far": 0.4239,
+        "bias": 1.105
+      },
+      "cool_oct_may": {
+        "csi": 0.4612,
+        "pod": 0.6784,
+        "far": 0.4098,
+        "bias": 1.149
+      },
+      "warm_jun_sep": {
+        "csi": 0.1959,
+        "pod": 0.2836,
+        "far": 0.6122,
+        "bias": 0.731
+      }
+    },
+    "ensemble_mean_ge_0.2mm": {
+      "all": {
+        "csi": 0.4135,
+        "pod": 0.8569,
+        "far": 0.5558,
+        "bias": 1.929
+      },
+      "cool_oct_may": {
+        "csi": 0.4652,
+        "pod": 0.8805,
+        "far": 0.5035,
+        "bias": 1.773
+      },
+      "warm_jun_sep": {
+        "csi": 0.1826,
+        "pod": 0.6567,
+        "far": 0.7982,
+        "bias": 3.254
+      }
+    },
+    "with_icon2i_dry_needs_0.30": {
+      "all": {
+        "csi": 0.4377,
+        "pod": 0.6022,
+        "far": 0.3842,
+        "bias": 0.978
+      },
+      "cool_oct_may": {
+        "csi": 0.4644,
+        "pod": 0.6415,
+        "far": 0.3729,
+        "bias": 1.023
+      },
+      "warm_jun_sep": {
+        "csi": 0.2022,
+        "pod": 0.2687,
+        "far": 0.55,
+        "bias": 0.597
+      }
+    },
+    "with_icon2i_dry_needs_0.40": {
+      "all": {
+        "csi": 0.4355,
+        "pod": 0.5943,
+        "far": 0.3803,
+        "bias": 0.959
+      },
+      "cool_oct_may": {
+        "csi": 0.4615,
+        "pod": 0.6327,
+        "far": 0.3695,
+        "bias": 1.004
+      },
+      "warm_jun_sep": {
+        "csi": 0.2045,
+        "pod": 0.2687,
+        "far": 0.5385,
+        "bias": 0.582
+      }
+    },
+    "with_icon2i_dry_needs_0.50": {
+      "all": {
+        "csi": 0.437,
+        "pod": 0.5943,
+        "far": 0.3773,
+        "bias": 0.954
+      },
+      "cool_oct_may": {
+        "csi": 0.4633,
+        "pod": 0.6327,
+        "far": 0.3662,
+        "bias": 0.998
+      },
+      "warm_jun_sep": {
+        "csi": 0.2045,
+        "pod": 0.2687,
+        "far": 0.5385,
+        "bias": 0.582
+      }
+    }
+  },
+  "reliability_day_ahead_with_icon2i": [
+    {
+      "bin": [
+        0,
+        0.1
+      ],
+      "n": 8023,
+      "observed": 0.023
+    },
+    {
+      "bin": [
+        0.1,
+        0.2
+      ],
+      "n": 258,
+      "observed": 0.345
+    },
+    {
+      "bin": [
+        0.2,
+        0.3
+      ],
+      "n": 144,
+      "observed": 0.458
+    },
+    {
+      "bin": [
+        0.3,
+        0.4
+      ],
+      "n": 88,
+      "observed": 0.625
+    },
+    {
+      "bin": [
+        0.4,
+        0.5
+      ],
+      "n": 71,
+      "observed": 0.563
+    },
+    {
+      "bin": [
+        0.5,
+        0.7
+      ],
+      "n": 133,
+      "observed": 0.654
+    },
+    {
+      "bin": [
+        0.7,
+        1.0
+      ],
+      "n": 144,
+      "observed": 0.819
+    }
+  ],
+  "platt": {
+    "refit_a": 0.74,
+    "refit_b": 0.811,
+    "log_loss": {
+      "raw": 0.1463,
+      "production_constants": 0.1254,
+      "refit_in_sample": 0.1253
+    }
+  },
+  "daily_totals": {
+    "all": {
+      "days": 366,
+      "observed_mm": 2063.5,
+      "icon": {
+        "total_ratio": 0.61,
+        "wet_day_mae_mm": 11.74
+      },
+      "clf": {
+        "total_ratio": 0.54,
+        "wet_day_mae_mm": 10.08
+      },
+      "ens": {
+        "total_ratio": 1.0,
+        "wet_day_mae_mm": 11.84
+      }
+    },
+    "cool_oct_may": {
+      "days": 176,
+      "observed_mm": 1829.1,
+      "icon": {
+        "total_ratio": 0.49,
+        "wet_day_mae_mm": 12.82
+      },
+      "clf": {
+        "total_ratio": 0.53,
+        "wet_day_mae_mm": 11.87
+      },
+      "ens": {
+        "total_ratio": 0.91,
+        "wet_day_mae_mm": 13.39
+      }
+    },
+    "warm_jun_sep": {
+      "days": 190,
+      "observed_mm": 234.4,
+      "icon": {
+        "total_ratio": 1.54,
+        "wet_day_mae_mm": 9.36
+      },
+      "clf": {
+        "total_ratio": 0.61,
+        "wet_day_mae_mm": 6.19
+      },
+      "ens": {
+        "total_ratio": 1.72,
+        "wet_day_mae_mm": 8.46
+      }
+    }
+  }
+}
