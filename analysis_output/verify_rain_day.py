@@ -159,8 +159,9 @@ def station_hourly(day):
     for v in json.loads(raw).values():
         body = v.get('b') if isinstance(v, dict) else None
         if isinstance(body, dict) and isinstance(body.get('observations'), list):
-            obs = body['observations']
-            if obs and str(obs[0].get('obsTimeLocal', '')).startswith(day) and len(obs) > len(best):
+            # the list can span several days (e.g. 7-9 Oct when asking for the 8th)
+            obs = [o for o in body['observations'] if str(o.get('obsTimeLocal', '')).startswith(day)]
+            if len(obs) > len(best):
                 best = obs
     if not best:
         sys.exit(f'No WU observations found for {day}')
