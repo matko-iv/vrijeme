@@ -16,7 +16,7 @@ mjerenja i objavljuje JSON koji pokreće web stranicu.
    kiša donosi multi-model klasifikator (vidi *Šansa za padavine*). CatBoost, dodatni LightGBM i Ridge
    meta-model dostupni su kao eksplicitna dijagnostika, ali nijesu kandidati za
    produkciju dok Ridge ne dobije temporalne OOF predikcije.
-3. **Live prognoza** — GitHub Actions pokreće pipeline na svakih 5 sati
+3. **Live prognoza** — GitHub Actions pokreće pipeline svakog sata
    (`--skip-training`): preuzme najnovije prognoze, primijeni korekciju i
    generiše `forecast_48h.json`. SKALA radar nowcast (poseban budva-radar
    projekat) blenduje se u prvih nekoliko sati padavina.
@@ -53,7 +53,7 @@ advanced_model_analysis.py  # Analiza grešaka po modelu
 visualize_analysis*.py      # Grafikoni analize
 trained_models_v2/          # Trenirani modeli + bias tabele
 .github/workflows/
-  forecast.yml              # Cron na svakih 5 sati
+  forecast.yml              # Cron svakog sata
 docs/
   forecast.html             # 48h + 7-dnevna prognoza
   index.html                # Analiza tačnosti modela

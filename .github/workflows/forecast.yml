@@ -2,16 +2,24 @@ name: Update Budva Weather Forecast
 
 on:
   schedule:
-    - cron: '17 */5 * * *'
+    # Hourly. GitHub delays and sometimes skips scheduled runs under load, so
+    # asking every hour keeps the published forecast fresh even when some are lost.
+    - cron: '7 * * * *'
   workflow_dispatch: # Allow manual trigger
 
 permissions:
   contents: write
 
+# Never run two forecasts at once; a run that starts meanwhile waits its turn.
+concurrency:
+  group: forecast
+  cancel-in-progress: false
+
 jobs:
   forecast:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Open-Meteo 429 back-offs (60 s, then 135 s per model) can push a run past 20 min.
+    timeout-minutes: 30
     env:
       # GitHub-hosted runners do not provide a GPU. Saved GPU-trained models
       # remain portable and are explicitly restored to CPU for inference here.
@@ -70,12 +78,22 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/forecast_data/forecast_48h.json
-          git add forecast_output/gemini_narrative_cache.json
-          git diff --staged --quiet || git commit -m "🌤️ Update forecast $(date +'%Y-%m-%d %H:%M %Z')"
-          # --autostash: forecast_48h_v3.py touches other tracked files (cache,
-          # logs) that the workflow doesn't stage. Without --autostash the
-          # rebase aborts with "cannot pull with rebase: You have unstaged
-          # changes". With it, those touch-ups get stashed/popped automatically.
-          git pull --rebase --autostash
-          git push
+          # main may have moved during the run (a manual or local forecast, a code
+          # push). Re-apply this run's two files on top of the latest main instead
+          # of rebasing, so a conflict on the forecast JSON can never fail the push.
+          cp docs/forecast_data/forecast_48h.json "$RUNNER_TEMP/forecast_48h.json"
+          cp forecast_output/gemini_narrative_cache.json "$RUNNER_TEMP/gemini_narrative_cache.json"
+          msg="🌤️ Update forecast $(date +'%Y-%m-%d %H:%M %Z')"
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin main
+            git reset -q --hard origin/main
+            cp "$RUNNER_TEMP/forecast_48h.json" docs/forecast_data/forecast_48h.json
+            cp "$RUNNER_TEMP/gemini_narrative_cache.json" forecast_output/gemini_narrative_cache.json
+            git add docs/forecast_data/forecast_48h.json forecast_output/gemini_narrative_cache.json
+            git diff --staged --quiet && { echo "No changes to publish"; exit 0; }
+            git commit -q -m "$msg"
+            git push -q origin HEAD:main && exit 0
+            echo "Push rejected (attempt $attempt), retrying"
+            sleep $((attempt * 5))
+          done
+          exit 1
