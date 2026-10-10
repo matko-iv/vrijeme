@@ -43,20 +43,31 @@ sea breeze. Six scenarios start you off: Adriatic autumn showers, summer
 heat storms, a Genoa low with jugo, bura, a supercell day and a blank
 canvas.
 
-**Auto weather** (on by default) runs a synoptic cycle while you play, as
-real mid-latitude weather does:
+**Auto weather** (on by default) does only two gentle things while you play:
 
-1. **Fair:** a ridge, mostly dry, for 8–16 h.
-2. **Approach:** a trough comes in from upwind. A warm-front rain shield
-   spreads in, and the wind backs and freshens.
-3. **Frontal:** a cold front passes with heavier rain, then the wind veers.
-4. **Post-frontal:** colder air aloft gives sunny spells and showers.
-5. Back to fair.
+- **Wind:** the steering wind turns toward a new direction every 5–11
+  simulated hours, by at most ~12° per hour, and its speed drifts slowly.
+- **Rain pockets:** pockets drift in, grow, rain and fade. Coverage follows
+  the humidity slider, from ~2% to ~10% of the map.
 
-Temperatures, humidity, shear and wind drift gently toward each phase's
-offsets from the scenario. A small banner names each phase. This also
-happens on the blank canvas. **Flow variety** scales the free atmosphere
-described below.
+It never adds lows, highs, fronts or air-mass changes, so there are no
+sudden storms or pressure jumps. Pockets are modelled on 4,266 rain
+objects (≥15 dBZ) tracked in the budva-radar Uljenje tiles:
+
+| | Real | Pockets (blank canvas) |
+|---|---|---|
+| Area, median / 90% | 41 / 465 km² | 66 / 323 km² |
+| Length/width, median | 1.8 | 1.6 |
+| Growth / decay to peak | 15 / 20 min | 20 / 15 min |
+| Peak dBZ, median / 90% | 27 / 43 | 24 / 35 |
+| Drift speed | 18 km/h | 15 km/h (follows the wind) |
+
+Lifetime rises with size (√area, 30 min to 6 h). This dynamic scaling of
+precipitation lifetime is the one known from radar nowcasting research
+(Germann & Zawadzki). Pockets only add lift and moisture, so the rain
+itself grows and fades through the normal rain physics. 40% of new pockets
+appear beside an existing one, so they cluster the way real showers do.
+**Flow variety** scales the free atmosphere described below.
 
 Keys: `Space` play/pause, `→` step, `←` back. The timeline keeps the last
 72 frames. Editing an earlier frame rewrites the future.

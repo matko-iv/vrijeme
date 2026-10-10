@@ -68,7 +68,7 @@ export const dirFrom = (u, v) => (Math.atan2(-u, -v) / D2R + 360) % 360;
 export const DEFAULT_PARAMS = {
   steerDir: 225, steerSpd: 12, shear: 14,
   t850: 9, t500: -21, rh: 70, sst: 22,
-  sun: 1, trigger: 1, breeze: 1, variability: 1,
+  sun: 1, trigger: 1, breeze: 1, variability: 1, pockets: 0,
 };
 
 const TEX_PERIOD = 3 * 3600 * 1000; // texture coordinate layers reset every 3 h (staggered)
@@ -115,6 +115,10 @@ export class Sim {
     // (stream function psi) plus mesoscale lift noise, so the flow varies
     // across the map even without user-placed lows and highs.
     this.psi = F(); this.pu = F(); this.pv = F(); this.meso = F();
+    // Rain pockets (auto weather): drifting, elongated areas of gentle lift
+    // and moisture whose size, shape and lifetime follow measured radar
+    // statistics. pk = their lift (m/s), pkn = their 0..1 footprint.
+    this.pockets = []; this.pk = F(); this.pkn = F();
     this.pn = makeSimplex(seed * 7 + 3); this.mn = makeSimplex(seed * 13 + 5);
     this.pox = 0; this.poy = 0;
     this.Xk = new Float32Array(NX); this.Yk = new Float32Array(NY);
@@ -402,7 +406,7 @@ export class Sim {
         const dTdy = (this.T[jm * NX + i] - this.T[jp * NX + i]) / (this.dy[j] * (jp - jm));
         const wa = clamp(-150 * (this.us[k] * dTdx + this.vs[k] * dTdy) * 0.7, -0.12, 0.12);
         // Synoptic ascent near lows (and subsidence under highs).
-        this._tmp[k] = clamp(conv, -0.4, 0.4) + oro + wa + 0.12 * this.syn[k] + this.Fz[k];
+        this._tmp[k] = clamp(conv, -0.4, 0.4) + oro + wa + 0.12 * this.syn[k] + this.Fz[k] + this.pk[k];
       }
     }
     // Light smoothing removes grid-scale noise in the lift.
@@ -472,6 +476,7 @@ export class Sim {
   }
 
   _substep(dt) {
+    this._pockets(dt);
     this.diagnose();
     this._advect(this.T, this.u, this.v, dt);
     this._advect(this.q, this.u, this.v, dt);
@@ -531,7 +536,7 @@ export class Sim {
         // Condensation in rising air; a deep moist layer (surface RH and
         // mid-level humidity together) is needed for widespread rain.
         if (w > 0) {
-          const sat = clamp((0.45 * rh + 0.55 * this.M[k] - 0.73) / 0.2, 0, 1);
+          const sat = Math.max(clamp((0.45 * rh + 0.55 * this.M[k] - 0.73) / 0.2, 0, 1), this.pkn[k]);
           const org = clamp(0.5 + 1.6 * this.meso[k] * (this.P.variability ?? 1), 0.05, 1.6);
           const cond = RHO * this.q[k] * 1e-3 * Math.max(0, w - 0.02) * sat * 0.34 * org * dt;
           C += cond; this.q[k] -= cond * 0.33;
@@ -554,6 +559,86 @@ export class Sim {
         this.out[k] *= oDecay;
       }
     }
+  }
+
+  // ---------- rain pockets ----------
+  // Statistics from 4,266 tracked >=15 dBZ objects in budva-radar (Uljenje,
+  // 1 km, 5 min): median 41 km2 (90% < 465), length/width ~1.8 (90% < 3.2),
+  // ~15 min growth / 20 min decay for small ones, lifetime rising with size
+  // (dynamic scaling, cf. Germann & Zawadzki), drift ~18 km/h with the wind.
+  addPocket(lat, lon, o = {}) {
+    const r = this.rng, g = () => Math.sqrt(-2 * Math.log(r() + 1e-9)) * Math.cos(2 * Math.PI * r());
+    const cellA = this.dx[this.NY >> 1] * this.dy[this.NY >> 1] / 1e6;
+    const area = o.area ?? clamp(120 * Math.exp(1.0 * g()), 25, 4000) * Math.max(1, cellA / 20);
+    const [su, sv] = windFrom(this.P.steerDir, Math.max(1, this.P.steerSpd));
+    const pk = {
+      lat, lon, area, age: 0,
+      aspect: o.aspect ?? clamp(1.8 * Math.exp(0.35 * g()), 1, 4),
+      th: Math.atan2(sv, su) + g() * 0.35,
+      life: o.life ?? clamp(2400 * Math.sqrt(area / 100), 1800, 6 * 3600),
+      lift: o.lift ?? clamp(0.32 * Math.exp(0.45 * g()), 0.1, 0.9),
+      seed: r() * 1000,
+    };
+    this.pockets.push(pk);
+    return pk;
+  }
+
+  _pockets(dt) {
+    const { NX, NY, P } = this;
+    this.pk.fill(0); this.pkn.fill(0);
+    // Spawn to hold the requested coverage (P.pockets = wet fraction target).
+    if (P.pockets > 0 && this.pockets.length < 300) {
+      let A = 0;
+      for (let j = 0; j < NY; j++) A += this.dx[j] * this.dy[j] * NX / 1e6;
+      const perHour = P.pockets * A / 260; // mean area x lifetime ~ 260 km2 h
+      let n = perHour * dt / 3600;
+      while (n > 0) {
+        if (this.rng() < Math.min(1, n)) {
+          let lat, lon;
+          const near = this.pockets.length && this.rng() < 0.4 ? this.pockets[Math.floor(this.rng() * this.pockets.length)] : null;
+          if (near) {
+            // Real rain clusters: new pockets appear beside existing ones.
+            const d = Math.sqrt(near.area / Math.PI) * (1.2 + this.rng());
+            const a = near.th + (this.rng() < 0.5 ? 1 : -1) * (Math.PI / 2 + (this.rng() - 0.5));
+            lat = near.lat + d * Math.sin(a) / 111.32; lon = near.lon + d * Math.cos(a) / (111.32 * Math.cos(near.lat * D2R));
+          } else {
+            lat = this.lat[Math.floor(this.rng() * NY)]; lon = this.lon[Math.floor(this.rng() * NX)];
+          }
+          this.addPocket(lat, lon);
+        }
+        n -= 1;
+      }
+    }
+    for (const q of this.pockets) {
+      q.age += dt;
+      const inGrid = this.inside(q.lon, q.lat, 2);
+      const ux = inGrid ? this.sampleLL(this.us, q.lon, q.lat) : 0, vy = inGrid ? this.sampleLL(this.vs, q.lon, q.lat) : 0;
+      q.lat += vy * dt / 111320; q.lon += ux * dt / (111320 * Math.cos(q.lat * D2R));
+      const thNow = Math.atan2(vy, ux);
+      q.th += Math.atan2(Math.sin(thNow - q.th), Math.cos(thNow - q.th)) * Math.min(1, dt / 7200);
+      const a = q.age / q.life;
+      const env = a < 0.3 ? Math.sin(Math.PI / 2 * a / 0.3) ** 2 : a < 0.6 ? 1 : Math.cos(Math.PI / 2 * Math.min(1, (a - 0.6) / 0.4)) ** 2;
+      if (!inGrid || env <= 0) continue;
+      const R = Math.sqrt(q.area / Math.PI), A_ = R * Math.sqrt(q.aspect), B_ = R / Math.sqrt(q.aspect);
+      const [gx, gy] = this.gridXY(q.lon, q.lat);
+      const j0 = clamp(Math.round(gy), 0, NY - 1), kx = this.dx[j0] / 1000, ky = this.dy[j0] / 1000;
+      const ext = A_ * 1.6, ct = Math.cos(q.th), st = Math.sin(q.th);
+      for (let j = Math.max(0, Math.floor(gy - ext / ky)); j <= Math.min(NY - 1, Math.ceil(gy + ext / ky)); j++) {
+        for (let i = Math.max(0, Math.floor(gx - ext / kx)); i <= Math.min(NX - 1, Math.ceil(gx + ext / kx)); i++) {
+          const ex = (i - gx) * kx, ny = -(j - gy) * ky;
+          const al = ex * ct + ny * st, ac = -ex * st + ny * ct;
+          const ang = Math.atan2(ac, al);
+          const lobe = 1 + 0.22 * this.mn(Math.cos(ang) * 1.5 + q.seed, Math.sin(ang) * 1.5 + q.seed * 0.7);
+          const d2 = ((al / A_) ** 2 + (ac / B_) ** 2) / (lobe * lobe);
+          if (d2 > 2.2) continue;
+          const w = Math.exp(-1.6 * d2) * env, k = j * NX + i;
+          this.pk[k] += q.lift * w;
+          if (w > this.pkn[k]) this.pkn[k] = w;
+          this.M[k] += (0.92 - this.M[k]) * Math.min(1, dt / 1800) * w;
+        }
+      }
+    }
+    this.pockets = this.pockets.filter(q => q.age < q.life && this.inside(q.lon, q.lat, 30));
   }
 
   // ---------- pressure systems ----------
@@ -866,6 +951,7 @@ export class Sim {
     const cl = Math.cos(lat * D2R), near = (la, lo) => Math.hypot((la - lat) * 111.32, (lo - lon) * 111.32 * cl) < km;
     this.cells = this.cells.filter(c => !near(c.lat, c.lon));
     this.systems = this.systems.filter(s => !near(s.lat, s.lon));
+    this.pockets = this.pockets.filter(q => !near(q.lat, q.lon));
     this.strikes = this.strikes.filter(s => !near(s.lat, s.lon));
   }
   addSystem(type, lat, lon, dp, R) {
@@ -947,6 +1033,7 @@ export class Sim {
       texDir: { A: this.texDir.A.slice(), B: this.texDir.B.slice() },
       cells: this.cells.map(c => ({ ...c })),
       systems: this.systems.map(s => ({ ...s })),
+      pockets: this.pockets.map(q => ({ ...q })),
       strikes: this.strikes.slice(),
     };
   }
@@ -957,12 +1044,14 @@ export class Sim {
     this.texDir = { A: s.texDir.A.slice(), B: s.texDir.B.slice() };
     this.cells = s.cells.map(c => ({ ...c }));
     this.systems = s.systems.map(x => ({ ...x }));
+    this.pockets = (s.pockets || []).map(q => ({ ...q }));
     this.strikes = s.strikes.slice();
     this.diagnose();
   }
   adoptFrom(old) {
     this.time = old.time;
     this.cells = old.cells; this.systems = old.systems; this.strikes = old.strikes; this.lineSeq = old.lineSeq;
+    this.pockets = old.pockets;
     this.pox = old.pox; this.poy = old.poy; this._phase = old._phase;
     this._resetTex('A', old.texOff.A); this._resetTex('B', old.texOff.B);
     this.texDir = { A: old.texDir.A.slice(), B: old.texDir.B.slice() };

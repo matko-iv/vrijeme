@@ -176,7 +176,7 @@ function buildUI() {
   });
 
   $('auto').checked = state.auto;
-  $('auto').onchange = e => { state.auto = e.target.checked; if (state.auto) state.baseP = { ...state.P }; };
+  $('auto').onchange = e => { state.auto = e.target.checked; if (state.auto) state.baseP = { ...state.P }; else state.P.pockets = 0; };
   $('play').onclick = togglePlay;
   $('stepBtn').onclick = () => { stopPlay(); forward(); };
   $('back').onclick = () => { stopPlay(); if (hIdx > 0) goTo(hIdx - 1); };
@@ -691,77 +691,26 @@ function readout(vx, vy) {
 }
 
 // ---------- auto weather ----------
-// Real weather is not random noise: it comes in a few coherent systems that
-// cycle on a scale of a day or two. The director runs that cycle:
-//   fair (ridge, mostly dry) -> approach (trough, warm-front rain shield,
-//   wind backs and freshens) -> frontal (cold front, heavier rain, wind
-//   veers) -> post (colder aloft, showers) -> fair ...
-// Parameters drift gently toward each phase's offsets from the scenario.
-const PHASES = {
-  fair: { hours: [8, 16], off: { rh: -6, t500: 2, steerSpd: -2 }, next: 'approach' },
-  approach: { hours: [4, 8], off: { rh: 8, t500: 0, steerSpd: 4 }, next: 'frontal' },
-  frontal: { hours: [3, 6], off: { rh: 10, t500: -1, steerSpd: 5 }, next: 'post' },
-  post: { hours: [6, 10], off: { rh: 2, t500: -6, t850: -1.5, steerSpd: 1 }, next: 'fair' },
-};
-const director = { phase: null, phaseEnd: 0, dirTarget: null };
+// Auto weather only does two things, gently: the steering wind wanders (it
+// turns toward a new direction every several hours and its speed breathes),
+// and rain pockets drift in, grow, rain and fade with real-radar statistics
+// (see Sim.addPocket). No lows, highs, fronts or air-mass jumps.
+const director = { dirTarget: null, nextTurn: 0 };
 const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 1.41;
-const WALK = { steerSpd: [0.6, 2, 30, 1], shear: [0.5, 0, 35, 1], t850: [0.2, -20, 26, 0.5],
-  t500: [0.2, -42, -4, 0.5], rh: [1, 25, 95, 1], sst: [0.02, 4, 31, 0.5] };
-
-function startPhase(name, first) {
-  const P = state.P, ph = PHASES[name];
-  director.phase = name;
-  const [h0, h1] = ph.hours;
-  director.phaseEnd = sim.time + (first ? 0.4 + Math.random() * 0.6 : 1) * (h0 + Math.random() * (h1 - h0)) * 3600e3;
-  if (first) return;
-  const cLat = view.lat(view.h / 2), cLon = view.lon(view.w / 2);
-  const span = Math.min(view.w, view.h) * view.metersPerPx(cLat) / 1000;
-  const [u, v] = windFrom(P.steerDir, Math.max(1, P.steerSpd));
-  const l = Math.hypot(u, v), ux = u / l, uy = v / l;
-  const at = (along, across) => offsetLL(cLat, cLon, (ux * along - uy * across) * 1000, (uy * along + ux * across) * 1000);
-  const from = cardinal(P.steerDir);
-  for (const S of sim.systems) if (S.auto) S.trend = S.dp < 0 ? 0.7 : -0.6; // old systems fade
-  let msg;
-  if (name === 'fair') {
-    const [la, lo] = at(-span * 0.5, (Math.random() - 0.5) * span * 0.4);
-    const S = sim.addSystem('H', la, lo, 5 + Math.random() * 5, clamp(span * 0.6, 250, 1100));
-    Object.assign(S, { auto: true, born: sim.time, trend: 0.1 });
-    msg = 'A ridge builds in: drier and calmer';
-  } else if (name === 'approach') {
-    const [la, lo] = at(-span * 0.75, -span * (0.25 + Math.random() * 0.3));
-    const S = sim.addSystem('L', la, lo, 6 + Math.random() * 6, clamp(span * 0.55, 220, 1000));
-    Object.assign(S, { auto: true, born: sim.time, trend: -0.25 });
-    sim.diagnose();
-    const [a1, o1] = at(-span * 0.15, -span * 0.5), [a2, o2] = at(-span * 0.05, span * 0.5);
-    sim.addFront('warm', a1, o1, a2, o2);
-    director.dirTarget = (P.steerDir - 15 - Math.random() * 20 + 360) % 360; // backing ahead of a trough
-    msg = `A trough approaches from the ${from}: cloud and rain spread in`;
-  } else if (name === 'frontal') {
-    sim.diagnose();
-    const [a1, o1] = at(-span * 0.4, -span * 0.55), [a2, o2] = at(-span * 0.3, span * 0.55);
-    sim.addFront('cold', a1, o1, a2, o2);
-    director.dirTarget = (P.steerDir + 50 + Math.random() * 30) % 360; // veering behind the front
-    msg = `A cold front is coming through from the ${from}: heavier rain, then the wind veers`;
-  } else {
-    msg = 'Cooler air behind the front: sunny spells and showers';
-  }
-  sim.diagnose();
-  toast(msg);
-}
 
 function autoWeather(dt) {
   const P = state.P, B = state.baseP, h = dt / 3600, sq = Math.sqrt(h);
-  if (!director.phase) startPhase(state.preset === 'blank' ? 'fair' : 'post', true);
-  else if (sim.time >= director.phaseEnd) startPhase(PHASES[director.phase].next);
-  if (director.dirTarget == null) director.dirTarget = P.steerDir;
-  const dd = ((director.dirTarget - P.steerDir + 540) % 360) - 180;
-  P.steerDir = Math.round((P.steerDir + dd * Math.min(1, h / 3) + gauss() * 2 * sq + 360) % 360);
-  const off = PHASES[director.phase].off;
-  for (const [k, [sd, lo, hi, stp]] of Object.entries(WALK)) {
-    const target = B[k] + (off[k] || 0);
-    const v = P[k] + gauss() * sd * sq + (target - P[k]) * Math.min(1, h / 4);
-    P[k] = Math.round(clamp(v, lo, hi) / stp) * stp;
+  // Rain pocket coverage follows the humidity slider: ~2% (dry) to ~10%.
+  P.pockets = clamp((P.rh - 40) / 450, 0.02, 0.1);
+  if (director.dirTarget == null) { director.dirTarget = P.steerDir; director.nextTurn = sim.time + (3 + Math.random() * 4) * 3600e3; }
+  if (sim.time >= director.nextTurn) {
+    director.dirTarget = (P.steerDir + (Math.random() < 0.5 ? -1 : 1) * (20 + Math.random() * 45) + 360) % 360;
+    director.nextTurn = sim.time + (5 + Math.random() * 6) * 3600e3;
+    toast(`The wind is slowly turning: soon from the ${cardinal(director.dirTarget)}`);
   }
+  const dd = ((director.dirTarget - P.steerDir + 540) % 360) - 180;
+  P.steerDir = Math.round((P.steerDir + clamp(dd, -12 * h, 12 * h) + gauss() * 1.5 * sq + 360) % 360);
+  P.steerSpd = Math.round(clamp(P.steerSpd + gauss() * 0.5 * sq + (B.steerSpd - P.steerSpd) * Math.min(1, h / 8), 1, 30));
   syncSliders();
 }
 
@@ -826,7 +775,7 @@ async function applyPreset(k) {
   state.preset = k;
   Object.assign(state.P, DEFAULT_PARAMS, p.P);
   state.baseP = { ...state.P };
-  director.phase = null; director.dirTarget = null;
+  director.dirTarget = null;
   syncSliders();
   highlight();
   showLoading(p.spin ? 'Spinning up the weather…' : 'Setting up…');
