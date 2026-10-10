@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather Radar Sandbox</title>
+<meta name="description" content="Weather sandbox: draw rain, storms, lows and fronts on real terrain and watch radar, satellite and surface maps evolve.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo"></span><div><b>Radar Sandbox</b><small>not a forecast · play with the weather</small></div></div>
+  <nav class="regions" id="regions"></nav>
+  <div class="clock"><div id="clockLocal">--</div><small id="clockUtc">--</small></div>
+</header>
+
+<nav class="modes" id="modes"></nav>
+
+<main class="app">
+  <aside class="side" id="side">
+    <section>
+      <h3>Tools</h3>
+      <div class="tools" id="tools"></div>
+      <div class="toolopts" id="toolopts">
+        <label class="row" id="optBrush"><span>Brush</span><input type="range" id="brush" min="3" max="250" value="30"><output id="brushOut"></output></label>
+        <label class="row" id="optIntensity"><span>Strength</span><input type="range" id="intensity" min="1" max="10" value="5"><output id="intensityOut"></output></label>
+        <div class="row seg" id="optCellType">
+          <button data-ct="single" class="on">Single</button><button data-ct="multi">Multicell</button><button data-ct="super">Supercell</button>
+        </div>
+        <div class="row seg" id="optSign"><button data-sign="1" class="on">＋ Add</button><button data-sign="-1">－ Remove</button></div>
+        <p class="hint" id="toolHint"></p>
+      </div>
+    </section>
+
+    <section>
+      <h3>Atmosphere</h3>
+      <div class="steer">
+        <canvas id="compass" width="240" height="240"></canvas>
+        <div><b id="steerOut">--</b><small>steering wind (700 hPa)<br>drag the arrow</small></div>
+      </div>
+      <div id="sliders"></div>
+    </section>
+
+    <section>
+      <h3>Scenarios</h3>
+      <div class="presets" id="presets"></div>
+      <label class="row"><span>Start</span><input type="datetime-local" id="startTime"></label>
+    </section>
+
+    <section>
+      <h3>Layers</h3>
+      <div class="layers" id="layers"></div>
+      <label class="row"><span>Basemap</span>
+        <select id="basemap"><option value="auto">Auto</option><option value="radar">Radar (DHMZ)</option><option value="terrain">Terrain</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
+      <label class="row"><span>Radar colours</span>
+        <select id="palette"><option value="dhmz">DHMZ (Uljenje)</option><option value="nws">NWS</option><option value="opera">OPERA</option></select></label>
+      <label class="row"><span>Radar site</span>
+        <select id="site"><option value="none">Composite (no site)</option></select></label>
+      <label class="row"><span>Satellite</span>
+        <select id="satMode"><option value="auto">Auto (VIS by day)</option><option value="vis">Visible</option><option value="ir">Infrared</option><option value="ir-enh">IR enhanced</option></select></label>
+    </section>
+    <p class="foot">Terrain: AWS Terrain Tiles (SRTM, GMTED). Borders: Natural Earth. Physics are simplified on purpose; see <a href="README.md">README</a>.</p>
+  </aside>
+
+  <section class="stage" id="stage">
+    <canvas id="map"></canvas>
+    <canvas id="fx"></canvas>
+    <canvas id="ui"></canvas>
+    <div class="readout" id="readout"></div>
+    <div class="legend" id="legend"></div>
+    <div class="loading" id="loading"><div class="spinner"></div><span id="loadingText">Loading terrain…</span></div>
+    <button class="sidetoggle" id="sideToggle" aria-label="Toggle controls">☰</button>
+  </section>
+</main>
+
+<footer class="timeline">
+  <div class="tl-buttons">
+    <button id="back" title="Step back (←)">⏮</button>
+    <button id="play" class="primary" title="Play / pause (space)">▶</button>
+    <button id="stepBtn" title="Step forward (→)">⏭</button>
+  </div>
+  <input type="range" id="scrub" min="0" max="0" value="0">
+  <div class="tl-opts">
+    <label>Step <select id="stepMin"><option>5</option><option>10</option><option selected>15</option><option>30</option><option>60</option></select> min</label>
+    <label>Speed <input type="range" id="fps" min="1" max="10" value="4"></label>
+    <button id="resetAcc" title="Reset accumulated rain">Reset Σ</button>
+    <button id="clearAll" title="Remove all weather">Clear</button>
+  </div>
+</footer>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
