@@ -68,7 +68,7 @@ export const dirFrom = (u, v) => (Math.atan2(-u, -v) / D2R + 360) % 360;
 export const DEFAULT_PARAMS = {
   steerDir: 225, steerSpd: 12, shear: 14,
   t850: 9, t500: -21, rh: 70, sst: 22,
-  sun: 1, trigger: 1, breeze: 1, variability: 1, pockets: 0,
+  sun: 1, trigger: 1, breeze: 1, variability: 1, pockets: 0, natural: 1,
 };
 
 const TEX_PERIOD = 3 * 3600 * 1000; // texture coordinate layers reset every 3 h (staggered)
@@ -118,7 +118,7 @@ export class Sim {
     // Rain pockets (auto weather): drifting, elongated areas of gentle lift
     // and moisture whose size, shape and lifetime follow measured radar
     // statistics. pk = their lift (m/s), pkn = their 0..1 footprint.
-    this.pockets = []; this.pk = F(); this.pkn = F();
+    this.pockets = []; this.pk = F(); this.pkn = F(); this.pgen = F();
     this.pn = makeSimplex(seed * 7 + 3); this.mn = makeSimplex(seed * 13 + 5);
     this.pox = 0; this.poy = 0;
     this.Xk = new Float32Array(NX); this.Yk = new Float32Array(NY);
@@ -537,7 +537,11 @@ export class Sim {
         // mid-level humidity together) is needed for widespread rain.
         if (w > 0) {
           const sat = Math.max(clamp((0.45 * rh + 0.55 * this.M[k] - 0.73) / 0.2, 0, 1), this.pkn[k]);
-          const org = clamp(0.5 + 1.6 * this.meso[k] * (this.P.variability ?? 1), 0.05, 1.6);
+          // Pockets carry their own structure, so the background organisation
+          // noise cannot switch them off.
+          const org = Math.max(clamp(0.5 + 1.6 * this.meso[k] * (this.P.variability ?? 1), 0.05, 1.6), 0.75 * this.pkn[k])
+            // Natural rain < 1: rain only where you put it (painted forcing or its pockets).
+            * (this.P.natural + (1 - this.P.natural) * clamp(Math.sqrt(Math.max(this.pkn[k], this.Fz[k] / 0.25)), 0, 1));
           const cond = RHO * this.q[k] * 1e-3 * Math.max(0, w - 0.02) * sat * 0.34 * org * dt;
           C += cond; this.q[k] -= cond * 0.33;
         } else if (C > 0) {
@@ -577,38 +581,21 @@ export class Sim {
       th: Math.atan2(sv, su) + g() * 0.35,
       life: o.life ?? clamp(2400 * Math.sqrt(area / 100), 1800, 6 * 3600),
       lift: o.lift ?? clamp(0.32 * Math.exp(0.45 * g()), 0.1, 0.9),
-      seed: r() * 1000,
+      seed: r() * 1000, gen: o.gen ?? 0, born: 0,
     };
+    // Family tree: ~1.3 children per generation, slowly weakening, at least
+    // one for the first generations, so painted rain lives for many hours.
+    const m = 1.35 * Math.pow(0.95, pk.gen);
+    let kids = 0, L = Math.exp(-m), pp = 1;
+    do { kids++; pp *= r(); } while (pp > L);
+    pk.kids = Math.max(pk.gen < 3 ? 1 : 0, kids - 1);
     this.pockets.push(pk);
     return pk;
   }
 
   _pockets(dt) {
     const { NX, NY, P } = this;
-    this.pk.fill(0); this.pkn.fill(0);
-    // Spawn to hold the requested coverage (P.pockets = wet fraction target).
-    if (P.pockets > 0 && this.pockets.length < 300) {
-      let A = 0;
-      for (let j = 0; j < NY; j++) A += this.dx[j] * this.dy[j] * NX / 1e6;
-      const perHour = P.pockets * A / 260; // mean area x lifetime ~ 260 km2 h
-      let n = perHour * dt / 3600;
-      while (n > 0) {
-        if (this.rng() < Math.min(1, n)) {
-          let lat, lon;
-          const near = this.pockets.length && this.rng() < 0.4 ? this.pockets[Math.floor(this.rng() * this.pockets.length)] : null;
-          if (near) {
-            // Real rain clusters: new pockets appear beside existing ones.
-            const d = Math.sqrt(near.area / Math.PI) * (1.2 + this.rng());
-            const a = near.th + (this.rng() < 0.5 ? 1 : -1) * (Math.PI / 2 + (this.rng() - 0.5));
-            lat = near.lat + d * Math.sin(a) / 111.32; lon = near.lon + d * Math.cos(a) / (111.32 * Math.cos(near.lat * D2R));
-          } else {
-            lat = this.lat[Math.floor(this.rng() * NY)]; lon = this.lon[Math.floor(this.rng() * NX)];
-          }
-          this.addPocket(lat, lon);
-        }
-        n -= 1;
-      }
-    }
+    this.pk.fill(0); this.pkn.fill(0); this.pgen.fill(0);
     for (const q of this.pockets) {
       q.age += dt;
       const inGrid = this.inside(q.lon, q.lat, 2);
@@ -617,6 +604,15 @@ export class Sim {
       const thNow = Math.atan2(vy, ux);
       q.th += Math.atan2(Math.sin(thNow - q.th), Math.cos(thNow - q.th)) * Math.min(1, dt / 7200);
       const a = q.age / q.life;
+      if (P.pockets > 0 && q.born < q.kids && a > 0.3 + 0.5 * (q.born + 0.5) / q.kids && this.pockets.length < 300) {
+        q.born++;
+        const R0 = Math.sqrt(q.area / Math.PI);
+        const side = this.rng() < 0.6 ? (this.rng() < 0.5 ? 1 : -1) * Math.PI / 2 : (this.rng() < 0.5 ? 0 : Math.PI);
+        const ang = q.th + side + (this.rng() - 0.5) * 0.8, d = R0 * (0.9 + 0.6 * this.rng());
+        const g = Math.sqrt(-2 * Math.log(this.rng() + 1e-9)) * Math.cos(2 * Math.PI * this.rng());
+        this.addPocket(q.lat + d * Math.sin(ang) / 111.32, q.lon + d * Math.cos(ang) / (111.32 * Math.cos(q.lat * D2R)),
+          { gen: q.gen + 1, area: clamp(q.area * 0.85 * Math.exp(0.4 * g), 25, 3000), lift: clamp(q.lift * (0.92 + 0.12 * this.rng()), 0.08, 0.75) });
+      }
       const env = a < 0.3 ? Math.sin(Math.PI / 2 * a / 0.3) ** 2 : a < 0.6 ? 1 : Math.cos(Math.PI / 2 * Math.min(1, (a - 0.6) / 0.4)) ** 2;
       if (!inGrid || env <= 0) continue;
       const R = Math.sqrt(q.area / Math.PI), A_ = R * Math.sqrt(q.aspect), B_ = R / Math.sqrt(q.aspect);
@@ -633,7 +629,7 @@ export class Sim {
           if (d2 > 2.2) continue;
           const w = Math.exp(-1.6 * d2) * env, k = j * NX + i;
           this.pk[k] += q.lift * w;
-          if (w > this.pkn[k]) this.pkn[k] = w;
+          if (w > this.pkn[k]) { this.pkn[k] = w; this.pgen[k] = q.gen; }
           this.M[k] += (0.92 - this.M[k]) * Math.min(1, dt / 1800) * w;
         }
       }
@@ -890,7 +886,7 @@ export class Sim {
         const seaTrig = lf < 0.5 ? clamp((sst - t850 - 10) / 5, 0, 1.6) : 0;
         if (trig <= 0.02 && seaTrig <= 0) continue;
         const capeF = clamp((cape - 150) / 700, 0, 3);
-        const rate = (0.05 * trig + 0.11 * seaTrig) * capeF * P.trigger; // per 1000 km2 per hour
+        const rate = (0.05 * trig + 0.11 * seaTrig) * capeF * P.trigger * P.natural; // per 1000 km2 per hour
         if (rnd() < rate * areaK / 1000 * dt / 3600) {
           const lon = this.lon[i] + (rnd() - 0.5) * (this.lon[1] - this.lon[0]);
           const lat = this.lat[j] + (rnd() - 0.5) * (this.lat[Math.min(j + 1, NY - 1)] - this.lat[j]);
@@ -933,6 +929,10 @@ export class Sim {
       const qs = qsat(this.T[k]);
       this.q[k] += (0.95 * qs - this.q[k]) * Math.min(1, 0.4 * w);
     });
+    // Register the painted area as a parent pocket so auto weather can evolve it.
+    const cl = Math.cos(lat * D2R);
+    const near = this.pockets.some(q => q.gen === 0 && Math.hypot((q.lat - lat) * 111.32, (q.lon - lon) * 111.32 * cl) < km * 0.7);
+    if (!near) this.addPocket(lat, lon, { gen: 0, area: Math.PI * (km * 0.75) ** 2, lift: 0.35, life: 2.5 * 3600 });
   }
   paintMoisture(lat, lon, km, sign) {
     this._brush(lat, lon, km, (k, w) => {

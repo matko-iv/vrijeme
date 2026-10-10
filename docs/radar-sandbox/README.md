@@ -43,16 +43,23 @@ sea breeze. Six scenarios start you off: Adriatic autumn showers, summer
 heat storms, a Genoa low with jugo, bura, a supercell day and a blank
 canvas.
 
-**Auto weather** (on by default) does only two gentle things while you play:
+**Auto weather** (on by default) does two gentle things while you play:
 
 - **Wind:** the steering wind turns toward a new direction every 5–11
   simulated hours, by at most ~12° per hour, and its speed drifts slowly.
-- **Rain pockets:** pockets drift in, grow, rain and fade. Coverage follows
-  the humidity slider, from ~2% to ~10% of the map.
+- **Your rain:** whatever you paint with the Rain tool keeps evolving.
+  Each painted area becomes a parent rain pocket. Every mature pocket buds
+  children at its edges, on average ~1.3 per generation, slowly weakening.
+  So your rain spreads, splits and drifts as a cluster for many hours and
+  then dies out. In a test, one stroke grew for ~7 h and was gone after
+  ~14 h.
 
-It never adds lows, highs, fronts or air-mass changes, so there are no
-sudden storms or pressure jumps. Pockets are modelled on 4,266 rain
-objects (≥15 dBZ) tracked in the budva-radar Uljenje tiles:
+It never creates rain in dry areas, nor lows, highs, fronts or air-mass
+changes. The **Natural rain** slider decides whether the sandbox also
+makes its own rain (terrain, convergence, spontaneous storms). The blank
+canvas uses 0, "only mine". The scenarios use 100%. Pocket shapes and
+lifecycles are modelled on 4,266 rain objects (≥15 dBZ) tracked in the
+budva-radar Uljenje tiles:
 
 | | Real | Pockets (blank canvas) |
 |---|---|---|
@@ -65,8 +72,7 @@ objects (≥15 dBZ) tracked in the budva-radar Uljenje tiles:
 Lifetime rises with size (√area, 30 min to 6 h). This dynamic scaling of
 precipitation lifetime is the one known from radar nowcasting research
 (Germann & Zawadzki). Pockets only add lift and moisture, so the rain
-itself grows and fades through the normal rain physics. 40% of new pockets
-appear beside an existing one, so they cluster the way real showers do.
+itself grows and fades through the normal rain physics.
 **Flow variety** scales the free atmosphere described below.
 
 Keys: `Space` play/pause, `→` step, `←` back. The timeline keeps the last

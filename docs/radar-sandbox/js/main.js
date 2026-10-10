@@ -53,6 +53,7 @@ const SLIDERS = [
   { key: 'sun', label: 'Sun heating', min: 0, max: 1.6, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
   { key: 'trigger', label: 'Storm trigger', min: 0, max: 3, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
   { key: 'breeze', label: 'Sea breeze', min: 0, max: 2, step: 0.1, fmt: v => `${(+v).toFixed(1)}×` },
+  { key: 'natural', label: 'Natural rain', min: 0, max: 1, step: 0.05, fmt: v => (+v === 0 ? 'only mine' : `${Math.round(v * 100)}%`) },
   { key: 'variability', label: 'Flow variety', min: 0, max: 2.5, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
 ];
 
@@ -84,7 +85,7 @@ const PRESETS = {
     time: () => dateAt(0, 15, 6, 0), spin: 3, systems: [['H', 48.6, 16.5, 12, 950], ['L', 40.3, 19.5, 6, 450]] },
   supercell: { label: 'Supercell day', sub: 'strong shear, big CAPE', P: { steerDir: 240, steerSpd: 17, shear: 28, t850: 18, t500: -15, rh: 64, sst: 25, sun: 1.1, trigger: 0.4, breeze: 1 },
     time: () => dateAt(5, 22, 11, 0), spin: 2.5, systems: [['L', 46.5, 12.5, 7, 700]] },
-  blank: { label: 'Blank canvas', sub: 'calm start: you draw', P: { steerDir: 270, steerSpd: 6, shear: 8, t850: 10, t500: -15, rh: 60, sst: 20, sun: 1, trigger: 0.6, breeze: 1 },
+  blank: { label: 'Blank canvas', sub: 'only the rain you paint', P: { steerDir: 270, steerSpd: 6, shear: 8, t850: 10, t500: -15, rh: 60, sst: 20, sun: 1, trigger: 0.6, breeze: 1, natural: 0 },
     time: () => todayAt(12, 0), spin: 0, systems: [] },
 };
 
@@ -693,15 +694,15 @@ function readout(vx, vy) {
 // ---------- auto weather ----------
 // Auto weather only does two things, gently: the steering wind wanders (it
 // turns toward a new direction every several hours and its speed breathes),
-// and rain pockets drift in, grow, rain and fade with real-radar statistics
-// (see Sim.addPocket). No lows, highs, fronts or air-mass jumps.
+// and the rain YOU paint keeps evolving: new pockets bud off existing rain,
+// so it spreads, splits, drifts and slowly dies out (see Sim._pockets). It
+// never creates rain in dry areas, nor lows, highs, fronts or air-mass jumps.
 const director = { dirTarget: null, nextTurn: 0 };
 const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 1.41;
 
 function autoWeather(dt) {
   const P = state.P, B = state.baseP, h = dt / 3600, sq = Math.sqrt(h);
-  // Rain pocket coverage follows the humidity slider: ~2% (dry) to ~10%.
-  P.pockets = clamp((P.rh - 40) / 450, 0.02, 0.1);
+  P.pockets = 1; // keep the rain you painted alive and evolving (never spawns rain from nothing)
   if (director.dirTarget == null) { director.dirTarget = P.steerDir; director.nextTurn = sim.time + (3 + Math.random() * 4) * 3600e3; }
   if (sim.time >= director.nextTurn) {
     director.dirTarget = (P.steerDir + (Math.random() < 0.5 ? -1 : 1) * (20 + Math.random() * 45) + 360) % 360;
