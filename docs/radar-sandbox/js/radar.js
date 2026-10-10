@@ -116,10 +116,16 @@ export class Raster {
   compute(sim, opts = {}) {
     const { W, H, zlin, top } = this;
     const NX = sim.NX, NY = sim.NY, R = sim.R, T = sim.T;
-    const tt = sim.time / 3.6e6;
+    const tt = (sim.time / 3.6e6) % 100000;
     zlin.fill(0); top.fill(0);
-    const ox = this.offX, oy = this.offY;
     const [fx0, fy0] = this._flowDir(sim);
+    const ph = sim.texPhase(), wA = Math.sin(Math.PI * ph) ** 2, wB = 1 - wA, wN = 1 / Math.sqrt(wA * wA + wB * wB);
+    const tAx = sim.tAx, tAy = sim.tAy, tBx = sim.tBx, tBy = sim.tBy;
+    // Texture at flow-following coordinates; stretched 2x along the mean wind.
+    const tex = (X, Y) => {
+      const along = X * fx0 + Y * fy0, across = -X * fy0 + Y * fx0;
+      return fbm(this.nA, along / 40 + tt * 0.03, across / 20, 5);
+    };
     for (let p = 0; p < W * H; p++) {
       let gx = this.gx[p], gy = this.gy[p];
       gx = gx < 0 ? 0 : gx > NX - 1.001 ? NX - 1.001 : gx;
@@ -127,11 +133,15 @@ export class Raster {
       const i = gx | 0, j = gy | 0, fx = gx - i, fy = gy - j, k = j * NX + i;
       const r = (R[k] * (1 - fx) + R[k + 1] * fx) * (1 - fy) + (R[k + NX] * (1 - fx) + R[k + NX + 1] * fx) * fy;
       if (r < 0.025) continue;
-      const X = this.X[p] - ox, Y = this.Y[p] - oy;
-      // Texture in a flow-aligned frame, stretched 2x along the wind.
-      const along = X * fx0 + Y * fy0, across = -X * fy0 + Y * fx0;
-      const n = fbm(this.nA, along / 40 + tt * 0.05, across / 20, 5);
-      const d = 23 + 16 * Math.log10(r) + 8.5 * n + 1.8 * this.nC(X * 0.7, Y * 0.7 + tt);
+      const bil = f => (f[k] * (1 - fx) + f[k + 1] * fx) * (1 - fy) + (f[k + NX] * (1 - fx) + f[k + NX + 1] * fx) * fy;
+      const ax = bil(tAx), ay = bil(tAy), bx = bil(tBx), by = bil(tBy);
+      let n = 0, c = 0;
+      if (wA > 0.01) { n += wA * tex(ax, ay); c += wA * fbm(this.nC, ax / 9, ay / 9, 2); }
+      if (wB > 0.01) { n += wB * tex(bx, by); c += wB * fbm(this.nC, bx / 9, by / 9, 2); }
+      n *= wN; c *= wN;
+      // Bands, holes and embedded heavier cores instead of a uniform sheet.
+      let d = 23 + 16 * Math.log10(r) + 10.5 * n + 1.6 * this.nC(this.X[p] * 0.7, this.Y[p] * 0.7 + tt);
+      if (c > 0.3) d += (c - 0.3) * 32 * Math.min(1, r / 2.5);
       if (d < 5) continue;
       zlin[p] = Math.pow(10, d / 10);
       const tk = T[k];
@@ -281,7 +291,8 @@ export class Raster {
   satellite(sim, mode, base, out) {
     const { W, H } = this;
     const NX = sim.NX, cf = sim.cf, C = sim.C, T = sim.T;
-    const ox = this.offX * 1.2, oy = this.offY * 1.2, tt = sim.time / 3.6e6;
+    const tt = (sim.time / 3.6e6) % 100000;
+    const ph = sim.texPhase(), wA = Math.sin(Math.PI * ph) ** 2, wB = 1 - wA, wN = 1 / Math.sqrt(wA * wA + wB * wB);
     const cloud = this._cloud || (this._cloud = new Float32Array(W * H));
     const ztop = this._ztop || (this._ztop = new Float32Array(W * H));
     for (let p = 0; p < W * H; p++) {
@@ -289,7 +300,10 @@ export class Raster {
       const i = gx | 0, j = gy | 0, fx = gx - i, fy = gy - j, k = j * NX + i;
       const bil = f => (f[k] * (1 - fx) + f[k + 1] * fx) * (1 - fy) + (f[k + NX] * (1 - fx) + f[k + NX + 1] * fx) * fy;
       const c0 = bil(cf), cw = bil(C);
-      const n = fbm(this.nB, (this.X[p] - ox) / 48 + tt * 0.04, (this.Y[p] - oy) / 48, 5);
+      let n = 0;
+      if (wA > 0.01) n += wA * fbm(this.nB, bil(sim.tAx) / 48 + tt * 0.03, bil(sim.tAy) / 48, 5);
+      if (wB > 0.01) n += wB * fbm(this.nB, bil(sim.tBx) / 48 + tt * 0.03, bil(sim.tBy) / 48, 5);
+      n *= wN;
       const o = clamp(c0 * 1.2 + 0.5 * n - 0.18, 0, 1);
       cloud[p] = o;
       ztop[p] = cw > 0.03 ? clamp(bil(T) / 6.5 + 2.5 + 2 * cw, 3, 10) : 1.2 + 3.5 * o + 1.2 * n;

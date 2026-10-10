@@ -97,3 +97,9 @@ input[type=range] { accent-color: var(--accent); min-width: 0; }
   .tl-opts { grid-column: 1 / -1; flex-wrap: wrap; gap: 8px; }
   .readout { bottom: 64px; }
 }
+
+.autow { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; margin: 4px 0 10px; cursor: pointer; }
+.autow input { margin-top: 3px; }
+.autow small { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; }
+.toast { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(14,17,22,.9); border: 1px solid var(--line); border-left: 3px solid var(--accent2); border-radius: 8px; padding: 7px 12px; font-size: 12.5px; pointer-events: none; opacity: 0; transition: opacity .4s; max-width: calc(100% - 20px); }
+.toast.show { opacity: 1; }

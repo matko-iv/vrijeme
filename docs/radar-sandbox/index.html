@@ -40,6 +40,7 @@
         <canvas id="compass" width="240" height="240"></canvas>
         <div><b id="steerOut">--</b><small>steering wind (700 hPa)<br>drag the arrow</small></div>
       </div>
+      <label class="autow"><input type="checkbox" id="auto" checked><span><b>Auto weather</b><small>while playing, the atmosphere evolves by itself: the wind veers and backs, air masses change, troughs, ridges, rain bands and fronts drift in</small></span></label>
       <div id="sliders"></div>
     </section>
 
@@ -69,6 +70,7 @@
     <canvas id="fx"></canvas>
     <canvas id="ui"></canvas>
     <div class="readout" id="readout"></div>
+    <div class="toast" id="toast"></div>
     <div class="legend" id="legend"></div>
     <div class="loading" id="loading"><div class="spinner"></div><span id="loadingText">Loading terrain…</span></div>
     <button class="sidetoggle" id="sideToggle" aria-label="Toggle controls">☰</button>

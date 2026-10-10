@@ -43,6 +43,14 @@ sea breeze. Six scenarios start you off: Adriatic autumn showers, summer
 heat storms, a Genoa low with jugo, bura, a supercell day and a blank
 canvas.
 
+**Auto weather** (on by default) keeps things moving while you play. The
+steering wind veers and backs toward drifting regimes, and the air mass
+(temperatures, humidity, shear) wanders around the scenario's values.
+Every 1.5–4 simulated hours something new drifts in from upwind: a trough,
+a ridge, a rain band, a cold or warm front, colder air aloft, a moist surge
+or a wind shift. A small banner names it. This also happens on the blank
+canvas. **Flow variety** scales the free atmosphere described below.
+
 Keys: `Space` play/pause, `→` step, `←` back. The timeline keeps the last
 72 frames. Editing an earlier frame rewrites the future.
 
@@ -55,6 +63,11 @@ The engine runs on a ~200-cell grid over the visible map.
   wind is turned toward low pressure by friction (more over land), blocked
   by slopes, accelerated downslope (bura) and modulated by a diurnal sea
   breeze.
+- **Free atmosphere.** Even with no lows or highs placed, a slowly evolving
+  pattern of troughs, ridges and eddies (a noise stream function, ~500 km
+  scale) bends the wind in different directions across the map. It adds
+  matching pressure dips and bumps and ascent in the troughs. Mesoscale
+  lift noise (~75 km) breaks rain areas into bands and holes.
 - **Temperature and moisture.** Both are advected semi-Lagrangian and
   relaxed toward an equilibrium. That equilibrium comes from the air mass
   (T850), the lapse rate over the terrain, sea temperature and the sun:
@@ -72,8 +85,10 @@ The engine runs on a ~200-cell grid over the visible map.
   gust front, and spawns daughters on its right-forward flank (or upwind
   when backbuilding against terrain). Supercells move right of the mean
   wind. Lightning rate rises with reflectivity and echo top.
-- **Radar** (`js/radar.js`) renders at ~1 km. Stratiform texture is stretched
-  along the flow. Storm cells have irregular shapes, internal cores and hooks.
+- **Radar** (`js/radar.js`) renders at ~1 km. Stratiform texture rides on
+  two flow-following coordinate layers, so it moves and deforms with the
+  local wind. The layers are advected and reset alternately every 3 h. The
+  texture adds bands, holes and embedded heavier cores. Storm cells have irregular shapes, internal cores and hooks.
   In single-site mode the beam follows 4/3-earth geometry with a terrain
   horizon per azimuth, a range-dependent detection threshold and C-band
   path-integrated attenuation.

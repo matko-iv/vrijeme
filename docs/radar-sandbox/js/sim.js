@@ -17,7 +17,7 @@
 //     Cells rain, cool the surface (cold pools), spawn daughters along gust
 //     fronts and make lightning.
 
-import { mulberry32 } from './noise.js';
+import { mulberry32, makeSimplex, fbm } from './noise.js';
 
 const RHO = 1.2, OMEGA = 7.292e-5, D2R = Math.PI / 180, G = 9.81;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -68,8 +68,10 @@ export const dirFrom = (u, v) => (Math.atan2(-u, -v) / D2R + 360) % 360;
 export const DEFAULT_PARAMS = {
   steerDir: 225, steerSpd: 12, shear: 14,
   t850: 9, t500: -21, rh: 70, sst: 22,
-  sun: 1, trigger: 1, breeze: 1,
+  sun: 1, trigger: 1, breeze: 1, variability: 1,
 };
+
+const TEX_PERIOD = 3 * 3600 * 1000; // texture coordinate layers reset every 3 h (staggered)
 
 let nextId = 1;
 
@@ -109,6 +111,21 @@ export class Sim {
     this.p = F(); this.u = F(); this.v = F(); this.us = F(); this.vs = F();
     this.w = F(); this.cape = F(); this.cf = F(); this.t500 = F(); this.gust = F();
     this.cosz = F();
+    // Free atmosphere: a slowly evolving pattern of troughs, ridges and eddies
+    // (stream function psi) plus mesoscale lift noise, so the flow varies
+    // across the map even without user-placed lows and highs.
+    this.psi = F(); this.pu = F(); this.pv = F(); this.meso = F();
+    this.pn = makeSimplex(seed * 7 + 3); this.mn = makeSimplex(seed * 13 + 5);
+    this.pox = 0; this.poy = 0;
+    this.Xk = new Float32Array(NX); this.Yk = new Float32Array(NY);
+    for (let i = 0; i < NX; i++) this.Xk[i] = this.lon[i] * 111.32 * Math.cos(43 * D2R);
+    for (let j = 0; j < NY; j++) this.Yk[j] = this.lat[j] * 111.32;
+    // Two flow-following texture coordinate layers (km) for the radar and
+    // satellite texture: advected by the steering wind, reset alternately.
+    this.tAx = F(); this.tAy = F(); this.tBx = F(); this.tBy = F();
+    this.texOff = { A: [0, 0], B: [5000, 3000] };
+    this._resetTex('A'); this._resetTex('B');
+    this._phase = (timeMs % TEX_PERIOD) / TEX_PERIOD;
     this.M = F(); this.syn = F(); // mid-level humidity (0..1) and synoptic lift factor (lows +, highs -)
     this._tmp = F();
 
@@ -116,6 +133,49 @@ export class Sim {
     this.diagnose();
     this._initState();
     this.diagnose();
+  }
+
+  _resetTex(layer, keep) {
+    const off = this.texOff[layer] = keep ? keep.slice() : [this.rng() * 20000, this.rng() * 20000];
+    const X = layer === 'A' ? this.tAx : this.tBx, Y = layer === 'A' ? this.tAy : this.tBy;
+    for (let j = 0; j < this.NY; j++) for (let i = 0; i < this.NX; i++) {
+      X[j * this.NX + i] = this.Xk[i] + off[0]; Y[j * this.NX + i] = this.Yk[j] + off[1];
+    }
+  }
+  // Inflow edges would stretch the texture; extrapolate the coordinates
+  // from the interior with an undistorted (identity) gradient instead.
+  _texEdges() {
+    const { NX, NY } = this, E = 3;
+    for (const [X, Y] of [[this.tAx, this.tAy], [this.tBx, this.tBy]]) {
+      for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+        if (i >= E && j >= E && i < NX - E && j < NY - E) continue;
+        const ii = Math.min(NX - 1 - E, Math.max(E, i)), jj = Math.min(NY - 1 - E, Math.max(E, j));
+        const k = j * NX + i, kk = jj * NX + ii;
+        X[k] = X[kk] + this.Xk[i] - this.Xk[ii];
+        Y[k] = Y[kk] + this.Yk[j] - this.Yk[jj];
+      }
+    }
+  }
+  texPhase() { return (this.time % TEX_PERIOD) / TEX_PERIOD; }
+
+  _pattern() {
+    const { NX, NY } = this, V = this.P.variability ?? 1;
+    const L = 480, A = V * 6.5 * L * 1000 / 1.6, tt = (this.time / 3.6e6) % 100000;
+    for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+      const x = this.Xk[i] - this.pox, y = this.Yk[j] - this.poy, k = j * NX + i;
+      // Low gain: small eddies are weak, so the flow meanders instead of swirling.
+      this.psi[k] = A * fbm(this.pn, x / L + tt * 0.011, y / L - tt * 0.008, 3, 2.03, 0.3);
+      this.meso[k] = V * 0.06 * fbm(this.mn, x / 75 + tt * 0.07, y / 75 - tt * 0.05, 3);
+    }
+    for (let j = 0; j < NY; j++) {
+      const jm = Math.max(0, j - 1), jp = Math.min(NY - 1, j + 1);
+      for (let i = 0; i < NX; i++) {
+        const im = Math.max(0, i - 1), ip = Math.min(NX - 1, i + 1), k = j * NX + i;
+        this.pu[k] = -(this.psi[jm * NX + i] - this.psi[jp * NX + i]) / (this.dy[j] * (jp - jm));
+        this.pv[k] = (this.psi[j * NX + ip] - this.psi[j * NX + im]) / (this.dx[j] * (ip - im));
+      }
+    }
+    this._pA = A || 1;
   }
 
   // ---------- grid helpers ----------
@@ -249,6 +309,7 @@ export class Sim {
     const latC = this.lat[NY >> 1], fC = 2 * OMEGA * Math.sin(latC * D2R);
     const lonC = this.lon[NX >> 1];
     const sys = this.systems;
+    this._pattern();
 
     for (let j = 0; j < NY; j++) {
       const la = this.lat[j], f = this.f[j], cl = Math.cos(la * D2R);
@@ -259,7 +320,9 @@ export class Sim {
         // Background gradient, tapered beyond ~700 km so continent-wide maps
         // keep realistic pressures (the wind itself stays uniform).
         let p = 1013 + RHO * fC * (vbg * 7e5 * Math.tanh(xm / 7e5) - ubg * 7e5 * Math.tanh(ym / 7e5)) / 100;
-        let ug = 0, vg = 0, t5 = 0, syn = 0;
+        let ug = 0, vg = 0, t5 = 0, syn = -0.3 * this.psi[k] / this._pA;
+        p += RHO * f * this.psi[k] / 100;
+        t5 += 2.5 * this.psi[k] / this._pA; // troughs a little colder aloft
         for (let s = 0; s < sys.length; s++) {
           const S = sys[s];
           const dxm = (lo - S.lon) * 111320 * cl, dym = (la - S.lat) * 111320;
@@ -286,9 +349,9 @@ export class Sim {
         this.p[k] = p;
         this.t500[k] = P.t500 + 0.75 * (43 - la) + t5;
         // Steering: background plus most of the systems' circulation aloft.
-        this.us[k] = su + 0.6 * ug; this.vs[k] = sv + 0.6 * vg;
+        this.us[k] = su + 0.6 * ug + this.pu[k]; this.vs[k] = sv + 0.6 * vg + this.pv[k];
         // Surface: friction turns the wind toward low pressure and slows it.
-        let u = ubg + ug, v = vbg + vg;
+        let u = ubg + ug + 0.75 * this.pu[k], v = vbg + vg + 0.75 * this.pv[k];
         const spdg = Math.hypot(u, v);
         if (spdg > 55) { u *= 55 / spdg; v *= 55 / spdg; }
         const lf = this.land[k];
@@ -329,7 +392,7 @@ export class Sim {
         const dTdy = (this.T[jm * NX + i] - this.T[jp * NX + i]) / (this.dy[j] * (jp - jm));
         const wa = clamp(-150 * (this.us[k] * dTdx + this.vs[k] * dTdy) * 0.7, -0.12, 0.12);
         // Synoptic ascent near lows (and subsidence under highs).
-        this._tmp[k] = clamp(conv, -0.4, 0.4) + oro + wa + 0.12 * this.syn[k] + this.Fz[k];
+        this._tmp[k] = clamp(conv, -0.4, 0.4) + oro + wa + 0.12 * this.syn[k] + this.meso[k] + this.Fz[k];
       }
     }
     // Light smoothing removes grid-scale noise in the lift.
@@ -406,10 +469,18 @@ export class Sim {
     this._advect(this.C, this.us, this.vs, dt);
     this._advect(this.Fz, this.us, this.vs, dt);
     this._advect(this.M, this.us, this.vs, dt);
+    for (const f of [this.tAx, this.tAy, this.tBx, this.tBy]) this._advect(f, this.us, this.vs, dt);
+    this._texEdges();
+    const [su, sv] = windFrom(this.P.steerDir, this.P.steerSpd);
+    this.pox += su * 0.8 * dt / 1000; this.poy += sv * 0.8 * dt / 1000;
     this._physics(dt);
     this._convection(dt);
     this._systems(dt);
     this.time += dt * 1000;
+    const ph = this.texPhase();
+    if (ph < this._phase) this._resetTex('A');               // A's weight is 0 at phase 0
+    else if (this._phase < 0.5 && ph >= 0.5) this._resetTex('B'); // B's weight is 0 at phase 0.5
+    this._phase = ph;
     const keep = this.time - 3 * 3600 * 1000;
     if (this.strikes.length && this.strikes[0].t < keep) {
       let c = 0; while (c < this.strikes.length && this.strikes[c].t < keep) c++;
@@ -484,7 +555,9 @@ export class Sim {
       if (S.trend) S.dp += S.trend * dt / 3600;
       if (this.inside(S.lon, S.lat) && this.sampleLL(this.land, S.lon, S.lat) > 0.6 && S.dp < 0) S.dp += 0.08 * dt / 3600;
     }
-    this.systems = this.systems.filter(S => Math.abs(S.dp) >= 1 && Math.abs(S.lat) < 80);
+    const kmCell = this.dx[this.NY >> 1] / 1000;
+    this.systems = this.systems.filter(S => Math.abs(S.dp) >= 1 && Math.abs(S.lat) < 80 &&
+      !(S.auto && !this.inside(S.lon, S.lat, 2.5 * S.R / kmCell)));
   }
 
   // ---------- convection ----------
@@ -854,7 +927,8 @@ export class Sim {
   snapshot() {
     return {
       time: this.time,
-      f: [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M].map(a => new Float32Array(a)),
+      f: [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy].map(a => new Float32Array(a)),
+      pox: this.pox, poy: this.poy, texOff: { A: this.texOff.A.slice(), B: this.texOff.B.slice() }, phase: this._phase,
       cells: this.cells.map(c => ({ ...c })),
       systems: this.systems.map(s => ({ ...s })),
       strikes: this.strikes.slice(),
@@ -862,7 +936,8 @@ export class Sim {
   }
   restore(s) {
     this.time = s.time;
-    [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M].forEach((a, i) => a.set(s.f[i]));
+    [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy].forEach((a, i) => a.set(s.f[i]));
+    this.pox = s.pox; this.poy = s.poy; this.texOff = { A: s.texOff.A.slice(), B: s.texOff.B.slice() }; this._phase = s.phase;
     this.cells = s.cells.map(c => ({ ...c }));
     this.systems = s.systems.map(x => ({ ...x }));
     this.strikes = s.strikes.slice();
@@ -871,6 +946,8 @@ export class Sim {
   adoptFrom(old) {
     this.time = old.time;
     this.cells = old.cells; this.systems = old.systems; this.strikes = old.strikes; this.lineSeq = old.lineSeq;
+    this.pox = old.pox; this.poy = old.poy; this._phase = old._phase;
+    this._resetTex('A', old.texOff.A); this._resetTex('B', old.texOff.B);
     const { NX, NY } = this;
     for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
       const [gx, gy] = old.gridXY(this.lon[i], this.lat[j]);
@@ -885,6 +962,8 @@ export class Sim {
       this.out[k] = old.sample(old.out, gx, gy);
       this.anvil[k] = old.sample(old.anvil, gx, gy);
       this.M[k] = old.sample(old.M, gx, gy);
+      this.tAx[k] = old.sample(old.tAx, gx, gy); this.tAy[k] = old.sample(old.tAy, gx, gy);
+      this.tBx[k] = old.sample(old.tBx, gx, gy); this.tBy[k] = old.sample(old.tBy, gx, gy);
     }
     this.diagnose();
   }

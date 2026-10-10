@@ -1,6 +1,6 @@
 // Radar Sandbox app: regions, modes, tools, timeline and rendering.
 
-import { View, REGIONS, RADAR_SITES, bboxAround, mercX, mercY, invMercX, invMercY } from './geo.js';
+import { View, REGIONS, RADAR_SITES, bboxAround, offsetLL, invMercX, invMercY } from './geo.js';
 import { buildDEM } from './terrain.js';
 import { Sim, DEFAULT_PARAMS, dewpoint, qsat, windFrom, dirFrom } from './sim.js';
 import { Raster } from './radar.js';
@@ -53,6 +53,7 @@ const SLIDERS = [
   { key: 'sun', label: 'Sun heating', min: 0, max: 1.6, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
   { key: 'trigger', label: 'Storm trigger', min: 0, max: 3, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
   { key: 'breeze', label: 'Sea breeze', min: 0, max: 2, step: 0.1, fmt: v => `${(+v).toFixed(1)}×` },
+  { key: 'variability', label: 'Flow variety', min: 0, max: 2.5, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
 ];
 
 // Local wall time in Europe/Podgorica -> UTC ms.
@@ -83,7 +84,7 @@ const PRESETS = {
     time: () => dateAt(0, 15, 6, 0), spin: 3, systems: [['H', 48.6, 16.5, 12, 950], ['L', 40.3, 19.5, 6, 450]] },
   supercell: { label: 'Supercell day', sub: 'strong shear, big CAPE', P: { steerDir: 240, steerSpd: 17, shear: 28, t850: 18, t500: -15, rh: 64, sst: 25, sun: 1.1, trigger: 0.4, breeze: 1 },
     time: () => dateAt(5, 22, 11, 0), spin: 2.5, systems: [['L', 46.5, 12.5, 7, 700]] },
-  blank: { label: 'Blank canvas', sub: 'calm and stable: you draw', P: { steerDir: 270, steerSpd: 6, shear: 6, t850: 10, t500: -14, rh: 60, sst: 20, sun: 1, trigger: 0, breeze: 1 },
+  blank: { label: 'Blank canvas', sub: 'calm start: you draw', P: { steerDir: 270, steerSpd: 6, shear: 8, t850: 10, t500: -15, rh: 60, sst: 20, sun: 1, trigger: 0.6, breeze: 1 },
     time: () => todayAt(12, 0), spin: 0, systems: [] },
 };
 
@@ -91,7 +92,7 @@ const state = {
   region: 'uljenje', mode: 'radar', base: 'auto', tool: 'move', brushKm: 30, intensity: 5, cellType: 'single', sign: 1,
   layers: { borders: true, cities: true, lightning: true, systems: true, isobars: false, particles: false, barbs: false, clutter: true, attenuation: true },
   palette: 'dhmz', siteKey: 'none', customSite: null, satMode: 'auto', stepMin: 15, fps: 4, playing: false,
-  P: { ...DEFAULT_PARAMS }, preset: 'autumn',
+  P: { ...DEFAULT_PARAMS }, preset: 'autumn', auto: true, baseP: { ...DEFAULT_PARAMS },
 };
 
 const LAYER_LABELS = { borders: 'Borders', cities: 'Cities', lightning: 'Lightning', systems: 'L / H', isobars: 'Isobars', particles: 'Wind flow', barbs: 'Wind barbs', clutter: 'Radar clutter', attenuation: 'Attenuation' };
@@ -174,6 +175,8 @@ function buildUI() {
     document.querySelectorAll('#optSign button').forEach(x => x.classList.toggle('on', x === b));
   });
 
+  $('auto').checked = state.auto;
+  $('auto').onchange = e => { state.auto = e.target.checked; if (state.auto) state.baseP = { ...state.P }; };
   $('play').onclick = togglePlay;
   $('stepBtn').onclick = () => { stopPlay(); forward(); };
   $('back').onclick = () => { stopPlay(); if (hIdx > 0) goTo(hIdx - 1); };
@@ -687,6 +690,89 @@ function readout(vx, vy) {
   el.style.display = 'block';
 }
 
+// ---------- auto weather ----------
+// While playing, nudge the atmosphere like a real day would: the steering
+// wind veers and backs toward drifting regimes, the air mass breathes around
+// the scenario's values, and every few hours something new drifts in from
+// upwind (trough, ridge, rain band, front, colder air aloft, moist surge).
+const director = { nextEvent: 0, dirTarget: null };
+const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 1.41;
+const WALK = { steerSpd: [1.3, 14, 2, 30, 1], shear: [1.2, 14, 0, 35, 1], t850: [0.45, 20, -20, 26, 0.5],
+  t500: [0.45, 20, -42, -4, 0.5], rh: [2.2, 16, 25, 95, 1], sst: [0.04, 48, 4, 31, 0.5] };
+
+function autoWeather(dt) {
+  const P = state.P, B = state.baseP, h = dt / 3600, sq = Math.sqrt(h);
+  if (director.dirTarget == null || Math.random() < h / 7) director.dirTarget = (P.steerDir + gauss() * 60 + 360) % 360;
+  const dd = ((director.dirTarget - P.steerDir + 540) % 360) - 180;
+  P.steerDir = Math.round((P.steerDir + dd * Math.min(1, h / 2.5) + gauss() * 5 * sq + 360) % 360);
+  for (const [k, [sd, tau, lo, hi, stp]] of Object.entries(WALK)) {
+    const v = P[k] + gauss() * sd * sq + (B[k] - P[k]) * Math.min(1, h / tau);
+    P[k] = Math.round(clamp(v, lo, hi) / stp) * stp;
+  }
+  for (const S of sim.systems) if (S.auto && sim.time - S.born > 7 * 3600e3) S.trend = S.dp < 0 ? 0.6 : -0.5;
+  if (!director.nextEvent) director.nextEvent = sim.time + (0.3 + Math.random()) * 3600e3;
+  else if (sim.time >= director.nextEvent) { weatherEvent(); director.nextEvent = sim.time + (1.5 + Math.random() * 2.5) * 3600e3; }
+  syncSliders();
+}
+
+function weatherEvent() {
+  const P = state.P;
+  const cLat = view.lat(view.h / 2), cLon = view.lon(view.w / 2);
+  const span = Math.min(view.w, view.h) * view.metersPerPx(cLat) / 1000; // km
+  const [u, v] = windFrom(P.steerDir, Math.max(1, P.steerSpd));
+  const l = Math.hypot(u, v), ux = u / l, uy = v / l;
+  const at = (along, across) => offsetLL(cLat, cLon, (ux * along - uy * across) * 1000, (uy * along + ux * across) * 1000);
+  const from = cardinal(P.steerDir);
+  const autoSys = sim.systems.filter(S => S.auto).length;
+  const opts = [['rain', 3], ['trough', autoSys < 2 ? 1.6 : 0], ['ridge', autoSys < 2 ? 1.4 : 0], ['cold', span > 220 ? 1.2 : 0.4],
+    ['warm', span > 220 ? 0.9 : 0.3], ['aloft', 0.9], ['moist', 0.9], ['veer', 1]];
+  let x = Math.random() * opts.reduce((a, o) => a + o[1], 0), kind = 'rain';
+  for (const [k, w] of opts) { if ((x -= w) <= 0) { kind = k; break; } }
+  let msg = '';
+  if (kind === 'trough' || kind === 'ridge') {
+    const low = kind === 'trough';
+    const [la, lo] = at(-span * (0.45 + Math.random() * 0.2), (Math.random() - 0.5) * span * 0.6);
+    const S = sim.addSystem(low ? 'L' : 'H', la, lo, low ? 4 + Math.random() * 6 : 4 + Math.random() * 7, clamp(span * (0.3 + Math.random() * 0.25), 160, 900));
+    S.auto = true; S.born = sim.time; S.trend = low ? -0.3 * Math.random() : 0.2 * Math.random();
+    msg = low ? `A trough is moving in from the ${from}` : `High pressure is building from the ${from}`;
+  } else if (kind === 'rain') {
+    const r = clamp(span * (0.08 + Math.random() * 0.1), 18, 220);
+    const [la, lo] = at(-span * (0.15 + Math.random() * 0.3), (Math.random() - 0.5) * span * 0.7);
+    for (let i = -2; i <= 2; i++) {
+      const [a, b] = offsetLL(la, lo, -uy * i * r * 600, ux * i * r * 600);
+      sim.paintRain(a, b, r, 1.2 + Math.random());
+    }
+    msg = `A rain band is drifting in from the ${from}`;
+  } else if (kind === 'cold' || kind === 'warm') {
+    const d = -span * (kind === 'cold' ? 0.35 : 0.1);
+    const [a1, o1] = at(d, -span * 0.45), [a2, o2] = at(d, span * 0.45);
+    sim.addFront(kind, a1, o1, a2, o2);
+    msg = kind === 'cold' ? `A cold front is approaching from the ${from}` : 'A warm front brings a wide rain shield';
+  } else if (kind === 'aloft') {
+    P.t500 = Math.max(-42, P.t500 - 2.5 - Math.random() * 2);
+    msg = `Colder air aloft (T500 ${P.t500}°): showers and storms get easier`;
+  } else if (kind === 'moist') {
+    P.rh = Math.min(95, P.rh + 8);
+    const [la, lo] = at(-span * 0.2, (Math.random() - 0.5) * span * 0.5);
+    sim.paintMoisture(la, lo, clamp(span * 0.3, 30, 500), 3);
+    msg = `Moist air surges in from the ${from}`;
+  } else {
+    director.dirTarget = (P.steerDir + (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 60) + 360) % 360;
+    msg = `The wind is shifting: soon from the ${cardinal(director.dirTarget)}`;
+  }
+  sim.diagnose();
+  toast(msg);
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = `Auto weather · ${msg}`;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 4500);
+}
+
 // ---------- history & time ----------
 function snap() { return { s: sim.snapshot(), offX: raster.offX, offY: raster.offY, frame: raster.frame }; }
 function resetHistory() { history = [snap()]; hIdx = 0; updateScrub(); }
@@ -700,6 +786,7 @@ function goTo(i) {
 function forward() {
   if (hIdx < history.length - 1) { goTo(hIdx + 1); return; }
   const dt = state.stepMin * 60;
+  if (state.auto) autoWeather(dt);
   sim.step(dt);
   raster.advance(sim, dt);
   history.push(snap());
@@ -737,6 +824,8 @@ async function applyPreset(k) {
   stopPlay();
   state.preset = k;
   Object.assign(state.P, DEFAULT_PARAMS, p.P);
+  state.baseP = { ...state.P };
+  director.nextEvent = 0; director.dirTarget = null;
   syncSliders();
   highlight();
   showLoading(p.spin ? 'Spinning up the weather…' : 'Setting up…');
