@@ -691,77 +691,78 @@ function readout(vx, vy) {
 }
 
 // ---------- auto weather ----------
-// While playing, nudge the atmosphere like a real day would: the steering
-// wind veers and backs toward drifting regimes, the air mass breathes around
-// the scenario's values, and every few hours something new drifts in from
-// upwind (trough, ridge, rain band, front, colder air aloft, moist surge).
-const director = { nextEvent: 0, dirTarget: null };
+// Real weather is not random noise: it comes in a few coherent systems that
+// cycle on a scale of a day or two. The director runs that cycle:
+//   fair (ridge, mostly dry) -> approach (trough, warm-front rain shield,
+//   wind backs and freshens) -> frontal (cold front, heavier rain, wind
+//   veers) -> post (colder aloft, showers) -> fair ...
+// Parameters drift gently toward each phase's offsets from the scenario.
+const PHASES = {
+  fair: { hours: [8, 16], off: { rh: -6, t500: 2, steerSpd: -2 }, next: 'approach' },
+  approach: { hours: [4, 8], off: { rh: 8, t500: 0, steerSpd: 4 }, next: 'frontal' },
+  frontal: { hours: [3, 6], off: { rh: 10, t500: -1, steerSpd: 5 }, next: 'post' },
+  post: { hours: [6, 10], off: { rh: 2, t500: -6, t850: -1.5, steerSpd: 1 }, next: 'fair' },
+};
+const director = { phase: null, phaseEnd: 0, dirTarget: null };
 const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 1.41;
-const WALK = { steerSpd: [1.3, 14, 2, 30, 1], shear: [1.2, 14, 0, 35, 1], t850: [0.45, 20, -20, 26, 0.5],
-  t500: [0.45, 20, -42, -4, 0.5], rh: [2.2, 16, 25, 95, 1], sst: [0.04, 48, 4, 31, 0.5] };
+const WALK = { steerSpd: [0.6, 2, 30, 1], shear: [0.5, 0, 35, 1], t850: [0.2, -20, 26, 0.5],
+  t500: [0.2, -42, -4, 0.5], rh: [1, 25, 95, 1], sst: [0.02, 4, 31, 0.5] };
 
-function autoWeather(dt) {
-  const P = state.P, B = state.baseP, h = dt / 3600, sq = Math.sqrt(h);
-  if (director.dirTarget == null || Math.random() < h / 7) director.dirTarget = (P.steerDir + gauss() * 60 + 360) % 360;
-  const dd = ((director.dirTarget - P.steerDir + 540) % 360) - 180;
-  P.steerDir = Math.round((P.steerDir + dd * Math.min(1, h / 2.5) + gauss() * 5 * sq + 360) % 360);
-  for (const [k, [sd, tau, lo, hi, stp]] of Object.entries(WALK)) {
-    const v = P[k] + gauss() * sd * sq + (B[k] - P[k]) * Math.min(1, h / tau);
-    P[k] = Math.round(clamp(v, lo, hi) / stp) * stp;
-  }
-  for (const S of sim.systems) if (S.auto && sim.time - S.born > 7 * 3600e3) S.trend = S.dp < 0 ? 0.6 : -0.5;
-  if (!director.nextEvent) director.nextEvent = sim.time + (0.3 + Math.random()) * 3600e3;
-  else if (sim.time >= director.nextEvent) { weatherEvent(); director.nextEvent = sim.time + (1.5 + Math.random() * 2.5) * 3600e3; }
-  syncSliders();
-}
-
-function weatherEvent() {
-  const P = state.P;
+function startPhase(name, first) {
+  const P = state.P, ph = PHASES[name];
+  director.phase = name;
+  const [h0, h1] = ph.hours;
+  director.phaseEnd = sim.time + (first ? 0.4 + Math.random() * 0.6 : 1) * (h0 + Math.random() * (h1 - h0)) * 3600e3;
+  if (first) return;
   const cLat = view.lat(view.h / 2), cLon = view.lon(view.w / 2);
-  const span = Math.min(view.w, view.h) * view.metersPerPx(cLat) / 1000; // km
+  const span = Math.min(view.w, view.h) * view.metersPerPx(cLat) / 1000;
   const [u, v] = windFrom(P.steerDir, Math.max(1, P.steerSpd));
   const l = Math.hypot(u, v), ux = u / l, uy = v / l;
   const at = (along, across) => offsetLL(cLat, cLon, (ux * along - uy * across) * 1000, (uy * along + ux * across) * 1000);
   const from = cardinal(P.steerDir);
-  const autoSys = sim.systems.filter(S => S.auto).length;
-  const opts = [['rain', 3], ['trough', autoSys < 2 ? 1.6 : 0], ['ridge', autoSys < 2 ? 1.4 : 0], ['cold', span > 220 ? 1.2 : 0.4],
-    ['warm', span > 220 ? 0.9 : 0.3], ['aloft', 0.9], ['moist', 0.9], ['veer', 1]];
-  let x = Math.random() * opts.reduce((a, o) => a + o[1], 0), kind = 'rain';
-  for (const [k, w] of opts) { if ((x -= w) <= 0) { kind = k; break; } }
-  let msg = '';
-  if (kind === 'trough' || kind === 'ridge') {
-    const low = kind === 'trough';
-    const [la, lo] = at(-span * (0.45 + Math.random() * 0.2), (Math.random() - 0.5) * span * 0.6);
-    const S = sim.addSystem(low ? 'L' : 'H', la, lo, low ? 4 + Math.random() * 6 : 4 + Math.random() * 7, clamp(span * (0.3 + Math.random() * 0.25), 160, 900));
-    S.auto = true; S.born = sim.time; S.trend = low ? -0.3 * Math.random() : 0.2 * Math.random();
-    msg = low ? `A trough is moving in from the ${from}` : `High pressure is building from the ${from}`;
-  } else if (kind === 'rain') {
-    const r = clamp(span * (0.08 + Math.random() * 0.1), 18, 220);
-    const [la, lo] = at(-span * (0.15 + Math.random() * 0.3), (Math.random() - 0.5) * span * 0.7);
-    for (let i = -2; i <= 2; i++) {
-      const [a, b] = offsetLL(la, lo, -uy * i * r * 600, ux * i * r * 600);
-      sim.paintRain(a, b, r, 1.2 + Math.random());
-    }
-    msg = `A rain band is drifting in from the ${from}`;
-  } else if (kind === 'cold' || kind === 'warm') {
-    const d = -span * (kind === 'cold' ? 0.35 : 0.1);
-    const [a1, o1] = at(d, -span * 0.45), [a2, o2] = at(d, span * 0.45);
-    sim.addFront(kind, a1, o1, a2, o2);
-    msg = kind === 'cold' ? `A cold front is approaching from the ${from}` : 'A warm front brings a wide rain shield';
-  } else if (kind === 'aloft') {
-    P.t500 = Math.max(-42, P.t500 - 2.5 - Math.random() * 2);
-    msg = `Colder air aloft (T500 ${P.t500}°): showers and storms get easier`;
-  } else if (kind === 'moist') {
-    P.rh = Math.min(95, P.rh + 8);
-    const [la, lo] = at(-span * 0.2, (Math.random() - 0.5) * span * 0.5);
-    sim.paintMoisture(la, lo, clamp(span * 0.3, 30, 500), 3);
-    msg = `Moist air surges in from the ${from}`;
+  for (const S of sim.systems) if (S.auto) S.trend = S.dp < 0 ? 0.7 : -0.6; // old systems fade
+  let msg;
+  if (name === 'fair') {
+    const [la, lo] = at(-span * 0.5, (Math.random() - 0.5) * span * 0.4);
+    const S = sim.addSystem('H', la, lo, 5 + Math.random() * 5, clamp(span * 0.6, 250, 1100));
+    Object.assign(S, { auto: true, born: sim.time, trend: 0.1 });
+    msg = 'A ridge builds in: drier and calmer';
+  } else if (name === 'approach') {
+    const [la, lo] = at(-span * 0.75, -span * (0.25 + Math.random() * 0.3));
+    const S = sim.addSystem('L', la, lo, 6 + Math.random() * 6, clamp(span * 0.55, 220, 1000));
+    Object.assign(S, { auto: true, born: sim.time, trend: -0.25 });
+    sim.diagnose();
+    const [a1, o1] = at(-span * 0.15, -span * 0.5), [a2, o2] = at(-span * 0.05, span * 0.5);
+    sim.addFront('warm', a1, o1, a2, o2);
+    director.dirTarget = (P.steerDir - 15 - Math.random() * 20 + 360) % 360; // backing ahead of a trough
+    msg = `A trough approaches from the ${from}: cloud and rain spread in`;
+  } else if (name === 'frontal') {
+    sim.diagnose();
+    const [a1, o1] = at(-span * 0.4, -span * 0.55), [a2, o2] = at(-span * 0.3, span * 0.55);
+    sim.addFront('cold', a1, o1, a2, o2);
+    director.dirTarget = (P.steerDir + 50 + Math.random() * 30) % 360; // veering behind the front
+    msg = `A cold front is coming through from the ${from}: heavier rain, then the wind veers`;
   } else {
-    director.dirTarget = (P.steerDir + (Math.random() < 0.5 ? -1 : 1) * (50 + Math.random() * 60) + 360) % 360;
-    msg = `The wind is shifting: soon from the ${cardinal(director.dirTarget)}`;
+    msg = 'Cooler air behind the front: sunny spells and showers';
   }
   sim.diagnose();
   toast(msg);
+}
+
+function autoWeather(dt) {
+  const P = state.P, B = state.baseP, h = dt / 3600, sq = Math.sqrt(h);
+  if (!director.phase) startPhase(state.preset === 'blank' ? 'fair' : 'post', true);
+  else if (sim.time >= director.phaseEnd) startPhase(PHASES[director.phase].next);
+  if (director.dirTarget == null) director.dirTarget = P.steerDir;
+  const dd = ((director.dirTarget - P.steerDir + 540) % 360) - 180;
+  P.steerDir = Math.round((P.steerDir + dd * Math.min(1, h / 3) + gauss() * 2 * sq + 360) % 360);
+  const off = PHASES[director.phase].off;
+  for (const [k, [sd, lo, hi, stp]] of Object.entries(WALK)) {
+    const target = B[k] + (off[k] || 0);
+    const v = P[k] + gauss() * sd * sq + (target - P[k]) * Math.min(1, h / 4);
+    P[k] = Math.round(clamp(v, lo, hi) / stp) * stp;
+  }
+  syncSliders();
 }
 
 let toastTimer = null;
@@ -825,7 +826,7 @@ async function applyPreset(k) {
   state.preset = k;
   Object.assign(state.P, DEFAULT_PARAMS, p.P);
   state.baseP = { ...state.P };
-  director.nextEvent = 0; director.dirTarget = null;
+  director.phase = null; director.dirTarget = null;
   syncSliders();
   highlight();
   showLoading(p.spin ? 'Spinning up the weather…' : 'Setting up…');

@@ -137,6 +137,11 @@ export class Sim {
 
   _resetTex(layer, keep) {
     const off = this.texOff[layer] = keep ? keep.slice() : [this.rng() * 20000, this.rng() * 20000];
+    // The texture is stretched along the wind; fix that direction for the
+    // layer's lifetime (re-rotating every frame would swing the pattern).
+    const [su, sv] = windFrom(this.P.steerDir, Math.max(0.5, this.P.steerSpd));
+    const l = Math.hypot(su, sv);
+    (this.texDir || (this.texDir = {}))[layer] = [su / l, sv / l];
     const X = layer === 'A' ? this.tAx : this.tBx, Y = layer === 'A' ? this.tAy : this.tBy;
     for (let j = 0; j < this.NY; j++) for (let i = 0; i < this.NX; i++) {
       X[j * this.NX + i] = this.Xk[i] + off[0]; Y[j * this.NX + i] = this.Yk[j] + off[1];
@@ -160,12 +165,17 @@ export class Sim {
 
   _pattern() {
     const { NX, NY } = this, V = this.P.variability ?? 1;
-    const L = 480, A = V * 6.5 * L * 1000 / 1.6, tt = (this.time / 3.6e6) % 100000;
+    // One broad, slowly morphing long-wave trough/ridge pattern (real flow
+    // meanders on ~1000+ km scales; small eddies made the map chaotic).
+    const L = 1200, A = V * 4.5 * L * 1000 / 1.6, tt = (this.time / 3.6e6) % 100000;
     for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
       const x = this.Xk[i] - this.pox, y = this.Yk[j] - this.poy, k = j * NX + i;
       // Low gain: small eddies are weak, so the flow meanders instead of swirling.
-      this.psi[k] = A * fbm(this.pn, x / L + tt * 0.011, y / L - tt * 0.008, 3, 2.03, 0.3);
-      this.meso[k] = V * 0.06 * fbm(this.mn, x / 75 + tt * 0.07, y / 75 - tt * 0.05, 3);
+      this.psi[k] = A * fbm(this.pn, x / L + tt * 0.006, y / L - tt * 0.004, 2, 2.03, 0.25);
+      // Mesoscale organisation (bands and cells inside rain areas): it scales
+      // condensation where air is already rising instead of adding lift, so
+      // it structures rain without creating rain out of nothing.
+      this.meso[k] = fbm(this.mn, x / 60 + tt * 0.12, y / 60 - tt * 0.09, 3);
     }
     for (let j = 0; j < NY; j++) {
       const jm = Math.max(0, j - 1), jp = Math.min(NY - 1, j + 1);
@@ -392,7 +402,7 @@ export class Sim {
         const dTdy = (this.T[jm * NX + i] - this.T[jp * NX + i]) / (this.dy[j] * (jp - jm));
         const wa = clamp(-150 * (this.us[k] * dTdx + this.vs[k] * dTdy) * 0.7, -0.12, 0.12);
         // Synoptic ascent near lows (and subsidence under highs).
-        this._tmp[k] = clamp(conv, -0.4, 0.4) + oro + wa + 0.12 * this.syn[k] + this.meso[k] + this.Fz[k];
+        this._tmp[k] = clamp(conv, -0.4, 0.4) + oro + wa + 0.12 * this.syn[k] + this.Fz[k];
       }
     }
     // Light smoothing removes grid-scale noise in the lift.
@@ -521,8 +531,9 @@ export class Sim {
         // Condensation in rising air; a deep moist layer (surface RH and
         // mid-level humidity together) is needed for widespread rain.
         if (w > 0) {
-          const sat = clamp((0.45 * rh + 0.55 * this.M[k] - 0.7) / 0.22, 0, 1);
-          const cond = RHO * this.q[k] * 1e-3 * w * sat * 0.5 * dt;
+          const sat = clamp((0.45 * rh + 0.55 * this.M[k] - 0.73) / 0.2, 0, 1);
+          const org = clamp(0.5 + 1.6 * this.meso[k] * (this.P.variability ?? 1), 0.05, 1.6);
+          const cond = RHO * this.q[k] * 1e-3 * Math.max(0, w - 0.02) * sat * 0.34 * org * dt;
           C += cond; this.q[k] -= cond * 0.33;
         } else if (C > 0) {
           const ev = C * Math.min(1, -w * dt / 700);
@@ -532,7 +543,7 @@ export class Sim {
           const ev = C * Math.min(1, dt / 1800 * (0.6 - rh) / 0.3);
           C -= ev; this.q[k] += ev * 0.33;
         }
-        const pr = C * Math.min(1, dt / 900);
+        const pr = C * Math.min(1, dt / 1500); // ~25 min fallout: rain areas persist like real ones
         C -= pr;
         this.C[k] = C;
         const R = pr / dt * 3600;
@@ -585,7 +596,7 @@ export class Sim {
       peak: opts.peak ?? clamp(38 + 15 * Math.log10(1 + capeHere / 250) + (r() * 8 - 4) + (type === 'super' ? 7 : 0), 30, 70),
       r: opts.r ?? (type === 'super' ? 5 + r() * 2.5 : 2.4 + capeHere / 1200 + r() * 1.6),
       top: opts.top ?? clamp(6.5 + capeHere / 450 + r() * 1.5 + (type === 'super' ? 3 : 0), 5, 16),
-      life: opts.life ?? (type === 'super' ? (150 + r() * 120) * 60 : (40 + r() * 30) * 60),
+      life: opts.life ?? (type === 'super' ? (150 + r() * 120) * 60 : (45 + r() * 35) * 60),
       gen: opts.gen ?? 0, seed: Math.floor(r() * 1e6), lineId: opts.lineId || 0,
       devx: 0, devy: 0, mvx: 0, mvy: 0, spawned: false, forced: !!opts.forced,
     };
@@ -638,7 +649,7 @@ export class Sim {
     const [su, sv] = [c.mvx, c.mvy], sl = Math.hypot(su, sv) + 1e-6;
     const env = this.cells.length; void env;
     // Trailing/anvil stratiform fallout behind the motion.
-    const stratK = c.type === 'line' ? 1 : c.type === 'multi' ? 0.45 : c.type === 'super' ? 0.5 : 0.2;
+    const stratK = c.type === 'line' ? 1 : c.type === 'multi' ? 0.6 : c.type === 'super' ? 0.6 : 0.35;
     const bgx = gx - su / sl * 1.6 * re / dxk, bgy = gy + sv / sl * 1.6 * re / dyk;
     for (let j = ja; j <= jb; j++) for (let i = ia; i <= ib; i++) {
       const k = j * NX + i;
@@ -691,6 +702,10 @@ export class Sim {
       let ux = su, vy = sv;
       if (inGrid) { ux = this.sampleLL(this.us, c.lon, c.lat); vy = this.sampleLL(this.vs, c.lon, c.lat); }
       c.mvx = ux + c.devx; c.mvy = vy + c.devy;
+      // Storm shape orientation follows the motion only slowly.
+      const thNow = Math.atan2(c.mvy, c.mvx);
+      if (c.th == null) c.th = thNow;
+      else c.th += Math.atan2(Math.sin(thNow - c.th), Math.cos(thNow - c.th)) * Math.min(1, dt / 2400);
       c.lat += c.mvy * dt / 111320;
       c.lon += c.mvx * dt / (111320 * Math.cos(c.lat * D2R));
       // Stable air ages a cell faster; persistent lift keeps it going.
@@ -798,7 +813,7 @@ export class Sim {
           const S = P.shear;
           let type = 'single';
           const u = rnd();
-          if (S < 10) type = u < 0.3 * Math.min(1, capeF) ? 'multi' : 'single';
+          if (S < 10) type = u < 0.65 * Math.min(1, capeF) ? 'multi' : 'single'; // even weak-shear storms cluster
           else if (S < 18) type = u < 0.75 ? 'multi' : 'single';
           else type = u < 0.28 * Math.min(1, cape / 1500) ? 'super' : 'multi';
           this.addCell(lat, lon, { type });
@@ -929,6 +944,7 @@ export class Sim {
       time: this.time,
       f: [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy].map(a => new Float32Array(a)),
       pox: this.pox, poy: this.poy, texOff: { A: this.texOff.A.slice(), B: this.texOff.B.slice() }, phase: this._phase,
+      texDir: { A: this.texDir.A.slice(), B: this.texDir.B.slice() },
       cells: this.cells.map(c => ({ ...c })),
       systems: this.systems.map(s => ({ ...s })),
       strikes: this.strikes.slice(),
@@ -938,6 +954,7 @@ export class Sim {
     this.time = s.time;
     [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy].forEach((a, i) => a.set(s.f[i]));
     this.pox = s.pox; this.poy = s.poy; this.texOff = { A: s.texOff.A.slice(), B: s.texOff.B.slice() }; this._phase = s.phase;
+    this.texDir = { A: s.texDir.A.slice(), B: s.texDir.B.slice() };
     this.cells = s.cells.map(c => ({ ...c }));
     this.systems = s.systems.map(x => ({ ...x }));
     this.strikes = s.strikes.slice();
@@ -948,6 +965,7 @@ export class Sim {
     this.cells = old.cells; this.systems = old.systems; this.strikes = old.strikes; this.lineSeq = old.lineSeq;
     this.pox = old.pox; this.poy = old.poy; this._phase = old._phase;
     this._resetTex('A', old.texOff.A); this._resetTex('B', old.texOff.B);
+    this.texDir = { A: old.texDir.A.slice(), B: old.texDir.B.slice() };
     const { NX, NY } = this;
     for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
       const [gx, gy] = old.gridXY(this.lon[i], this.lat[j]);

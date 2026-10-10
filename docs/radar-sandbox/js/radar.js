@@ -118,13 +118,13 @@ export class Raster {
     const NX = sim.NX, NY = sim.NY, R = sim.R, T = sim.T;
     const tt = (sim.time / 3.6e6) % 100000;
     zlin.fill(0); top.fill(0);
-    const [fx0, fy0] = this._flowDir(sim);
+    const [fax, fay] = sim.texDir.A, [fbx, fby] = sim.texDir.B;
     const ph = sim.texPhase(), wA = Math.sin(Math.PI * ph) ** 2, wB = 1 - wA, wN = 1 / Math.sqrt(wA * wA + wB * wB);
     const tAx = sim.tAx, tAy = sim.tAy, tBx = sim.tBx, tBy = sim.tBy;
     // Texture at flow-following coordinates; stretched 2x along the mean wind.
-    const tex = (X, Y) => {
+    const tex = (X, Y, fx0, fy0) => {
       const along = X * fx0 + Y * fy0, across = -X * fy0 + Y * fx0;
-      return fbm(this.nA, along / 40 + tt * 0.03, across / 20, 5);
+      return fbm(this.nA, along / 40 + tt * 0.05, across / 20 - tt * 0.03, 5);
     };
     for (let p = 0; p < W * H; p++) {
       let gx = this.gx[p], gy = this.gy[p];
@@ -136,8 +136,8 @@ export class Raster {
       const bil = f => (f[k] * (1 - fx) + f[k + 1] * fx) * (1 - fy) + (f[k + NX] * (1 - fx) + f[k + NX + 1] * fx) * fy;
       const ax = bil(tAx), ay = bil(tAy), bx = bil(tBx), by = bil(tBy);
       let n = 0, c = 0;
-      if (wA > 0.01) { n += wA * tex(ax, ay); c += wA * fbm(this.nC, ax / 9, ay / 9, 2); }
-      if (wB > 0.01) { n += wB * tex(bx, by); c += wB * fbm(this.nC, bx / 9, by / 9, 2); }
+      if (wA > 0.01) { n += wA * tex(ax, ay, fax, fay); c += wA * fbm(this.nC, ax / 9, ay / 9, 2); }
+      if (wB > 0.01) { n += wB * tex(bx, by, fbx, fby); c += wB * fbm(this.nC, bx / 9, by / 9, 2); }
       n *= wN; c *= wN;
       // Bands, holes and embedded heavier cores instead of a uniform sheet.
       let d = 23 + 16 * Math.log10(r) + 10.5 * n + 1.6 * this.nC(this.X[p] * 0.7, this.Y[p] * 0.7 + tt);
@@ -164,7 +164,7 @@ export class Raster {
       const rr = c.r * 2.3;
       const ext = rr * (c.type === 'super' ? 2.6 : 1.8) / mpp;
       if (cx < -ext || cy < -ext || cx > W + ext || cy > H + ext) continue;
-      const th = Math.atan2(c.mvy || 0.01, c.mvx || 0.01), ct = Math.cos(th), st = Math.sin(th);
+      const th = c.th ?? Math.atan2(c.mvy || 0.01, c.mvx || 0.01), ct = Math.cos(th), st = Math.sin(th);
       const e = c.type === 'super' ? 1.45 : c.type === 'multi' ? 1.25 : c.type === 'line' ? 0.7 : 1.12;
       const rnd = mulberry32(c.seed);
       const amp = [0, 0, 0.06 + 0.1 * rnd(), 0.04 + 0.08 * rnd(), 0.03 + 0.06 * rnd(), 0.02 + 0.05 * rnd()];
