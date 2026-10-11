@@ -29,7 +29,7 @@ echo tops.
 |---|---|
 | Drag | Move storms and L/H centres. Drag empty space to push rain, clouds and air masses. |
 | Rain | Paints lift and moisture. The rain area drifts with the steering wind and fades once its forcing decays (~3 h). |
-| Storm | Single cell, multicell or supercell (right-mover with hook echo). |
+| Storm | Click drops one storm; hold and drag to paint storms across the brush, spaced like real cells (~9 km single, ~12 km multicell, ~30 km supercell). Choose single, multicell or supercell (right-mover with hook echo). Storms you place live their full life cycle even in stable air, and placed multicells keep regenerating for ~3 h. |
 | Squall | A line of storms that propagates forward and rebuilds itself. |
 | Low / High | Press at the centre, drag outward for size. Strength sets the depth. |
 | Cold / warm front | Temperature step plus a lift band. A cold front fires a squall line when there is CAPE. |

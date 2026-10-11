@@ -791,7 +791,7 @@ export class Sim {
       c.lon += c.mvx * dt / (111320 * Math.cos(c.lat * D2R));
       // Stable air ages a cell faster; persistent lift keeps it going.
       let rate = 1;
-      const stable = c.forced ? 0.5 : 1;
+      const stable = c.forced ? 0 : 1; // storms you place live their full life cycle
       if (capeHere < 150) rate += 1.6 * stable;
       else if (capeHere < 400) rate += 0.5 * stable;
       if (wHere > 0.15) rate -= 0.25;
@@ -826,15 +826,18 @@ export class Sim {
       if ((c.type === 'multi' || c.type === 'super') && a > 0.18 && a < 0.7 && c.gen < 60) {
         // About one daughter per cell (more with big CAPE), so multicell
         // clusters persist without exploding.
-        const expected = capeHere < 400 ? 0 : c.type === 'multi' ? 0.5 + 0.35 * Math.min(capeF, 1.5) : 0.18 * Math.min(capeF, 2) * c.life / 3600;
-        const perMin = expected / (0.52 * c.life / 60);
+        // Storms you place keep regenerating for a few generations even in
+        // stable air; natural ones need CAPE.
+        const expected = capeHere < 400 && !(c.forced && c.gen < 4) ? 0 : c.type === 'multi' ? 0.5 + 0.35 * Math.min(capeF, 1.5) : 0.18 * Math.min(capeF, 2) * c.life / 3600;
+        const exp2 = c.forced && c.gen < 4 && c.type === 'multi' ? Math.max(expected, 1.05) : expected;
+        const perMin = exp2 / (0.52 * c.life / 60);
         if (rnd() < perMin * dt / 60) {
           let th = th0 - 50 * D2R + (rnd() - 0.5) * 70 * D2R;
           const oro = inGrid ? this.sampleLL(this.w, c.lon, c.lat) : 0;
           if (oro > 0.12 && speed < 11 && rnd() < 0.55) th = th0 + Math.PI + (rnd() - 0.5) * 60 * D2R;
           const dist = (1.8 + rnd() * 1.2) * c.r * (c.type === 'super' ? 1.6 : 1);
           born.push({ parent: c.id, lat: c.lat + dist * Math.sin(th) / 111.32, lon: c.lon + dist * Math.cos(th) / (111.32 * Math.cos(c.lat * D2R)),
-            opts: { type: 'multi', gen: c.gen + 1, peak: clamp((c.type === 'super' ? c.peak - 12 : c.peak) + rnd() * 7 - 4.5 + (capeF - 1) * 2, 30, 66), r: c.r * (0.8 + rnd() * 0.35) * (c.type === 'super' ? 0.6 : 1) } });
+            opts: { type: 'multi', gen: c.gen + 1, forced: c.forced, peak: clamp((c.type === 'super' ? c.peak - 12 : c.peak) + rnd() * 7 - 4.5 + (capeF - 1) * 2, 30, 66), r: c.r * (0.8 + rnd() * 0.35) * (c.type === 'super' ? 0.6 : 1) } });
         }
       }
       if (c.type === 'line' && !c.spawned && a > 0.42) {
