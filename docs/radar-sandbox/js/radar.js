@@ -35,7 +35,7 @@ function realDbz(v) {
 // Fraction of an area that is actually wet for a given areal-mean rain rate.
 // (Real radar: light areal rain is sparse showers; heavy areal rain is a
 // nearly continuous shield.)
-const wetFraction = r => clamp((r - 0.04) / (r + 1.2), 0, 0.92);
+const wetFraction = r => clamp((r - 0.04) / (r + 1.2), 0, 0.8);
 // The atlas's own wet fraction: a pixel's dBZ comes from its absolute place in
 // the real pattern, so sparse light rain stays weak and only heavy areal rain
 // reaches the cores.
@@ -169,11 +169,21 @@ export class Raster {
       } else {
         a = clamp(0.5 + 0.5 * fbm(this.nA, bil(tAx) / 30, bil(tAy) / 30, 5), 0, 1);
       }
-      const f = wetFraction(r);
+      // Coarse real pattern (5x scale) breaks rain-area outlines and makes
+      // heavy areas lumpy instead of smooth blobs following the forcing.
+      let env = 1;
+      if (atlas) {
+        let cz = 0;
+        if (wA > 0.01) cz += wA * (sampleWrap(atlas, bil(tAx) / 5 + 333, bil(tAy) / 5 + 777) - 0.5);
+        if (wB > 0.01) cz += wB * (sampleWrap(atlas, bil(tBx) / 5 + 333, bil(tBy) / 5 + 777) - 0.5);
+        const u = clamp(0.5 + cz * wN, 0, 1);
+        env = 0.2 + 1.6 * u * u;
+      }
+      const f = wetFraction(r * env);
       if (a < 1 - f) continue;
       // Real wet-pixel dBZ distribution, shifted by how heavy the rain is.
       const v = Math.min(0.985, (a - (1 - f)) / Math.max(f, F0));
-      const d = (ATLAS.rainQ ? realDbz(v) : 8 + 30 * v) + 4 * Math.log10(Math.max(r, 0.05) / 1.5);
+      const d = (ATLAS.rainQ ? realDbz(v) : 8 + 30 * v) + 4 * Math.log10(Math.max(r * env, 0.05) / 1.5);
       if (d < 4) continue;
       zlin[p] = Math.pow(10, d / 10);
       top[p] = clamp(this.elev[p] / 1000 + T[k] / 6.5 + 2.2 + 2 * v, 2, 9);
@@ -204,6 +214,8 @@ export class Raster {
       const ctop = sim.cellTop(c);
       const x0 = Math.max(0, Math.floor(cx - ext)), x1 = Math.min(W - 1, Math.ceil(cx + ext));
       const y0 = Math.max(0, Math.floor(cy - ext)), y1 = Math.min(H - 1, Math.ceil(cy + ext));
+      const RA = ATLAS.rain;
+      if (c.type === 'super') { this._supercell(c, dbzC, cx, cy, mpp, ct, st, sxo, syo, ctop); continue; }
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const dx = (x + 0.5 - cx) * mpp, dy = -(y + 0.5 - cy) * mpp;
         const a = dx * ct + dy * st, b = -dx * st + dy * ct;
@@ -211,26 +223,63 @@ export class Raster {
         let hh = 1 + amp[2] * Math.cos(2 * ang + ph[2]) + amp[3] * Math.cos(3 * ang + ph[3]) + amp[4] * Math.cos(4 * ang + ph[4]) + amp[5] * Math.cos(5 * ang + ph[5]);
         hh += 0.22 * fbm(this.nB, (a + sxo) / 3.5, (b + syo) / 3.5, 3);
         const dn = Math.sqrt((a / e) ** 2 + b * b) / (rr * hh);
-        let z = 0, best = -99;
-        if (dn < 1.1) {
-          // Internal structure: secondary cores and ragged gradients.
-          const n2 = fbm(this.nC, (a + sxo) / 2.4, (b + syo) / 2.4, 3);
-          const d = dbzC - (dbzC - 11) * Math.pow(dn, 1.35) + (3 + 3.5 * dn) * n2;
-          if (d > 4) { z += Math.pow(10, d / 10); best = d; }
-        }
-        if (c.type === 'super') {
-          // Hook on the right-rear flank and a broad forward-flank echo.
-          const ha = a + 0.55 * rr, hb = b + 0.6 * rr, dh = Math.hypot(ha, hb) / (0.36 * rr);
-          if (dh < 1) { const d = dbzC - 7 - 22 * dh * dh; if (d > 4) { z += Math.pow(10, d / 10); best = Math.max(best, d); } }
-          const fa = a - 0.9 * rr, df = Math.sqrt((fa / 2.1) ** 2 + (b / 0.9) ** 2) / rr;
-          if (df < 1) { const d = dbzC - 17 - 18 * df * df + 3 * this.nC(a * 0.5 + sxo, b * 0.5); if (d > 4) { z += Math.pow(10, d / 10); best = Math.max(best, d); } }
-        }
-        if (z > 0) {
+        if (dn >= 1.25) continue;
+        const n2 = fbm(this.nC, (a + sxo) / 2.4, (b + syo) / 2.4, 3);
+        // Real-radar texture makes the outer echo ragged, with holes and fingers.
+        const tex = RA ? sampleWrap(RA, dx * 1.3 + sxo, dy * 1.3 + syo) : 0.5;
+        const d = dbzC - (dbzC - 11) * Math.pow(dn, 1.35) + (3 + 3.5 * dn) * n2 + 16 * (tex - 0.5) * Math.min(1, dn * 1.4);
+        if (d > 5) {
           const p = y * W + x;
-          zlin[p] += z;
-          if (best > 15) { const t = ctop * (1 - 0.55 * Math.min(1, dn * dn)); if (t > top[p]) top[p] = t; }
+          zlin[p] += Math.pow(10, d / 10);
+          if (d > 15) { const t = ctop * (1 - 0.55 * Math.min(1, dn * dn)); if (t > top[p]) top[p] = t; }
         }
       }
+    }
+  }
+
+  // Classic supercell reflectivity: compact core with a tight gradient on the
+  // inflow (right-front) side, a ragged forward-flank echo spreading downwind
+  // and left, and a hook wrapping cyclonically around a weak-echo hole at the
+  // rear-right. a = along motion (km), b = left of motion (km).
+  _supercell(c, dbzC, cx, cy, mpp, ct, st, sxo, syo, ctop) {
+    const { W, H, zlin, top } = this;
+    const RA = ATLAS.rain;
+    const Rc = c.r * 1.25;
+    const ext = Rc * 6 / mpp;
+    const x0 = Math.max(0, Math.floor(cx - ext)), x1 = Math.min(W - 1, Math.ceil(cx + ext));
+    const y0 = Math.max(0, Math.floor(cy - ext)), y1 = Math.min(H - 1, Math.ceil(cy + ext));
+    const Pa = -0.7 * Rc, Pb = -0.9 * Rc;                 // mesocyclone (hook pivot)
+    const phi0 = Math.atan2(-Pb, -Pa), SWEEP = 4.3;          // hook arc: from the core, around the rear
+    const grow = clamp((dbzC - 20) / 30, 0.25, 1);           // structure fills in as the storm matures
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const dx = (x + 0.5 - cx) * mpp, dy = -(y + 0.5 - cy) * mpp;
+      const a = dx * ct + dy * st, b = -dx * st + dy * ct;
+      // Two scales of real-radar texture: cell-scale lumps and fine fingers.
+      const tex = RA ? 0.6 * sampleWrap(RA, dx * 2.2 + sxo, dy * 2.2 + syo) + 0.4 * sampleWrap(RA, dx * 6 + syo, dy * 6 + sxo) : 0.5;
+      const n2 = fbm(this.nC, (a + sxo) / 1.6, (b + syo) / 1.6, 3);
+      // Core.
+      const sa = a / (a > 0 ? (b < 0 ? 0.7 : 1.15) : 1.0), sb = b / (b < 0 ? 0.75 : 1.25);
+      const dc = Math.hypot(sa, sb) / Rc;
+      let dCore = dbzC - 30 * Math.pow(dc, 1.4) + 3 * n2 + 10 * (tex - 0.5) * Math.min(1, dc);
+      // Forward flank: downwind and rotated ~25 deg to the left.
+      const fa = (a * 0.906 + b * 0.423) - 1.6 * Rc, fb = (-a * 0.423 + b * 0.906) - 0.25 * Rc;
+      const df = Math.hypot(fa / (3.2 * Rc * grow + 0.5 * Rc), fb / (1.3 * Rc));
+      let dFF = (dbzC - 15) - 24 * Math.pow(df, 1.6) + 18 * (tex - 0.5) + 2.5 * n2;
+      // Hook and weak-echo hole.
+      const ha = a - Pa, hb = b - Pb, rho = Math.hypot(ha, hb) / Rc;
+      let sArc = (Math.atan2(hb, ha) - phi0 + 4 * Math.PI) % (2 * Math.PI) / SWEEP;
+      let dHook = -99;
+      if (sArc < 1 && grow > 0.5) {
+        const wdt = 0.28 * (1 - 0.5 * sArc), off = (rho - 0.6) / wdt;
+        dHook = dbzC - 9 - 20 * sArc - 14 * off * off + 6 * (tex - 0.5);
+      }
+      if (rho < 0.42) { const k = 28 * (1 - rho / 0.42) * grow; dCore -= k; dFF -= k; }
+      let z = 0, best = -99;
+      for (const d of [dCore, dFF, dHook]) if (d > 5) { z += Math.pow(10, d / 10); if (d > best) best = d; }
+      if (z <= 0) continue;
+      const p = y * W + x;
+      zlin[p] += z;
+      if (best > 15) { const t = ctop * (1 - 0.5 * Math.min(1, dc * dc / 4)); if (t > top[p]) top[p] = t; }
     }
   }
 

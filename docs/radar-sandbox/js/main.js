@@ -838,6 +838,7 @@ function setupPointer() {
       cv.style.cursor = 'grabbing';
     } else if (t === 'rain' || t === 'moist' || t === 'heat' || t === 'erase') {
       drag = { kind: 'paint', at: { lat, lon } };
+      sim.strokeSeed = Math.random() * 1000;
       lastPaint = performance.now();
       applyPaint(0.12);
       paintLoop = requestAnimationFrame(paintTick);

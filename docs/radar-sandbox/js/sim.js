@@ -733,7 +733,7 @@ export class Sim {
     const [su, sv] = [c.mvx, c.mvy], sl = Math.hypot(su, sv) + 1e-6;
     const env = this.cells.length; void env;
     // Trailing/anvil stratiform fallout behind the motion.
-    const stratK = c.type === 'line' ? 1 : c.type === 'multi' ? 0.6 : c.type === 'super' ? 0.6 : 0.35;
+    const stratK = c.type === 'line' ? 1 : c.type === 'multi' ? 0.6 : c.type === 'super' ? 0.3 : 0.35;
     const bgx = gx - su / sl * 1.6 * re / dxk, bgy = gy + sv / sl * 1.6 * re / dyk;
     for (let j = ja; j <= jb; j++) for (let i = ia; i <= ib; i++) {
       const k = j * NX + i;
@@ -810,7 +810,7 @@ export class Sim {
       // Lightning.
       const top = this.cellTop(c);
       if (dbz > 40 && top > 6) {
-        const perMin = Math.min(45, 0.45 * Math.exp((dbz - 45) / 4.2) * (top / 10) * (c.type === 'super' ? 1.8 : 1));
+        const perMin = Math.min(15, 0.3 * Math.exp((dbz - 45) / 4.5) * (top / 10));
         let lam = perMin * dt / 60;
         while (lam > 0) {
           if (rnd() < Math.min(1, lam)) {
@@ -931,10 +931,17 @@ export class Sim {
   }
 
   paintRain(lat, lon, km, strength) {
-    this._brush(lat, lon, km, (k, w) => {
+    // Irregular footprint (fixed per stroke) so painted rain never takes the
+    // brush's round shape; rain then builds up over the next minutes
+    // through the normal physics instead of appearing instantly.
+    const so = this.strokeSeed ?? 0, L = Math.max(8, km * 0.6);
+    this._brush(lat, lon, km, (k, w, j) => {
+      const i = k - j * this.NX;
+      const nz = 0.5 + 0.5 * fbm(this.mn, this.Xk[i] / L + so, this.Yk[j] / L - so, 3);
+      w *= clamp(1.8 * nz - 0.35, 0, 1.2);
+      if (w <= 0) return;
       this.Fz[k] = Math.min(1.2, this.Fz[k] + 0.12 * strength * w);
-      this.C[k] = Math.min(12, this.C[k] + 0.6 * strength * w);
-      this.R[k] = Math.max(this.R[k], this.C[k] * 4);
+      this.C[k] = Math.min(6, this.C[k] + 0.18 * strength * w);
       this.M[k] += (0.97 - this.M[k]) * Math.min(1, 0.5 * w);
       const qs = qsat(this.T[k]);
       this.q[k] += (0.95 * qs - this.q[k]) * Math.min(1, 0.4 * w);
