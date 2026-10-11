@@ -945,6 +945,7 @@ function dropStorm(lat, lon) {
   // Painted storms start at different stages so they don't pulse in sync.
   c.age = c.life * (c.type === 'super' ? 0.05 + Math.random() * 0.15 : 0.15 + Math.random() * 0.35);
   c.forced = true;
+  if (c.type === 'super') c.hold = 1500; // stays put ~25 min before moving off
   c.dbz = sim.cellDbz(c);
   return c;
 }

@@ -308,7 +308,7 @@ export class Sim {
       const k = j * this.NX + i;
       this.T[k] = this.tEq(k, j);
       this.q[k] = this.qEq(k, j);
-      this.M[k] = clamp(this.P.rh / 100 + 0.2 * this.syn[k], 0.05, 0.98);
+      this.M[k] = clamp(this.P.rh / 100 + 0.2 * this.syn[k], 0.05, 0.97);
     }
   }
 
@@ -406,7 +406,7 @@ export class Sim {
         const dTdy = (this.T[jm * NX + i] - this.T[jp * NX + i]) / (this.dy[j] * (jp - jm));
         const wa = clamp(-150 * (this.us[k] * dTdx + this.vs[k] * dTdy) * 0.7, -0.12, 0.12);
         // Synoptic ascent near lows (and subsidence under highs).
-        this._tmp[k] = clamp(conv, -0.4, 0.4) + oro + wa + 0.12 * this.syn[k] + this.Fz[k] + this.pk[k];
+        this._tmp[k] = clamp(conv, -0.4, 0.4) + oro + wa + (this.syn[k] > 0 ? 0.2 : 0.12) * this.syn[k] + this.Fz[k] + this.pk[k];
       }
     }
     // Light smoothing removes grid-scale noise in the lift.
@@ -518,8 +518,11 @@ export class Sim {
         const spd = Math.hypot(this.u[k], this.v[k]);
         const tauQ = (lf * 30 + (1 - lf) * 8 / (1 + spd / 8)) * 3600;
         this.q[k] += (qe - this.q[k]) * Math.min(1, dt / tauQ);
-        const mt = clamp(this.P.rh / 100 + 0.2 * this.syn[k], 0.05, 0.98);
-        this.M[k] += (mt - this.M[k]) * Math.min(1, dt / (8 * 3600));
+        // Large-scale ascent in lows moistens the column within a few hours
+        // (and subsidence under highs dries it).
+        const sy = this.syn[k];
+        const mt = clamp(this.P.rh / 100 + (sy > 0 ? 0.45 : 0.2) * sy, 0.05, 0.97);
+        this.M[k] += (mt - this.M[k]) * Math.min(1, dt / (8 * 3600 / (1 + 4 * Math.max(0, sy))));
         if (edge || i < 2 || i >= NX - 2) {
           this.M[k] += (mt - this.M[k]) * Math.min(1, dt / 1800);
           this.T[k] += (teq - this.T[k]) * Math.min(1, dt / 1800);
@@ -536,7 +539,7 @@ export class Sim {
         // Condensation in rising air; a deep moist layer (surface RH and
         // mid-level humidity together) is needed for widespread rain.
         if (w > 0) {
-          const sat = Math.max(clamp((0.45 * rh + 0.55 * this.M[k] - 0.73) / 0.2, 0, 1), this.pkn[k]);
+          const sat = Math.max(clamp((0.45 * rh + 0.55 * this.M[k] - 0.73 + 0.1 * Math.max(0, this.syn[k])) / 0.2, 0, 1), this.pkn[k]);
           // Pockets carry their own structure, so the background organisation
           // noise cannot switch them off.
           const org = Math.max(clamp(0.5 + 1.6 * this.meso[k] * (this.P.variability ?? 1), 0.05, 1.6), 0.75 * this.pkn[k])
@@ -787,8 +790,12 @@ export class Sim {
       const thNow = Math.atan2(c.mvy, c.mvx);
       if (c.th == null) c.th = thNow;
       else c.th += Math.atan2(Math.sin(thNow - c.th), Math.cos(thNow - c.th)) * Math.min(1, dt / 2400);
-      c.lat += c.mvy * dt / 111320;
-      c.lon += c.mvx * dt / (111320 * Math.cos(c.lat * D2R));
+      // A supercell you place sits nearly still while it organises (~25 min),
+      // then gradually accelerates to its full storm motion.
+      let go = 1;
+      if (c.hold) { c.held = (c.held || 0) + dt; go = clamp((c.held - c.hold) / 1500, 0.05, 1); if (go >= 1) c.hold = 0; }
+      c.lat += c.mvy * go * dt / 111320;
+      c.lon += c.mvx * go * dt / (111320 * Math.cos(c.lat * D2R));
       // Stable air ages a cell faster; persistent lift keeps it going.
       let rate = 1;
       const stable = c.forced ? 0 : 1; // storms you place live their full life cycle
