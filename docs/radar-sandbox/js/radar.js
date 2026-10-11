@@ -11,6 +11,36 @@ export const beamHeightKm = (r, elevDeg, h0) => Math.sqrt(r * r + KE * KE + 2 * 
 
 const NAZ = 720, DR = 0.5;
 
+// Real-data texture atlases (see README): rank-equalised 0..255 grids.
+//   rain: real Uljenje radar patterns, 1 km/px, periodic.
+//   cloud: real MTG infrared cloud scene, 1.6 km/px, mirror-wrapped.
+export const ATLAS = { rain: null, cloud: null, rainQ: null };
+function sampleWrap(A, x, y) {
+  const n = A.n, xf = ((x % n) + n) % n, yf = ((y % n) + n) % n;
+  const i = xf | 0, j = yf | 0, fx = xf - i, fy = yf - j, i1 = (i + 1) % n, j1 = (j + 1) % n, d = A.data;
+  return ((d[j * n + i] * (1 - fx) + d[j * n + i1] * fx) * (1 - fy) + (d[j1 * n + i] * (1 - fx) + d[j1 * n + i1] * fx) * fy) / 255;
+}
+function sampleMirror(A, x, y) {
+  const n = A.n, m = 2 * n;
+  let xf = ((x % m) + m) % m, yf = ((y % m) + m) % m;
+  if (xf >= n) xf = m - 1 - xf; if (yf >= n) yf = m - 1 - yf;
+  const i = Math.min(n - 2, xf | 0), j = Math.min(n - 2, yf | 0), fx = xf - i, fy = yf - j, d = A.data;
+  return ((d[j * n + i] * (1 - fx) + d[j * n + i + 1] * fx) * (1 - fy) + (d[(j + 1) * n + i] * (1 - fx) + d[(j + 1) * n + i + 1] * fx) * fy) / 255;
+}
+// Wet-pixel dBZ distribution of real Uljenje rain (quantiles).
+function realDbz(v) {
+  const q = ATLAS.rainQ, x = clamp(v, 0, 1) * (q.length - 1), i = Math.min(q.length - 2, x | 0);
+  return q[i] + (q[i + 1] - q[i]) * (x - i);
+}
+// Fraction of an area that is actually wet for a given areal-mean rain rate.
+// (Real radar: light areal rain is sparse showers; heavy areal rain is a
+// nearly continuous shield.)
+const wetFraction = r => clamp((r - 0.04) / (r + 1.2), 0, 0.92);
+// The atlas's own wet fraction: a pixel's dBZ comes from its absolute place in
+// the real pattern, so sparse light rain stays weak and only heavy areal rain
+// reaches the cores.
+const F0 = 0.3;
+
 export class Raster {
   constructor(view, dem, sim) {
     this.view = view; this.dem = dem;
@@ -118,34 +148,35 @@ export class Raster {
     const NX = sim.NX, NY = sim.NY, R = sim.R, T = sim.T;
     const tt = (sim.time / 3.6e6) % 100000;
     zlin.fill(0); top.fill(0);
-    const [fax, fay] = sim.texDir.A, [fbx, fby] = sim.texDir.B;
     const ph = sim.texPhase(), wA = Math.sin(Math.PI * ph) ** 2, wB = 1 - wA, wN = 1 / Math.sqrt(wA * wA + wB * wB);
     const tAx = sim.tAx, tAy = sim.tAy, tBx = sim.tBx, tBy = sim.tBy;
-    // Texture at flow-following coordinates; stretched 2x along the mean wind.
-    const tex = (X, Y, fx0, fy0) => {
-      const along = X * fx0 + Y * fy0, across = -X * fy0 + Y * fx0;
-      return fbm(this.nA, along / 40 + tt * 0.05, across / 20 - tt * 0.03, 5);
-    };
+    const atlas = ATLAS.rain;
     for (let p = 0; p < W * H; p++) {
       let gx = this.gx[p], gy = this.gy[p];
       gx = gx < 0 ? 0 : gx > NX - 1.001 ? NX - 1.001 : gx;
       gy = gy < 0 ? 0 : gy > NY - 1.001 ? NY - 1.001 : gy;
       const i = gx | 0, j = gy | 0, fx = gx - i, fy = gy - j, k = j * NX + i;
       const r = (R[k] * (1 - fx) + R[k + 1] * fx) * (1 - fy) + (R[k + NX] * (1 - fx) + R[k + NX + 1] * fx) * fy;
-      if (r < 0.025) continue;
+      if (r < 0.02) continue;
       const bil = f => (f[k] * (1 - fx) + f[k + 1] * fx) * (1 - fy) + (f[k + NX] * (1 - fx) + f[k + NX + 1] * fx) * fy;
-      const ax = bil(tAx), ay = bil(tAy), bx = bil(tBx), by = bil(tBy);
-      let n = 0, c = 0;
-      if (wA > 0.01) { n += wA * tex(ax, ay, fax, fay); c += wA * fbm(this.nC, ax / 9, ay / 9, 2); }
-      if (wB > 0.01) { n += wB * tex(bx, by, fbx, fby); c += wB * fbm(this.nC, bx / 9, by / 9, 2); }
-      n *= wN; c *= wN;
-      // Bands, holes and embedded heavier cores instead of a uniform sheet.
-      let d = 23 + 16 * Math.log10(r) + 10.5 * n + 1.6 * this.nC(this.X[p] * 0.7, this.Y[p] * 0.7 + tt);
-      if (c > 0.3) d += (c - 0.3) * 32 * Math.min(1, r / 2.5);
-      if (d < 5) continue;
+      // Where in the real rain pattern this pixel sits (flow-following coordinates).
+      let a;
+      if (atlas) {
+        a = 0;
+        if (wA > 0.01) a += wA * (sampleWrap(atlas, bil(tAx), bil(tAy)) - 0.5);
+        if (wB > 0.01) a += wB * (sampleWrap(atlas, bil(tBx), bil(tBy)) - 0.5);
+        a = clamp(0.5 + a * wN, 0, 1);
+      } else {
+        a = clamp(0.5 + 0.5 * fbm(this.nA, bil(tAx) / 30, bil(tAy) / 30, 5), 0, 1);
+      }
+      const f = wetFraction(r);
+      if (a < 1 - f) continue;
+      // Real wet-pixel dBZ distribution, shifted by how heavy the rain is.
+      const v = Math.min(0.985, (a - (1 - f)) / Math.max(f, F0));
+      const d = (ATLAS.rainQ ? realDbz(v) : 8 + 30 * v) + 4 * Math.log10(Math.max(r, 0.05) / 1.5);
+      if (d < 4) continue;
       zlin[p] = Math.pow(10, d / 10);
-      const tk = T[k];
-      top[p] = clamp(this.elev[p] / 1000 + tk / 6.5 + 2.2 + 0.6 * n, 2, 9);
+      top[p] = clamp(this.elev[p] / 1000 + T[k] / 6.5 + 2.2 + 2 * v, 2, 9);
     }
     this._cells(sim);
     const dbz = this.dbz;
@@ -300,13 +331,28 @@ export class Raster {
       const i = gx | 0, j = gy | 0, fx = gx - i, fy = gy - j, k = j * NX + i;
       const bil = f => (f[k] * (1 - fx) + f[k + 1] * fx) * (1 - fy) + (f[k + NX] * (1 - fx) + f[k + NX + 1] * fx) * fy;
       const c0 = bil(cf), cw = bil(C);
+      // Real cloud scene texture (or noise), thresholded to the cloud fraction.
       let n = 0;
-      if (wA > 0.01) n += wA * fbm(this.nB, bil(sim.tAx) / 48 + tt * 0.03, bil(sim.tAy) / 48, 5);
-      if (wB > 0.01) n += wB * fbm(this.nB, bil(sim.tBx) / 48 + tt * 0.03, bil(sim.tBy) / 48, 5);
-      n *= wN;
-      const o = clamp(c0 * 1.2 + 0.5 * n - 0.18, 0, 1);
+      const CA = ATLAS.cloud;
+      if (CA) {
+        if (wA > 0.01) n += wA * (sampleMirror(CA, bil(sim.tAx) / 1.6, bil(sim.tAy) / 1.6) - 0.5);
+        if (wB > 0.01) n += wB * (sampleMirror(CA, bil(sim.tBx) / 1.6, bil(sim.tBy) / 1.6) - 0.5);
+        n = clamp(n * wN, -0.5, 0.5);
+      } else {
+        if (wA > 0.01) n += wA * fbm(this.nB, bil(sim.tAx) / 48 + tt * 0.03, bil(sim.tAy) / 48, 5);
+        if (wB > 0.01) n += wB * fbm(this.nB, bil(sim.tBx) / 48 + tt * 0.03, bil(sim.tBy) / 48, 5);
+        n = 0.5 * n * wN;
+      }
+      const a = n + 0.5, fr = clamp(0.85 * c0, 0, 0.95), thr = 1 - fr;
+      // Crisp cloud edges at the cloud-fraction threshold; thin cloud near
+      // the edge, optically thick toward the textures' bright structures.
+      const e = fr <= 0 ? 0 : (a - thr) / Math.max(0.05, fr);
+      const o = e <= 0 ? 0 : clamp(e / 0.18, 0, 1) * clamp(0.45 + 0.75 * e, 0, 1);
       cloud[p] = o;
-      ztop[p] = cw > 0.03 ? clamp(bil(T) / 6.5 + 2.5 + 2 * cw, 3, 10) : 1.2 + 3.5 * o + 1.2 * n;
+      // Cloud-top height varies with the real texture: deep tops where it
+      // rains, low/mid cloud elsewhere (deeper when mid-levels are moist).
+      const Mk = bil(sim.M);
+      ztop[p] = cw > 0.03 ? clamp(4 + 5 * e + 2 * cw, 3, 10.5) : 1 + (2 + 6 * clamp((Mk - 0.5) / 0.4, 0, 1)) * clamp(e, 0, 1);
     }
     // Anvils and overshooting tops.
     const view = this.view, K = this.k;
@@ -315,17 +361,32 @@ export class Raster {
       if (dbzC < 25) continue;
       const mpp = view.metersPerPx(c.lat) * K / 1000;
       const ra = c.r * 5.5 * clamp((dbzC - 20) / 30, 0.2, 1.2) / mpp;
-      const sp = Math.hypot(c.mvx, c.mvy) + 1e-6;
-      const cx = view.px(c.lon) / K + c.mvx / sp * ra * 0.45, cy = view.py(c.lat) / K - c.mvy / sp * ra * 0.45;
+      // Anvil: an oval cold canopy pushed downwind by upper winds, with a
+      // sharp upwind edge, ragged sides and an overshooting top over the core.
+      const ang = Math.atan2(c.mvy, c.mvx);
+      const ux = c.mvx + 0.6 * sim.P.shear * Math.cos(ang), uy = c.mvy + 0.6 * sim.P.shear * Math.sin(ang);
+      const ul = Math.hypot(ux, uy) + 1e-6, ex = ux / ul, ey = -uy / ul;
+      const L = ra * (1 + Math.min(0.8, ul / 30)), Wd = ra * 0.9, Up = ra * 0.65;
+      const cx0 = view.px(c.lon) / K, cy0 = view.py(c.lat) / K;
       const ctop = sim.cellTop(c);
-      const x0 = Math.max(0, Math.floor(cx - ra)), x1 = Math.min(W - 1, Math.ceil(cx + ra));
-      const y0 = Math.max(0, Math.floor(cy - ra)), y1 = Math.min(H - 1, Math.ceil(cy + ra));
+      const ext = L * 1.3 + 2;
+      const x0 = Math.max(0, Math.floor(cx0 - ext)), x1 = Math.min(W - 1, Math.ceil(cx0 + ext));
+      const y0 = Math.max(0, Math.floor(cy0 - ext)), y1 = Math.min(H - 1, Math.ceil(cy0 + ext));
+      const CA = ATLAS.cloud;
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const dx = x - cx0, dy = y - cy0;
+        const al = dx * ex + dy * ey, ac = -dx * ey + dy * ex;
+        const up = al < 0;
+        const da = up ? -al / Up : al / L, dc = ac / Wd;
+        const r = Math.sqrt(da * da + dc * dc);
+        if (r >= 1.35) continue;
         const p = y * W + x;
-        const d = Math.hypot(x - cx, y - cy) / ra * (1 + 0.12 * this.nC(x * 0.15 + c.seed, y * 0.15));
-        if (d >= 1) continue;
-        cloud[p] = Math.max(cloud[p], Math.sqrt(1 - d * d));
-        const zt = ctop * (1 - 0.12 * d * d) + (d < 0.15 ? 1.4 * (1 - d / 0.15) : 0);
+        const tex = CA ? sampleMirror(CA, (x * mpp + c.seed * 37) / 1.6, (y * mpp + c.seed * 11) / 1.6) : 0.5;
+        const o = clamp((1 - r + (up ? 0.12 : 0.4) * (tex - 0.5) * 2) / (up ? 0.1 : 0.3), 0, 1);
+        if (o <= 0) continue;
+        if (o > cloud[p]) cloud[p] = o;
+        const dd = Math.sqrt(dx * dx + dy * dy) / ra;
+        const zt = ctop * (1 - 0.12 * r) + 0.6 * (tex - 0.5) + (dd < 0.12 ? 1.4 * (1 - dd / 0.12) : 0);
         if (zt > ztop[p]) ztop[p] = zt;
       }
     }

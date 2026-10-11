@@ -139,3 +139,31 @@ grid and clutter off:
 | Share of wet pixels at 10–15 / 15–20 / 20–25 / 25–30 / 30–35 dBZ | .29 / .23 / .22 / .14 / .07 | .29 / .27 / .22 / .13 / .05 |
 | Spectral slope of the dBZ field | −2.6 … −3.0 | −2.8 … −3.3 |
 | Overlap of ≥15 dBZ area after 5 / 15 / 30 min | .79 / .61 / .48 | .73 / .48–.59 / .35–.52 |
+
+## Real-data textures (`data/rain_atlas.*`, `data/cloud_atlas.*`)
+
+Rain and clouds are not drawn from noise. They are cut from real imagery:
+
+- **Rain:** 36 rain scenes from the budva-radar Uljenje 1 km tiles, rotated
+  and blended into a seamless 960 km pattern. The simulation's areal rain
+  rate decides how much of an area is wet: drizzle-level rain gives a few
+  sparse, weak pockets; 1 mm/h gives ~40%; heavy rain gives a near-solid
+  shield. Each pixel's dBZ comes from its place in the real pattern and the
+  real wet-pixel dBZ distribution. So light rain is light, cores sit inside
+  shields, and edges are ragged like real echoes. The pattern rides on
+  flow-following coordinates, so it moves and slowly deforms with the wind.
+- **Clouds:** a real EUMETSAT MTG-I1 FCI 10.5 µm infrared scene over the
+  Balkans (11 Oct 2026). It is mirror-wrapped, which avoids blending ghosts.
+  The simulation's cloud fraction thresholds it, and its brightness sets
+  cloud-top height (deep tops where it rains, low/mid cloud elsewhere).
+  Anvils are oval canopies pushed downwind, with a sharp upwind edge and
+  ragged sides textured from the same scene.
+
+Measured with the same tracker as the real data (Budva 256 km tile, 1 km,
+clutter off):
+
+| | Real | Sandbox autumn / Genoa |
+|---|---|---|
+| Wet ≥10 dBZ | 6–18% | 13% / 22–26% |
+| 10–15 / 15–20 / 20–25 / 25–30 dBZ share | .29 / .23 / .22 / .14 | .27–.31 / .24–.32 / .16–.19 / .09–.13 |
+| ≥15 dBZ overlap after 5 / 15 / 30 min (at the real data's 18 km/h drift) | .79 / .61 / .48 | .76 / .50 / .32 |

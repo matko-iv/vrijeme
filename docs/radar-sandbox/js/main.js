@@ -3,7 +3,7 @@
 import { View, REGIONS, RADAR_SITES, bboxAround, offsetLL, invMercX, invMercY } from './geo.js';
 import { buildDEM } from './terrain.js';
 import { Sim, DEFAULT_PARAMS, dewpoint, qsat, windFrom, dirFrom } from './sim.js';
-import { Raster } from './radar.js';
+import { Raster, ATLAS } from './radar.js';
 import {
   SCALES, RADAR_PALETTES, makeLUT, lutColor, computeShade, renderBasemap, gridImage,
   drawBorders, drawCities, drawIsobars, drawSystems, drawBarbs, drawStrikes,
@@ -1091,6 +1091,27 @@ function showLoading(text, autoHideMs) {
 }
 function hideLoading() { $('loading').classList.add('hide'); }
 
+// ---------- real-data texture atlases ----------
+async function loadGray(url) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, img.width, img.height).data;
+  const out = new Uint8Array(img.width * img.height);
+  for (let i = 0; i < out.length; i++) out[i] = d[i * 4];
+  return { data: out, n: img.width };
+}
+async function loadAtlases() {
+  try {
+    const [rain, meta, cloud] = await Promise.all([loadGray('data/rain_atlas.png'), fetch('data/rain_atlas.json').then(r => r.json()), loadGray('data/cloud_atlas.png')]);
+    ATLAS.rain = rain; ATLAS.rainQ = meta.wet_dbz_quantiles; ATLAS.cloud = cloud;
+  } catch (e) { console.warn('atlas load failed, using noise textures', e); }
+}
+
 // ---------- boot ----------
 async function boot() {
   cv = $('map'); ctx = cv.getContext('2d');
@@ -1102,6 +1123,7 @@ async function boot() {
   requestAnimationFrame(particleTick);
   try { borders = await (await fetch('data/borders.json')).json(); } catch (e) { borders = []; }
   try { lakes = await (await fetch('data/lakes.json')).json(); } catch (e) { lakes = []; }
+  await loadAtlases();
   await buildRegion();
   await applyPreset('autumn');
   let resizeTimer = null, lastSize = `${$('stage').clientWidth}x${$('stage').clientHeight}`;

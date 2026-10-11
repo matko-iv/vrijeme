@@ -71,7 +71,7 @@ export const DEFAULT_PARAMS = {
   sun: 1, trigger: 1, breeze: 1, variability: 1, pockets: 0, natural: 1,
 };
 
-const TEX_PERIOD = 3 * 3600 * 1000; // texture coordinate layers reset every 3 h (staggered)
+const TEX_PERIOD = 8 * 3600 * 1000; // texture coordinate layers reset every 8 h (staggered); real rain patterns persist for hours in the flow
 
 let nextId = 1;
 
@@ -1067,9 +1067,15 @@ export class Sim {
     this.texDir = { A: old.texDir.A.slice(), B: old.texDir.B.slice() };
     const { NX, NY } = this;
     for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
-      const [gx, gy] = old.gridXY(this.lon[i], this.lat[j]);
-      if (gx < 0 || gy < 0 || gx > old.NX - 1 || gy > old.NY - 1) continue;
+      let [gx, gy] = old.gridXY(this.lon[i], this.lat[j]);
+      // Outside the old map, fade from the old edge values back to this
+      // map's own state over ~25 old grid cells (no hard rectangle).
+      const out = Math.max(0, -gx, -gy, gx - (old.NX - 1), gy - (old.NY - 1));
+      const wOld = Math.max(0, 1 - out / 70);
+      if (wOld <= 0) continue;
+      gx = Math.min(Math.max(gx, 0), old.NX - 1); gy = Math.min(Math.max(gy, 0), old.NY - 1);
       const k = j * NX + i;
+      const keep = [this.T[k], this.q[k], this.C[k], this.Fz[k], this.acc[k], this.out[k], this.anvil[k], this.M[k]];
       const de = this.elev[k] - old.sample(old.elev, gx, gy);
       this.T[k] = old.sample(old.T, gx, gy) - 0.0065 * de;
       this.q[k] = old.sample(old.q, gx, gy);
@@ -1079,8 +1085,10 @@ export class Sim {
       this.out[k] = old.sample(old.out, gx, gy);
       this.anvil[k] = old.sample(old.anvil, gx, gy);
       this.M[k] = old.sample(old.M, gx, gy);
-      this.tAx[k] = old.sample(old.tAx, gx, gy); this.tAy[k] = old.sample(old.tAy, gx, gy);
-      this.tBx[k] = old.sample(old.tBx, gx, gy); this.tBy[k] = old.sample(old.tBy, gx, gy);
+      if (wOld < 1) {
+        const f = [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.M];
+        for (let n = 0; n < f.length; n++) f[n][k] = keep[n] + (f[n][k] - keep[n]) * wOld;
+      }
     }
     this.diagnose();
   }
