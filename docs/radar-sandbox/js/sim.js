@@ -119,6 +119,7 @@ export class Sim {
     // and moisture whose size, shape and lifetime follow measured radar
     // statistics. pk = their lift (m/s), pkn = their 0..1 footprint.
     this.pockets = []; this.pk = F(); this.pkn = F(); this.pgen = F();
+    this.TS = F(); // thunderstorm character of painted rain (0..1): convective cores + lightning
     this.pn = makeSimplex(seed * 7 + 3); this.mn = makeSimplex(seed * 13 + 5);
     this.pox = 0; this.poy = 0;
     this.Xk = new Float32Array(NX); this.Yk = new Float32Array(NY);
@@ -483,12 +484,14 @@ export class Sim {
     this._advect(this.out, this.u, this.v, dt);
     this._advect(this.C, this.us, this.vs, dt);
     this._advect(this.Fz, this.us, this.vs, dt);
+    this._advect(this.TS, this.us, this.vs, dt);
     this._advect(this.M, this.us, this.vs, dt);
     for (const f of [this.tAx, this.tAy, this.tBx, this.tBy]) this._advect(f, this.us, this.vs, dt);
     this._texEdges();
     const [su, sv] = windFrom(this.P.steerDir, this.P.steerSpd);
     this.pox += su * 0.8 * dt / 1000; this.poy += sv * 0.8 * dt / 1000;
     this._physics(dt);
+    this._stormLightning(dt);
     this._convection(dt);
     this._systems(dt);
     this.time += dt * 1000;
@@ -563,7 +566,32 @@ export class Sim {
         this.acc[k] += pr;
         if (R > 0.05) this.T[k] -= R * dt / 3600 * 0.15;
         this.Fz[k] *= fDecay;
+        this.TS[k] *= Math.exp(-dt / 5400);
         this.out[k] *= oDecay;
+      }
+    }
+  }
+
+  // Lightning over painted storm areas: flash rate rises with the
+  // thunderstorm factor and the rain rate (heavier rain = more charge).
+  _stormLightning(dt) {
+    const { NX, NY } = this;
+    for (let j = 0; j < NY; j++) {
+      const A = this.dx[j] * this.dy[j] / 1e6;
+      for (let i = 0; i < NX; i++) {
+        const k = j * NX + i, ts = this.TS[k];
+        if (ts < 0.15) continue;
+        const R = this.R[k] + this.Rc[k];
+        if (R < 1.5) continue;
+        let lam = ts * Math.min(2, (R - 1.5) / 8) * A * 0.004 * dt / 60;
+        while (lam > 0) {
+          if (this.rng() < Math.min(1, lam)) {
+            const la = this.lat[j] + (this.rng() - 0.5) * (this.dy[j] / 111320);
+            const lo = this.lon[i] + (this.rng() - 0.5) * (this.dx[j] / (111320 * Math.cos(this.lat[j] * D2R)));
+            this.strikes.push({ lat: la, lon: lo, t: this.time + this.rng() * dt * 1000, cg: this.rng() < 0.3 });
+          }
+          lam -= 1;
+        }
       }
     }
   }
@@ -584,7 +612,7 @@ export class Sim {
       th: Math.atan2(sv, su) + g() * 0.35,
       life: o.life ?? clamp(2400 * Math.sqrt(area / 100), 1800, 6 * 3600),
       lift: o.lift ?? clamp(0.32 * Math.exp(0.45 * g()), 0.1, 0.9),
-      seed: r() * 1000, gen: o.gen ?? 0, born: 0,
+      seed: r() * 1000, gen: o.gen ?? 0, born: 0, storm: !!o.storm,
     };
     // Family tree: ~1.3 children per generation, slowly weakening, at least
     // one for the first generations, so painted rain lives for many hours.
@@ -614,7 +642,7 @@ export class Sim {
         const ang = q.th + side + (this.rng() - 0.5) * 0.8, d = R0 * (0.9 + 0.6 * this.rng());
         const g = Math.sqrt(-2 * Math.log(this.rng() + 1e-9)) * Math.cos(2 * Math.PI * this.rng());
         this.addPocket(q.lat + d * Math.sin(ang) / 111.32, q.lon + d * Math.cos(ang) / (111.32 * Math.cos(q.lat * D2R)),
-          { gen: q.gen + 1, area: clamp(q.area * 0.85 * Math.exp(0.4 * g), 25, 3000), lift: clamp(q.lift * (0.92 + 0.12 * this.rng()), 0.08, 0.75) });
+          { gen: q.gen + 1, storm: q.storm, area: clamp(q.area * 0.85 * Math.exp(0.4 * g), 25, 3000), lift: clamp(q.lift * (0.92 + 0.12 * this.rng()), 0.08, 0.75) });
       }
       const env = a < 0.3 ? Math.sin(Math.PI / 2 * a / 0.3) ** 2 : a < 0.6 ? 1 : Math.cos(Math.PI / 2 * Math.min(1, (a - 0.6) / 0.4)) ** 2;
       if (!inGrid || env <= 0) continue;
@@ -633,6 +661,7 @@ export class Sim {
           const w = Math.exp(-1.6 * d2) * env, k = j * NX + i;
           this.pk[k] += q.lift * w;
           if (w > this.pkn[k]) { this.pkn[k] = w; this.pgen[k] = q.gen; }
+          if (q.storm) this.TS[k] = Math.max(this.TS[k], Math.min(1, 1.3 * w) * Math.pow(0.93, q.gen));
           this.M[k] += (0.92 - this.M[k]) * Math.min(1, dt / 1800) * w;
         }
       }
@@ -930,7 +959,20 @@ export class Sim {
     }
   }
 
-  paintRain(lat, lon, km, strength) {
+  // Storm brush: paints rain like the Rain tool, but convective: heavier
+  // fallout, cores and lightning over the painted area (TS field).
+  paintStorm(lat, lon, km, strength) {
+    this.paintRain(lat, lon, km, strength * 1.5, true);
+    const so = this.strokeSeed ?? 0, L = Math.max(8, km * 0.6);
+    this._brush(lat, lon, km, (k, w, j) => {
+      const i = k - j * this.NX;
+      const nz = 0.5 + 0.5 * fbm(this.mn, this.Xk[i] / L + so, this.Yk[j] / L - so, 3);
+      w *= clamp(1.8 * nz - 0.35, 0, 1.2);
+      if (w > 0) this.TS[k] = Math.min(1, this.TS[k] + 0.6 * strength * w);
+    });
+  }
+
+  paintRain(lat, lon, km, strength, storm = false) {
     // Irregular footprint (fixed per stroke) so painted rain never takes the
     // brush's round shape; rain then builds up over the next minutes
     // through the normal physics instead of appearing instantly.
@@ -942,6 +984,7 @@ export class Sim {
       if (w <= 0) return;
       this.Fz[k] = Math.min(1.2, this.Fz[k] + 0.12 * strength * w);
       this.C[k] = Math.min(6, this.C[k] + 0.18 * strength * w);
+      this.R[k] = Math.max(this.R[k], Math.min(storm ? 7 : 6, this.C[k] * 2.5) * Math.min(1, w)); // visible right away
       this.M[k] += (0.97 - this.M[k]) * Math.min(1, 0.5 * w);
       const qs = qsat(this.T[k]);
       this.q[k] += (0.95 * qs - this.q[k]) * Math.min(1, 0.4 * w);
@@ -949,7 +992,7 @@ export class Sim {
     // Register the painted area as a parent pocket so auto weather can evolve it.
     const cl = Math.cos(lat * D2R);
     const near = this.pockets.some(q => q.gen === 0 && Math.hypot((q.lat - lat) * 111.32, (q.lon - lon) * 111.32 * cl) < km * 0.7);
-    if (!near) this.addPocket(lat, lon, { gen: 0, area: Math.PI * (km * 0.75) ** 2, lift: 0.35, life: 2.5 * 3600 });
+    if (!near) this.addPocket(lat, lon, { gen: 0, storm, area: Math.PI * (km * 0.75) ** 2, lift: storm ? 0.5 : 0.35, life: 2.5 * 3600 });
   }
   paintMoisture(lat, lon, km, sign) {
     this._brush(lat, lon, km, (k, w) => {
@@ -963,7 +1006,7 @@ export class Sim {
   }
   erase(lat, lon, km) {
     this._brush(lat, lon, km, (k, w) => {
-      this.C[k] *= 1 - w; this.Fz[k] *= 1 - w; this.R[k] *= 1 - w; this.Rc[k] *= 1 - w; this.out[k] *= 1 - w;
+      this.C[k] *= 1 - w; this.Fz[k] *= 1 - w; this.TS[k] *= 1 - w; this.R[k] *= 1 - w; this.Rc[k] *= 1 - w; this.out[k] *= 1 - w;
     });
     const cl = Math.cos(lat * D2R), near = (la, lo) => Math.hypot((la - lat) * 111.32, (lo - lon) * 111.32 * cl) < km;
     this.cells = this.cells.filter(c => !near(c.lat, c.lon));
@@ -1045,7 +1088,7 @@ export class Sim {
   snapshot() {
     return {
       time: this.time,
-      f: [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy].map(a => new Float32Array(a)),
+      f: [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy, this.TS].map(a => new Float32Array(a)),
       pox: this.pox, poy: this.poy, texOff: { A: this.texOff.A.slice(), B: this.texOff.B.slice() }, phase: this._phase,
       texDir: { A: this.texDir.A.slice(), B: this.texDir.B.slice() },
       cells: this.cells.map(c => ({ ...c })),
@@ -1056,7 +1099,7 @@ export class Sim {
   }
   restore(s) {
     this.time = s.time;
-    [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy].forEach((a, i) => a.set(s.f[i]));
+    [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy, this.TS].forEach((a, i) => { if (s.f[i]) a.set(s.f[i]); });
     this.pox = s.pox; this.poy = s.poy; this.texOff = { A: s.texOff.A.slice(), B: s.texOff.B.slice() }; this._phase = s.phase;
     this.texDir = { A: s.texDir.A.slice(), B: s.texDir.B.slice() };
     this.cells = s.cells.map(c => ({ ...c }));
@@ -1092,6 +1135,7 @@ export class Sim {
       this.out[k] = old.sample(old.out, gx, gy);
       this.anvil[k] = old.sample(old.anvil, gx, gy);
       this.M[k] = old.sample(old.M, gx, gy);
+      this.TS[k] = old.sample(old.TS, gx, gy) * wOld;
       if (wOld < 1) {
         const f = [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.M];
         for (let n = 0; n < f.length; n++) f[n][k] = keep[n] + (f[n][k] - keep[n]) * wOld;

@@ -185,14 +185,21 @@ export class Raster {
         const u = clamp(0.5 + cz * wN, 0, 1);
         env = 0.2 + 1.6 * u * u;
       }
+      const tsx = bil(sim.TS);
+      if (tsx > 0.1) env = Math.max(env, 0.6 + 0.6 * tsx); // storm areas always show where lightning is
       const f = wetFraction(r * env);
       if (a < 1 - f) continue;
       // Real wet-pixel dBZ distribution, shifted by how heavy the rain is.
       const v = Math.min(0.985, (a - (1 - f)) / Math.max(f, F0));
-      const d = (ATLAS.rainQ ? realDbz(v) : 8 + 30 * v) + 4 * Math.log10(Math.max(r * env, 0.05) / 1.5);
+      let d = (ATLAS.rainQ ? realDbz(v) : 8 + 30 * v) + 4 * Math.log10(Math.max(r * env, 0.05) / 1.5);
+      // Thunderstorm areas: the strongest parts of the real pattern become
+      // convective cores (45-60 dBZ) with sharp gradients.
+      const ts = tsx;
+      if (ts > 0.05) d += ts * (2 + 20 * Math.pow(Math.max(0, v - 0.55) / 0.45, 2));
+      if (d > 58) d = 58 + 4 * Math.tanh((d - 58) / 6); // real storm cores top out near 60 dBZ
       if (d < 4) continue;
       zlin[p] = Math.pow(10, d / 10);
-      top[p] = clamp(this.elev[p] / 1000 + T[k] / 6.5 + 2.2 + 2 * v, 2, 9);
+      top[p] = clamp(this.elev[p] / 1000 + T[k] / 6.5 + 2.2 + 2 * v + 6 * bil(sim.TS) * v, 2, 14);
     }
     this._cells(sim);
     const dbz = this.dbz;

@@ -32,7 +32,7 @@ const MODES = [
 const TOOLS = [
   { key: 'move', icon: '✋', label: 'Drag', opts: ['brush'], hint: 'Grab a storm or an L/H centre and move it. Drag empty space to push rain, clouds and air masses around.' },
   { key: 'rain', icon: '🌧', label: 'Rain', opts: ['brush', 'intensity'], hint: 'Paint lift and moisture: a rain area that drifts with the steering wind and fades once its forcing decays (~3 h).' },
-  { key: 'cell', icon: '⛈', label: 'Storm', opts: ['brush', 'intensity', 'celltype'], hint: 'Click to drop one thunderstorm, or hold and drag to paint storms across the brush (spaced like real cells). Strength nudges peak reflectivity; CAPE and shear decide how long they live.' },
+  { key: 'cell', icon: '⛈', label: 'Storm', opts: ['brush', 'intensity', 'celltype'], hint: 'Paint thunderstorms like rain: heavy rain with convective cores and lightning appears where you brush, then drifts and evolves. With Supercell selected, a click drops one supercell instead.' },
   { key: 'line', icon: '〰', label: 'Squall', opts: [], hint: 'Drag a line of storms. It propagates forward and rebuilds itself while there is CAPE ahead of it.' },
   { key: 'low', icon: 'L', label: 'Low', opts: ['intensity'], hint: 'Press at the centre and drag outward to size the low. Strength = depth (3–30 hPa). Lows drift with the steering wind.' },
   { key: 'high', icon: 'H', label: 'High', opts: ['intensity'], hint: 'Press at the centre and drag outward to size the high. Strength = intensity (3–30 hPa).' },
@@ -842,10 +842,14 @@ function setupPointer() {
       lastPaint = performance.now();
       applyPaint(0.12);
       paintLoop = requestAnimationFrame(paintTick);
-    } else if (t === 'cell') {
+    } else if (t === 'cell' && state.cellType === 'super') {
       dropStorm(lat, lon);
+      commitEdit();
+    } else if (t === 'cell') {
       drag = { kind: 'paint', at: { lat, lon } };
+      sim.strokeSeed = Math.random() * 1000;
       lastPaint = performance.now();
+      applyPaint(0.12);
       paintLoop = requestAnimationFrame(paintTick);
     } else if (t === 'radar') {
       state.customSite = { name: 'Custom radar', short: 'Custom', lat, lon, rangeKm: 240 };
@@ -920,19 +924,7 @@ function applyPaint(dt) {
   else if (t === 'moist') sim.paintMoisture(lat, lon, km, state.sign * dt * 3);
   else if (t === 'heat') sim.paintHeat(lat, lon, km, state.sign * dt * 3);
   else if (t === 'erase') sim.erase(lat, lon, km);
-  else if (t === 'cell') {
-    // Storm brush: try random spots in the brush and keep those far enough
-    // from other storms (real cells sit ~2-3 core diameters apart).
-    let tries = dt * (4 + km / 6);
-    while (tries > 0) {
-      if (Math.random() < Math.min(1, tries)) {
-        const rr = km * Math.sqrt(Math.random()), a = Math.random() * 2 * Math.PI;
-        const la = lat + rr * Math.sin(a) / 111.32, lo = lon + rr * Math.cos(a) / (111.32 * Math.cos(lat * D2R));
-        dropStorm(la, lo);
-      }
-      tries -= 1;
-    }
-  }
+  else if (t === 'cell') sim.paintStorm(lat, lon, km, state.intensity / 5 * dt * 4);
   const now = performance.now();
   if (now - lastDiag > 250) { sim.diagnose(); lastDiag = now; }
   dirty = true;
