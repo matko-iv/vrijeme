@@ -71,7 +71,7 @@ export const DEFAULT_PARAMS = {
   sun: 1, trigger: 1, breeze: 1, variability: 1, pockets: 0, natural: 1,
 };
 
-const TEX_PERIOD = 8 * 3600 * 1000; // texture coordinate layers reset every 8 h (staggered); real rain patterns persist for hours in the flow
+const TEX_PERIOD = 4 * 3600 * 1000; // texture coordinate layers reset every 4 h (staggered): long enough to persist, short enough not to over-stretch
 
 let nextId = 1;
 

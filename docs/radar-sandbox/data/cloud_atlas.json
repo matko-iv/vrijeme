@@ -1,6 +1,12 @@
 {
- "km_per_px": 1.6,
- "size": 820,
+ "km_per_px": 2.4,
+ "w": 1680,
+ "h": 1150,
  "wrap": "mirror",
- "source": "EUMETSAT MTG-I1 FCI IR 10.5 um (EUMETView WMS), 2026-10-11 ~08:45 UTC, made seamless"
+ "channels": {
+  "r": "visible 0.6um cloud reflectance (rank)",
+  "g": "IR 10.5um cloud-top coldness (rank)",
+  "b": "cloud field for thresholding (rank)"
+ },
+ "source": "EUMETSAT MTG-I1 FCI VIS0.6 + IR10.5 with Meteosat cloud mask (EUMETView WMS), 2025-11-20T11, 2026-03-02T11, 2026-05-25T13, 2026-07-20T12, 2026-09-14T11, 2026-10-11T11 UTC; clear surface removed; 3x2 mosaic"
 }

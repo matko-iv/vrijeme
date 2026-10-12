@@ -152,12 +152,25 @@ Rain and clouds are not drawn from noise. They are cut from real imagery:
   real wet-pixel dBZ distribution. So light rain is light, cores sit inside
   shields, and edges are ragged like real echoes. The pattern rides on
   flow-following coordinates, so it moves and slowly deforms with the wind.
-- **Clouds:** a real EUMETSAT MTG-I1 FCI 10.5 µm infrared scene over the
-  Balkans (11 Oct 2026). It is mirror-wrapped, which avoids blending ghosts.
-  The simulation's cloud fraction thresholds it, and its brightness sets
-  cloud-top height (deep tops where it rains, low/mid cloud elsewhere).
-  Anvils are oval canopies pushed downwind, with a sharp upwind edge and
-  ragged sides textured from the same scene.
+- **Large-scale rain organisation:** frontal bands and rain systems decoded
+  from the EUMETNET OPERA European composite (12 Oct 2026, FMI CDN),
+  4.5 km/px. This layer modulates rain intensity over hundreds of km, so
+  rain areas organise into bands and lumps. The Uljenje pattern supplies
+  the 1 km detail inside them.
+- **Clouds:** six real scenes from EUMETSAT MTG-I1 FCI, fetched through
+  EUMETView WMS: Nov 2025 cirrus, a Mar 2026 cold-front band, May and Jul
+  2026 convection, a Sep 2026 cyclone and an Oct 2026 comma cloud. For
+  each scene the Meteosat cloud mask removes the clear land and sea
+  (coastlines, snow). The rest is stored as a 3-channel atlas:
+  - visible 0.6 µm reflectance: cloud brightness and thickness;
+  - 10.5 µm IR coldness: cloud-top height;
+  - a combined field that the simulation's cloud fraction thresholds.
+
+  The six scenes are cross-faded into a 3×2 mosaic and mirror-wrapped.
+- **Satellite modes:** **Visible is always daylit.** At any hour it shows
+  the real reflectance texture: thin cloud grey and translucent, thick
+  cloud bright. Infrared and enhanced IR use the cloud-top channel. Anvils
+  are oval downwind canopies with a sharp upwind edge.
 
 Measured with the same tracker as the real data (Budva 256 km tile, 1 km,
 clutter off):

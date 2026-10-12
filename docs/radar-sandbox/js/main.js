@@ -434,7 +434,7 @@ function render() {
     ctx.drawImage(rasterCanvas, view.ox, view.oy, view.w, view.h);
   } else if (mode === 'sat') {
     if (dirty || !rasterImg._sat) {
-      const sm = state.satMode === 'auto' ? (sunAtCentre() > 0.12 ? 'vis' : 'ir') : state.satMode;
+      const sm = state.satMode === 'auto' ? 'vis' : state.satMode; // visible is always daylit
       raster.satellite(sim, sm, satBasePixels(), rasterImg.data);
       rasterImg._sat = sm;
       rasterCanvas.getContext('2d').putImageData(rasterImg, 0, 0);
@@ -626,7 +626,7 @@ function updateLegend() {
     html = `<div><div class="bar">${segs}</div><div class="ticks">${ticks}</div></div>`;
   } else if (mode === 'sat') {
     const sm = rasterImg?._sat || state.satMode;
-    if (sm === 'vis') html = `<span class="unit">Visible · reflected sunlight (dark at night)</span>`;
+    if (sm === 'vis') html = `<span class="unit">Visible · reflected sunlight (always daylit)</span>`;
     else {
       const bar = sm === 'ir-enh'
         ? 'linear-gradient(90deg,#111,#888 55%,#ddd 70%,#50a0ff 74%,#28dc50 80%,#fadc1e 86%,#f03c1e 93%,#fff)'
@@ -1106,10 +1106,25 @@ async function loadGray(url) {
   for (let i = 0; i < out.length; i++) out[i] = d[i * 4];
   return { data: out, n: img.width };
 }
+async function loadRGB(url) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, img.width, img.height).data, n = img.width * img.height;
+  const r = new Uint8Array(n), gg = new Uint8Array(n), b = new Uint8Array(n);
+  for (let i = 0; i < n; i++) { r[i] = d[i * 4]; gg[i] = d[i * 4 + 1]; b[i] = d[i * 4 + 2]; }
+  return { r, g: gg, b, w: img.width, h: img.height };
+}
 async function loadAtlases() {
   try {
-    const [rain, meta, cloud] = await Promise.all([loadGray('data/rain_atlas.png'), fetch('data/rain_atlas.json').then(r => r.json()), loadGray('data/cloud_atlas.png')]);
-    ATLAS.rain = rain; ATLAS.rainQ = meta.wet_dbz_quantiles; ATLAS.cloud = cloud;
+    const [rain, meta, cloud, cmeta] = await Promise.all([loadGray('data/rain_atlas.png'), fetch('data/rain_atlas.json').then(r => r.json()),
+      loadRGB('data/cloud_atlas.png'), fetch('data/cloud_atlas.json').then(r => r.json())]);
+    ATLAS.rain = rain; ATLAS.rainQ = meta.wet_dbz_quantiles; ATLAS.cloud = { ...cloud, km: cmeta.km_per_px };
+    try { ATLAS.band = await loadGray('data/band_atlas.png'); } catch (e) { /* optional */ }
   } catch (e) { console.warn('atlas load failed, using noise textures', e); }
 }
 

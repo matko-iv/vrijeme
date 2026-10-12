@@ -14,18 +14,21 @@ const NAZ = 720, DR = 0.5;
 // Real-data texture atlases (see README): rank-equalised 0..255 grids.
 //   rain: real Uljenje radar patterns, 1 km/px, periodic.
 //   cloud: real MTG infrared cloud scene, 1.6 km/px, mirror-wrapped.
-export const ATLAS = { rain: null, cloud: null, rainQ: null };
+export const ATLAS = { rain: null, cloud: null, rainQ: null, band: null };
 function sampleWrap(A, x, y) {
   const n = A.n, xf = ((x % n) + n) % n, yf = ((y % n) + n) % n;
   const i = xf | 0, j = yf | 0, fx = xf - i, fy = yf - j, i1 = (i + 1) % n, j1 = (j + 1) % n, d = A.data;
   return ((d[j * n + i] * (1 - fx) + d[j * n + i1] * fx) * (1 - fy) + (d[j1 * n + i] * (1 - fx) + d[j1 * n + i1] * fx) * fy) / 255;
 }
-function sampleMirror(A, x, y) {
-  const n = A.n, m = 2 * n;
-  let xf = ((x % m) + m) % m, yf = ((y % m) + m) % m;
-  if (xf >= n) xf = m - 1 - xf; if (yf >= n) yf = m - 1 - yf;
-  const i = Math.min(n - 2, xf | 0), j = Math.min(n - 2, yf | 0), fx = xf - i, fy = yf - j, d = A.data;
-  return ((d[j * n + i] * (1 - fx) + d[j * n + i + 1] * fx) * (1 - fy) + (d[(j + 1) * n + i] * (1 - fx) + d[(j + 1) * n + i + 1] * fx) * fy) / 255;
+// Mirror-wrapped bilinear sample of one channel (0..1) of a w x h atlas;
+// x, y in km.
+function sampleMirror(A, x, y, ch = 'b') {
+  x /= A.km; y /= A.km;
+  const w = A.w, h = A.h, mx = 2 * w, my = 2 * h;
+  let xf = ((x % mx) + mx) % mx, yf = ((y % my) + my) % my;
+  if (xf >= w) xf = mx - 1 - xf; if (yf >= h) yf = my - 1 - yf;
+  const i = Math.min(w - 2, xf | 0), j = Math.min(h - 2, yf | 0), fx = xf - i, fy = yf - j, d = A[ch];
+  return ((d[j * w + i] * (1 - fx) + d[j * w + i + 1] * fx) * (1 - fy) + (d[(j + 1) * w + i] * (1 - fx) + d[(j + 1) * w + i + 1] * fx) * fy) / 255;
 }
 // Wet-pixel dBZ distribution of real Uljenje rain (quantiles).
 function realDbz(v) {
@@ -171,11 +174,14 @@ export class Raster {
       }
       // Coarse real pattern (5x scale) breaks rain-area outlines and makes
       // heavy areas lumpy instead of smooth blobs following the forcing.
+      // Large-scale layer: real OPERA frontal-band and rain-system shapes
+      // (4.5 km/px), so rain areas organise into bands and lumps.
       let env = 1;
-      if (atlas) {
+      const BA = ATLAS.band, bs = BA ? 1 / 4.5 : 1 / 5, src = BA || atlas;
+      if (src) {
         let cz = 0;
-        if (wA > 0.01) cz += wA * (sampleWrap(atlas, bil(tAx) / 5 + 333, bil(tAy) / 5 + 777) - 0.5);
-        if (wB > 0.01) cz += wB * (sampleWrap(atlas, bil(tBx) / 5 + 333, bil(tBy) / 5 + 777) - 0.5);
+        if (wA > 0.01) cz += wA * (sampleWrap(src, bil(tAx) * bs + 333, bil(tAy) * bs + 777) - 0.5);
+        if (wB > 0.01) cz += wB * (sampleWrap(src, bil(tBx) * bs + 333, bil(tBy) * bs + 777) - 0.5);
         const u = clamp(0.5 + cz * wN, 0, 1);
         env = 0.2 + 1.6 * u * u;
       }
@@ -375,18 +381,21 @@ export class Raster {
     const ph = sim.texPhase(), wA = Math.sin(Math.PI * ph) ** 2, wB = 1 - wA, wN = 1 / Math.sqrt(wA * wA + wB * wB);
     const cloud = this._cloud || (this._cloud = new Float32Array(W * H));
     const ztop = this._ztop || (this._ztop = new Float32Array(W * H));
+    const refl = this._refl || (this._refl = new Float32Array(W * H)); // visible reflectance 0..1
     for (let p = 0; p < W * H; p++) {
       const gx = clamp(this.gx[p], 0, sim.NX - 1.001), gy = clamp(this.gy[p], 0, sim.NY - 1.001);
       const i = gx | 0, j = gy | 0, fx = gx - i, fy = gy - j, k = j * NX + i;
       const bil = f => (f[k] * (1 - fx) + f[k + 1] * fx) * (1 - fy) + (f[k + NX] * (1 - fx) + f[k + NX + 1] * fx) * fy;
       const c0 = bil(cf), cw = bil(C);
       // Real cloud scene texture (or noise), thresholded to the cloud fraction.
-      let n = 0;
+      let n = 0, rv = 0.5, rc = 0.5;
       const CA = ATLAS.cloud;
       if (CA) {
-        if (wA > 0.01) n += wA * (sampleMirror(CA, bil(sim.tAx) / 1.6, bil(sim.tAy) / 1.6) - 0.5);
-        if (wB > 0.01) n += wB * (sampleMirror(CA, bil(sim.tBx) / 1.6, bil(sim.tBy) / 1.6) - 0.5);
-        n = clamp(n * wN, -0.5, 0.5);
+        const ax = bil(sim.tAx), ay = bil(sim.tAy), bx = bil(sim.tBx), by = bil(sim.tBy);
+        let r1 = 0, c1 = 0;
+        if (wA > 0.01) { n += wA * (sampleMirror(CA, ax, ay) - 0.5); r1 += wA * (sampleMirror(CA, ax, ay, 'r') - 0.5); c1 += wA * (sampleMirror(CA, ax, ay, 'g') - 0.5); }
+        if (wB > 0.01) { n += wB * (sampleMirror(CA, bx, by) - 0.5); r1 += wB * (sampleMirror(CA, bx, by, 'r') - 0.5); c1 += wB * (sampleMirror(CA, bx, by, 'g') - 0.5); }
+        n = clamp(n * wN, -0.5, 0.5); rv = clamp(0.5 + r1 * wN, 0, 1); rc = clamp(0.5 + c1 * wN, 0, 1);
       } else {
         if (wA > 0.01) n += wA * fbm(this.nB, bil(sim.tAx) / 48 + tt * 0.03, bil(sim.tAy) / 48, 5);
         if (wB > 0.01) n += wB * fbm(this.nB, bil(sim.tBx) / 48 + tt * 0.03, bil(sim.tBy) / 48, 5);
@@ -398,10 +407,11 @@ export class Raster {
       const e = fr <= 0 ? 0 : (a - thr) / Math.max(0.05, fr);
       const o = e <= 0 ? 0 : clamp(e / 0.18, 0, 1) * clamp(0.45 + 0.75 * e, 0, 1);
       cloud[p] = o;
-      // Cloud-top height varies with the real texture: deep tops where it
-      // rains, low/mid cloud elsewhere (deeper when mid-levels are moist).
+      refl[p] = rv;
+      // Cloud-top height from the real IR coldness channel: deep tops where
+      // it rains, low/mid cloud elsewhere (higher when mid-levels are moist).
       const Mk = bil(sim.M);
-      ztop[p] = cw > 0.03 ? clamp(4 + 5 * e + 2 * cw, 3, 10.5) : 1 + (2 + 6 * clamp((Mk - 0.5) / 0.4, 0, 1)) * clamp(e, 0, 1);
+      ztop[p] = cw > 0.03 ? clamp(3.5 + 6 * rc + 2 * cw, 3, 10.5) : 0.8 + (1.5 + 7 * clamp((Mk - 0.45) / 0.45, 0, 1)) * rc;
     }
     // Anvils and overshooting tops.
     const view = this.view, K = this.k;
@@ -430,10 +440,10 @@ export class Raster {
         const r = Math.sqrt(da * da + dc * dc);
         if (r >= 1.35) continue;
         const p = y * W + x;
-        const tex = CA ? sampleMirror(CA, (x * mpp + c.seed * 37) / 1.6, (y * mpp + c.seed * 11) / 1.6) : 0.5;
+        const tex = CA ? sampleMirror(CA, x * mpp + c.seed * 37, y * mpp + c.seed * 11) : 0.5;
         const o = clamp((1 - r + (up ? 0.12 : 0.4) * (tex - 0.5) * 2) / (up ? 0.1 : 0.3), 0, 1);
         if (o <= 0) continue;
-        if (o > cloud[p]) cloud[p] = o;
+        if (o > cloud[p]) { cloud[p] = o; refl[p] = Math.max(refl[p], 0.75 + 0.25 * tex); }
         const dd = Math.sqrt(dx * dx + dy * dy) / ra;
         const zt = ctop * (1 - 0.12 * r) + 0.6 * (tex - 0.5) + (dd < 0.12 ? 1.4 * (1 - dd / 0.12) : 0);
         if (zt > ztop[p]) ztop[p] = zt;
@@ -446,11 +456,13 @@ export class Raster {
       const k = (gy | 0) * NX + (gx | 0);
       const ts = T[k];
       if (mode === 'vis') {
-        const sun = clamp(sim.cosz[k] * 1.6 + 0.08, 0, 1);
-        const b = 0.2 + 0.8 * sun;
-        const cb = (0.62 + 0.38 * Math.min(1, ztop[p] / 10)) * 255 * sun;
-        const a = Math.pow(o, 0.85);
-        out[q] = base[q] * b * (1 - a) + cb * a; out[q + 1] = base[q + 1] * b * (1 - a) + cb * a; out[q + 2] = base[q + 2] * b * (1 - a) + cb * a;
+        // Always-daylit visible image: cloud brightness is the real
+        // reflectance texture (thin cloud grey and translucent, thick cloud
+        // bright), with a slight bluish-white tint for high ice cloud.
+        const r = refl[p], a = Math.pow(o, 0.8) * (0.55 + 0.45 * r);
+        const cb = 150 + 105 * Math.pow(r, 0.8);
+        const ice = clamp((ztop[p] - 6) / 4, 0, 1) * 6;
+        out[q] = base[q] * (1 - a) + (cb - ice) * a; out[q + 1] = base[q + 1] * (1 - a) + (cb - ice * 0.5) * a; out[q + 2] = base[q + 2] * (1 - a) + cb * a;
       } else {
         const tc = ts - 6.5 * Math.max(0, ztop[p] - this.elev[p] / 1000);
         const tb = ts + (tc - ts) * o;
