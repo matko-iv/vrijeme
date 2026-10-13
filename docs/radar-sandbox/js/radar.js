@@ -30,6 +30,28 @@ function sampleMirror(A, x, y, ch = 'b') {
   const i = Math.min(w - 2, xf | 0), j = Math.min(h - 2, yf | 0), fx = xf - i, fy = yf - j, d = A[ch];
   return ((d[j * w + i] * (1 - fx) + d[j * w + i + 1] * fx) * (1 - fy) + (d[(j + 1) * w + i] * (1 - fx) + d[(j + 1) * w + i + 1] * fx) * fy) / 255;
 }
+// Blending two independent rank (0..1) textures changes their value
+// distribution (two uniforms average to a triangle), which made rendered
+// cloud and rain cover swing as the layer weights cycled. Blend in Gaussian
+// space with variance-preserving weights, then map back to uniform.
+function probit(u) {
+  u = Math.min(1 - 1e-6, Math.max(1e-6, u));
+  const t = Math.sqrt(-2 * Math.log(u < 0.5 ? u : 1 - u));
+  const z = t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t);
+  return u < 0.5 ? -z : z;
+}
+function ncdf(z) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(z)), d = 0.3989423 * Math.exp(-z * z / 2);
+  const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  return z > 0 ? 1 - p : p;
+}
+// wA, wB: layer weights; inputs are 0..1 ranks.
+function blendU(uA, uB, wA, wB) {
+  if (wB <= 0.01) return uA;
+  if (wA <= 0.01) return uB;
+  return ncdf((wA * probit(uA) + wB * probit(uB)) / Math.sqrt(wA * wA + wB * wB));
+}
+
 // Wet-pixel dBZ distribution of real Uljenje rain (quantiles).
 function realDbz(v) {
   const q = ATLAS.rainQ, x = clamp(v, 0, 1) * (q.length - 1), i = Math.min(q.length - 2, x | 0);
@@ -165,10 +187,7 @@ export class Raster {
       // Where in the real rain pattern this pixel sits (flow-following coordinates).
       let a;
       if (atlas) {
-        a = 0;
-        if (wA > 0.01) a += wA * (sampleWrap(atlas, bil(tAx), bil(tAy)) - 0.5);
-        if (wB > 0.01) a += wB * (sampleWrap(atlas, bil(tBx), bil(tBy)) - 0.5);
-        a = clamp(0.5 + a * wN, 0, 1);
+        a = blendU(wA > 0.01 ? sampleWrap(atlas, bil(tAx), bil(tAy)) : 0.5, wB > 0.01 ? sampleWrap(atlas, bil(tBx), bil(tBy)) : 0.5, wA, wB);
       } else {
         a = clamp(0.5 + 0.5 * fbm(this.nA, bil(tAx) / 30, bil(tAy) / 30, 5), 0, 1);
       }
@@ -179,10 +198,8 @@ export class Raster {
       let env = 1;
       const BA = ATLAS.band, bs = BA ? 1 / 4.5 : 1 / 5, src = BA || atlas;
       if (src) {
-        let cz = 0;
-        if (wA > 0.01) cz += wA * (sampleWrap(src, bil(tAx) * bs + 333, bil(tAy) * bs + 777) - 0.5);
-        if (wB > 0.01) cz += wB * (sampleWrap(src, bil(tBx) * bs + 333, bil(tBy) * bs + 777) - 0.5);
-        const u = clamp(0.5 + cz * wN, 0, 1);
+        const u = blendU(wA > 0.01 ? sampleWrap(src, bil(tAx) * bs + 333, bil(tAy) * bs + 777) : 0.5,
+          wB > 0.01 ? sampleWrap(src, bil(tBx) * bs + 333, bil(tBy) * bs + 777) : 0.5, wA, wB);
         env = 0.2 + 1.6 * u * u;
       }
       const tsx = bil(sim.TS);
@@ -399,10 +416,9 @@ export class Raster {
       const CA = ATLAS.cloud;
       if (CA) {
         const ax = bil(sim.tAx), ay = bil(sim.tAy), bx = bil(sim.tBx), by = bil(sim.tBy);
-        let r1 = 0, c1 = 0;
-        if (wA > 0.01) { n += wA * (sampleMirror(CA, ax, ay) - 0.5); r1 += wA * (sampleMirror(CA, ax, ay, 'r') - 0.5); c1 += wA * (sampleMirror(CA, ax, ay, 'g') - 0.5); }
-        if (wB > 0.01) { n += wB * (sampleMirror(CA, bx, by) - 0.5); r1 += wB * (sampleMirror(CA, bx, by, 'r') - 0.5); c1 += wB * (sampleMirror(CA, bx, by, 'g') - 0.5); }
-        n = clamp(n * wN, -0.5, 0.5); rv = clamp(0.5 + r1 * wN, 0, 1); rc = clamp(0.5 + c1 * wN, 0, 1);
+        const sA = ch => (wA > 0.01 ? sampleMirror(CA, ax, ay, ch) : 0.5), sB = ch => (wB > 0.01 ? sampleMirror(CA, bx, by, ch) : 0.5);
+        n = blendU(sA('b'), sB('b'), wA, wB) - 0.5;
+        rv = blendU(sA('r'), sB('r'), wA, wB); rc = blendU(sA('g'), sB('g'), wA, wB);
       } else {
         if (wA > 0.01) n += wA * fbm(this.nB, bil(sim.tAx) / 48 + tt * 0.03, bil(sim.tAy) / 48, 5);
         if (wB > 0.01) n += wB * fbm(this.nB, bil(sim.tBx) / 48 + tt * 0.03, bil(sim.tBy) / 48, 5);
