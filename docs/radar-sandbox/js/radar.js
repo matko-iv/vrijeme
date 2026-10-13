@@ -419,6 +419,19 @@ export class Raster {
       // it rains, low/mid cloud elsewhere (higher when mid-levels are moist).
       const Mk = bil(sim.M);
       ztop[p] = cw > 0.03 ? clamp(3.5 + 6 * rc + 2 * cw, 3, 10.5) : 0.8 + (1.5 + 7 * clamp((Mk - 0.45) / 0.45, 0, 1)) * rc;
+      // Cumulonimbus from the storm brush: a thick, cold, bright canopy with
+      // ragged textured edges, bubbling overshooting tops over the cores.
+      const cb = bil(sim.CB);
+      if (cb > 0.03) {
+        const ts = bil(sim.TS);
+        const oc = clamp((cb + 0.35 * (a - 0.5) - 0.12) / 0.18, 0, 1);
+        if (oc > 0) {
+          cloud[p] = Math.max(cloud[p], oc);
+          refl[p] = Math.max(refl[p], 0.6 + 0.4 * rv); // bumpy, textured canopy top
+          const zt = 9 + 2.5 * cb + 1.2 * (rc - 0.5) + (ts > 0.4 && rc > 0.7 ? 2.5 * (rc - 0.7) / 0.3 * ts : 0);
+          ztop[p] = Math.max(ztop[p], oc * zt + (1 - oc) * ztop[p]);
+        }
+      }
     }
     // Anvils and overshooting tops.
     const view = this.view, K = this.k;

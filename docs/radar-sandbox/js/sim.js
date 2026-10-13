@@ -119,6 +119,7 @@ export class Sim {
     // and moisture whose size, shape and lifetime follow measured radar
     // statistics. pk = their lift (m/s), pkn = their 0..1 footprint.
     this.pockets = []; this.pk = F(); this.pkn = F(); this.pgen = F();
+    this.CB = F(); this.uu = F(); this.vu = F(); // cumulonimbus canopy + upper-level wind
     this.TS = F(); // thunderstorm character of painted rain (0..1): convective cores + lightning
     this.pn = makeSimplex(seed * 7 + 3); this.mn = makeSimplex(seed * 13 + 5);
     this.pox = 0; this.poy = 0;
@@ -432,7 +433,7 @@ export class Sim {
       const cin = clamp((0.4 - rh) / 0.25, 0, 0.8);
       this.cape[k] = clamp(-li * 160, 0, 6000) * (1 - cin);
       const rhe = 0.45 * rh + 0.55 * this.M[k];
-      this.cf[k] = clamp(clamp((rhe - 0.55) / 0.35, 0, 1) * 0.85 + 3 * this.C[k] + this.anvil[k], 0, 1);
+      this.cf[k] = clamp(clamp((rhe - 0.55) / 0.35, 0, 1) * 0.85 + 3 * this.C[k] + this.anvil[k] + this.CB[k], 0, 1);
       const spd = Math.hypot(this.u[k], this.v[k]);
       this.gust[k] = spd * (1.25 + 0.2 * this.land[k] + 0.25 * clamp(this.rough[k] / 300, 0, 1)) + this.out[k];
     }
@@ -485,6 +486,22 @@ export class Sim {
     this._advect(this.C, this.us, this.vs, dt);
     this._advect(this.Fz, this.us, this.vs, dt);
     this._advect(this.TS, this.us, this.vs, dt);
+    // Cumulonimbus canopy: built over thunderstorm areas, spread downwind by
+    // the stronger upper-level wind (steering + shear), dissipates over ~1.5 h.
+    {
+      const sh = this.P.shear;
+      for (let k = 0; k < this.N; k++) {
+        const u = this.us[k], v = this.vs[k], l = Math.hypot(u, v) + 1e-6;
+        this.uu[k] = u + 0.8 * sh * u / l; this.vu[k] = v + 0.8 * sh * v / l;
+      }
+      this._advect(this.CB, this.uu, this.vu, dt);
+      const dec = Math.exp(-dt / 5400);
+      for (let k = 0; k < this.N; k++) {
+        const ts = this.TS[k], R = this.R[k] + this.Rc[k];
+        const src = ts > 0.1 && R > 0.8 ? Math.min(1, ts * (0.6 + R / 10)) : 0;
+        this.CB[k] = Math.max(this.CB[k] * dec, src);
+      }
+    }
     this._advect(this.M, this.us, this.vs, dt);
     for (const f of [this.tAx, this.tAy, this.tBx, this.tBy]) this._advect(f, this.us, this.vs, dt);
     this._texEdges();
@@ -1006,7 +1023,7 @@ export class Sim {
   }
   erase(lat, lon, km) {
     this._brush(lat, lon, km, (k, w) => {
-      this.C[k] *= 1 - w; this.Fz[k] *= 1 - w; this.TS[k] *= 1 - w; this.R[k] *= 1 - w; this.Rc[k] *= 1 - w; this.out[k] *= 1 - w;
+      this.C[k] *= 1 - w; this.Fz[k] *= 1 - w; this.TS[k] *= 1 - w; this.CB[k] *= 1 - w; this.R[k] *= 1 - w; this.Rc[k] *= 1 - w; this.out[k] *= 1 - w;
     });
     const cl = Math.cos(lat * D2R), near = (la, lo) => Math.hypot((la - lat) * 111.32, (lo - lon) * 111.32 * cl) < km;
     this.cells = this.cells.filter(c => !near(c.lat, c.lon));
@@ -1088,7 +1105,7 @@ export class Sim {
   snapshot() {
     return {
       time: this.time,
-      f: [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy, this.TS].map(a => new Float32Array(a)),
+      f: [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy, this.TS, this.CB].map(a => new Float32Array(a)),
       pox: this.pox, poy: this.poy, texOff: { A: this.texOff.A.slice(), B: this.texOff.B.slice() }, phase: this._phase,
       texDir: { A: this.texDir.A.slice(), B: this.texDir.B.slice() },
       cells: this.cells.map(c => ({ ...c })),
@@ -1099,7 +1116,7 @@ export class Sim {
   }
   restore(s) {
     this.time = s.time;
-    [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy, this.TS].forEach((a, i) => { if (s.f[i]) a.set(s.f[i]); });
+    [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.R, this.Rc, this.M, this.tAx, this.tAy, this.tBx, this.tBy, this.TS, this.CB].forEach((a, i) => { if (s.f[i]) a.set(s.f[i]); });
     this.pox = s.pox; this.poy = s.poy; this.texOff = { A: s.texOff.A.slice(), B: s.texOff.B.slice() }; this._phase = s.phase;
     this.texDir = { A: s.texDir.A.slice(), B: s.texDir.B.slice() };
     this.cells = s.cells.map(c => ({ ...c }));
@@ -1136,6 +1153,7 @@ export class Sim {
       this.anvil[k] = old.sample(old.anvil, gx, gy);
       this.M[k] = old.sample(old.M, gx, gy);
       this.TS[k] = old.sample(old.TS, gx, gy) * wOld;
+      this.CB[k] = old.sample(old.CB, gx, gy) * wOld;
       if (wOld < 1) {
         const f = [this.T, this.q, this.C, this.Fz, this.acc, this.out, this.anvil, this.M];
         for (let n = 0; n < f.length; n++) f[n][k] = keep[n] + (f[n][k] - keep[n]) * wOld;
