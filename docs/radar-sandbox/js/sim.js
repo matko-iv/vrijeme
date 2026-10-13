@@ -392,6 +392,7 @@ export class Sim {
       }
     }
     this._seaBreeze();
+    this._outflow();
 
     // Lift (m/s at ~1.5 km).
     const tau = 600;
@@ -591,6 +592,21 @@ export class Sim {
 
   // Lightning over painted storm areas: flash rate rises with the
   // thunderstorm factor and the rain rate (heavier rain = more charge).
+  // Thunderstorm outflow: rain-cooled downdraughts spread out along the
+  // surface, so wind blows outward from storm cores (down the gradient of
+  // the outflow-strength field) on top of the background wind.
+  _outflow() {
+    const { NX, NY } = this, O = this.out;
+    for (let j = 1; j < NY - 1; j++) for (let i = 1; i < NX - 1; i++) {
+      const k = j * NX + i;
+      const gx = (O[k + 1] - O[k - 1]) / 2, gy = (O[k - NX] - O[k + NX]) / 2; // per cell, north-positive
+      const g = Math.hypot(gx, gy);
+      if (g < 0.05) continue;
+      const mag = Math.min(14, 2.2 * g + 0.25 * O[k]);
+      this.u[k] -= mag * gx / g; this.v[k] -= mag * gy / g;
+    }
+  }
+
   _stormLightning(dt) {
     const { NX, NY } = this;
     for (let j = 0; j < NY; j++) {
@@ -599,6 +615,10 @@ export class Sim {
         const k = j * NX + i, ts = this.TS[k];
         if (ts < 0.15) continue;
         const R = this.R[k] + this.Rc[k];
+        // Downburst/outflow gusts under painted thunderstorms (up to ~21 m/s
+        // extra gust in the heaviest cores).
+        const og = Math.min(21, ts * (4 + 4 * Math.sqrt(Math.max(0, R))));
+        if (og > this.out[k]) this.out[k] += (og - this.out[k]) * Math.min(1, dt / 400);
         if (R < 1.5) continue;
         let lam = ts * Math.min(2, (R - 1.5) / 8) * A * 0.004 * dt / 60;
         while (lam > 0) {
