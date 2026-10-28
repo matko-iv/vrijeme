@@ -209,81 +209,67 @@ class ForecastCoreTests(unittest.TestCase):
                 frame, bad, 'unit-bad', min_year_rows=10
             )
 
-    def test_onset_age_and_cdf_do_not_split_equal_age(self):
-        frame = pd.DataFrame({
-            '_derived_precip_obs': [0.0, 0.0, 0.0, 0.2, 0.2, 0.0],
-            'datetime': pd.date_range('2026-01-01', periods=6, freq='h'),
-            'feature': np.arange(6, dtype=float),
-        })
-        X, y, _ = fc.build_onset_person_period(frame, ['feature'])
-        np.testing.assert_array_equal(X['dry_age'].values, [1, 2, 3, 3, 1])
-        np.testing.assert_array_equal(y.values, [0, 0, 0, 1, 0])
+    def test_onset_issue_cases_need_three_dry_hours_and_known_hours(self):
+        times = pd.date_range('2026-01-01', periods=10, freq='h')
+        obs = np.array([0.0, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.0, np.nan, 0.0])
+        cases = fc.rain_onset_issue_cases(times, obs, horizon=4)
+        # Row 2 is the first with 3 dry hours; rain arrives 2 rows later.
+        self.assertEqual(cases[:, 0].tolist()[:2], [2, 3])
+        self.assertEqual(cases[:, 1].tolist()[:2], [2, 1])
+        # Row 4 is wet and rows 5-6 lack 3 dry hours; row 7's horizon holds an
+        # unknown hour without an onset, so it is left out.
+        self.assertNotIn(4, cases[:, 0])
+        self.assertNotIn(7, cases[:, 0])
+        # A gap in the timestamps breaks the dry run and the horizon.
+        gappy = times.delete(1)
+        self.assertNotIn(1, fc.rain_onset_issue_cases(gappy, obs[:9], horizon=4)[:, 0])
 
-        live_age = fc._forecast_onset_dry_age([0.0, 0.0, 0.0, 0.2])
-        np.testing.assert_array_equal(live_age, [1, 2, 3, 3])
-        cdf = fc._onset_cdf_from_hazard([0.1, 0.1, 0.1, 0.1], [1, 2, 3, 3])
-        self.assertTrue(np.all(np.diff(cdf) > 0))
-        self.assertAlmostEqual(cdf[-1], 1 - 0.9 ** 4)
+    def test_onset_by_then_is_monotone_and_stops_at_unknown(self):
+        coef = [-0.95, 0.33, 0.41, 0.34]
+        p = fc.onset_by_then_probability([0.01, 0.02, 0.6, 0.1, np.nan, 0.9], coef)
+        self.assertTrue((np.diff(p[:4]) > 0).all())
+        self.assertGreater(p[2] - p[1], p[1] - p[0])   # the wet hour carries the jump
+        self.assertTrue(np.isnan(p[4:]).all())
+        self.assertTrue(np.isnan(fc.onset_by_then_probability([0.5], None)).all())
 
-        live_age_unknown = fc._forecast_onset_dry_age([0.0, np.nan, 0.0])
-        np.testing.assert_allclose(live_age_unknown, [1.0, np.nan, 1.0], equal_nan=True)
-        cdf_unknown = fc._onset_cdf_from_hazard(
-            [0.1, 0.1, 0.1, 0.1], [1.0, np.nan, 1.0, 2.0]
-        )
-        np.testing.assert_allclose(cdf_unknown, [0.1, np.nan, 0.1, 0.19], equal_nan=True)
-
-        # Capped age must not collapse a genuine two-hour timing miss to zero.
-        pred_hours, obs_hours = fc._onset_event_hours(
-            [0.01, 0.2, 0.01, 0.01], [0, 0, 0, 1], [47, 48, 48, 48],
-            pd.date_range('2026-01-02', periods=4, freq='h'), threshold=0.1,
-        )
-        self.assertEqual(pred_hours, [1.0])
-        self.assertEqual(obs_hours, [3.0])
-        self.assertEqual(fc.onset_timing_metrics(pred_hours, obs_hours)['mae_hours'], 2.0)
-
-        raw_features = pd.DataFrame({
-            'datetime': pd.date_range('2026-01-01', periods=3, freq='h'),
-            'humidity': [60.0, 70.0, 80.0],
-            'agreement': [0.0, 0.5, 1.0],
-            # Live previous-run features can arrive as integer columns.  The
-            # shift adds a trailing NaN, which must widen rather than fail.
-            'previous_run_humidity': [51, 48, 45],
-        })
-        aligned = fc._align_onset_features_to_display(raw_features)
-        pd.testing.assert_series_equal(
-            aligned['datetime'], raw_features['datetime'], check_names=False
-        )
-        np.testing.assert_allclose(
-            aligned['humidity'], [70.0, 80.0, np.nan], equal_nan=True
-        )
-        np.testing.assert_allclose(
-            aligned['agreement'], [0.5, 1.0, np.nan], equal_nan=True
-        )
-        np.testing.assert_allclose(
-            aligned['previous_run_humidity'], [48.0, 45.0, np.nan], equal_nan=True
-        )
-
-    def test_onset_signal_covers_48h_and_uses_saved_threshold(self):
-        class ConstantHazard:
-            def predict_proba(self, X):
-                p = np.full(len(X), 0.15)
-                return np.column_stack([1.0 - p, p])
-
+    def test_onset_follows_the_hourly_decision_over_48h(self):
         now = fc.local_now().floor('h')
-        frame = pd.DataFrame({
-            'datetime': pd.date_range(now, periods=52, freq='h'),
-            'precipitation_ens_mean': np.zeros(52),
+        n = 60
+        rain = np.zeros(n)
+        rain[0:2] = 1.0        # earlier today: rain that ended
+        rain[4] = 1.0          # +0h: 2 dry hours before -> continuation, not onset
+        rain[10:13] = 1.0      # +6h: first onset after >= 3 dry hours
+        rain[30] = 1.0         # +26h: second onset
+        pop = np.where(rain == 1.0, 0.7, 0.05)
+        corrected = pd.DataFrame({
+            'datetime': pd.date_range(now - pd.Timedelta(hours=4), periods=n, freq='h'),
+            'rain_signal': rain, 'precipitation_pop': pop,
         })
-        info = fc.predict_onset_timing(frame, {
-            'model': ConstantHazard(), 'calibrator': None,
-            'features': ['dry_age'], 'declare_threshold': 0.14,
-            'band_threshold': 0.07,
-        })
+        info = fc.predict_rain_onset(corrected, [-0.95, 0.33, 0.41, 0.34], now=now)
         self.assertEqual(len(info['prob_by_hour']), 48)
-        self.assertEqual(info['declare_threshold'], 0.14)
+        self.assertTrue(info['already_raining'])     # the current hour is wet
+        self.assertEqual(info['likely_datetime'], now.isoformat())
+        signals = [h['lead_h'] for h in info['prob_by_hour'] if h['signal']]
+        self.assertEqual(signals, [7, 27])
         self.assertFalse(info['prob_by_hour'][0]['eligible'])
-        self.assertTrue(info['prob_by_hour'][2]['eligible'])
-        self.assertTrue(info['prob_by_hour'][2]['signal'])
+
+        corrected.loc[4, 'rain_signal'] = 0.0      # dry now -> a real onset forecast
+        info = fc.predict_rain_onset(corrected, [-0.95, 0.33, 0.41, 0.34], now=now)
+        self.assertFalse(info['already_raining'])
+        self.assertTrue(info['declared'])
+        self.assertEqual(info['likely_datetime'], (now + pd.Timedelta(hours=6)).isoformat())
+        self.assertLessEqual(info['earliest_datetime'], info['likely_datetime'])
+        self.assertGreaterEqual(info['latest_datetime'], info['likely_datetime'])
+        by_then = [h['p_by_then'] for h in info['prob_by_hour']]
+        self.assertTrue(all(b2 >= b1 for b1, b2 in zip(by_then, by_then[1:])))
+        self.assertEqual(info['max_prob'], by_then[-1])
+
+        # No wet decision in the horizon: nothing declared, chance still reported.
+        corrected['rain_signal'] = 0.0
+        info = fc.predict_rain_onset(corrected, [-0.95, 0.33, 0.41, 0.34], now=now)
+        self.assertFalse(info['declared'])
+        self.assertIsNone(info['likely_datetime'])
+        self.assertIsNotNone(info['max_prob'])
 
     def test_skala_only_supports_hourly_onset_in_first_two_hours(self):
         now = fc.local_now().floor('h')
@@ -294,8 +280,7 @@ class ForecastCoreTests(unittest.TestCase):
         })
         onset = {'prob_by_hour': [
             {'datetime': ts.isoformat(), 'lead_h': i + 1, 'eligible': True,
-             'hazard': 0.08, 'p_by_then': 0.08, 'threshold': 0.10,
-             'signal': False}
+             'hazard': 0.08, 'p_by_then': 0.08, 'signal': False}
             for i, ts in enumerate(corrected['datetime'])
         ]}
         attached = fc.attach_hourly_onset_signal(corrected, onset)
@@ -305,8 +290,8 @@ class ForecastCoreTests(unittest.TestCase):
         np.testing.assert_array_equal(
             attached['rain_onset_skala_support'].values, [1.0, 1.0, 0.0]
         )
-        self.assertEqual(attached.iloc[0]['rain_onset_source'],
-                         'ITALIAMETEO_XGB_ONSET+SKALA')
+        self.assertEqual(attached.iloc[0]['rain_onset_source'], 'RAIN_CLASSIFIER+SKALA')
+        self.assertEqual(attached.iloc[2]['rain_onset_source'], 'RAIN_CLASSIFIER')
 
     def test_shared_stack_and_blend_dispatcher(self):
         X = pd.DataFrame({'x': [0.0, 1.0]})
@@ -815,7 +800,7 @@ class RainOccurrenceTests(unittest.TestCase):
             [0.0, 2.5, 0.0, np.nan], equal_nan=True,
         )
 
-    def test_rain_features_tolerate_one_hour_timing_and_respect_gaps(self):
+    def test_rain_features_tolerate_timing_and_respect_gaps(self):
         frame = pd.DataFrame({
             'datetime': pd.date_range('2026-07-01 10:00', periods=5, freq='h'),
             'ARPEGE_EUROPE_precipitation_model': [0.0, 0.0, 1.0, 0.0, 0.0],
@@ -823,19 +808,20 @@ class RainOccurrenceTests(unittest.TestCase):
             'ITALIAMETEO_ICON2I_precipitation_model': [0.0, 2.0, 0.0, 0.0, 0.0],
         })
         feats = fc.rain_occurrence_features(frame, models=self.MODELS3)
-        np.testing.assert_allclose(feats['ARPEGE_EUROPE_w3max'], [0, 1, 1, 1, 0])
-        np.testing.assert_allclose(
-            feats['ITALIAMETEO_ICON2I_pp1'], [2, 0, 0, 0, np.nan], equal_nan=True)
+        np.testing.assert_allclose(feats['ARPEGE_EUROPE_w1max'], [0, 1, 1, 1, 0])
+        np.testing.assert_allclose(feats['ITALIAMETEO_ICON2I_dist'], [1, 0, 1, 2, 3])
         np.testing.assert_allclose(feats['frac_wet01'], [0, 1 / 3, 1 / 3, 1 / 3, 0])
         np.testing.assert_allclose(feats['n_avail'], [3, 3, 3, 3, 2])
         # ICON-2I at 11:00 and ARPEGE at 12:00 fall in the same +/-1h window.
-        np.testing.assert_allclose(feats['frac_w3_wet01'].iloc[1], 2 / 3)
+        np.testing.assert_allclose(feats['frac_w1_wet01'].iloc[1], 2 / 3)
+        self.assertTrue(np.isnan(feats['GFS_SEAMLESS_dist'].iloc[4]))
 
-        # A missing hour must not let the windows bridge the gap.
+        # A missing hour must not let the windows bridge the gap: 11:00 and
+        # 13:00 are two hours apart, outside each other's +/-1h window.
         gappy = frame.drop(index=2).reset_index(drop=True)
         feats_gap = fc.rain_occurrence_features(gappy, models=self.MODELS3)
-        self.assertTrue(np.isnan(feats_gap['ARPEGE_EUROPE_pp1'].iloc[1]))
-        self.assertTrue(np.isnan(feats_gap['ARPEGE_EUROPE_pm1'].iloc[2]))
+        self.assertEqual(feats_gap['GFS_SEAMLESS_w1max'].iloc[1], 0.0)
+        self.assertEqual(feats_gap['ITALIAMETEO_ICON2I_w1max'].iloc[2], 0.0)
 
     def test_rain_threshold_ramps_down_with_lead(self):
         np.testing.assert_allclose(
