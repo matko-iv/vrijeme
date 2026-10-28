@@ -21,7 +21,7 @@ import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, mean_squared_error, f1_score, precision_recall_curve
 from sklearn.isotonic import IsotonicRegression
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.linear_model import RidgeCV
+from sklearn.linear_model import LogisticRegression, RidgeCV
 
 
 def meteorological_metrics(y_true, y_pred_binary, p_proba=None):
@@ -155,32 +155,6 @@ def pit_histogram(pit, bins=10):
     uniform = 1.0 / bins
     flatness = float(np.sqrt(np.mean((freq - uniform) ** 2)))
     return counts.tolist(), flatness
-
-
-def onset_timing_metrics(pred_hours, obs_hours, tolerances=(1, 2, 3)):
-    """Event-based onset-timing verification (report B4). Avoids the hourly
-    POD/FAR double-penalty. pred_hours / obs_hours are per-case onset LEAD hours
-    (np.nan if no onset in the window).
-      mae_hours / median_hours : |pred - obs| over cases where BOTH have onset
-      hit_within_Nh            : fraction of those within +/-N hours
-      onset_pod / onset_far    : event detection (did we call onset at all)
-    """
-    pred = np.asarray(pred_hours, dtype=float)
-    obs = np.asarray(obs_hours, dtype=float)
-    has_p, has_o = np.isfinite(pred), np.isfinite(obs)
-    both = has_p & has_o
-    err = np.abs(pred[both] - obs[both])
-    res = {
-        'n_cases': int(len(pred)),
-        'n_both': int(both.sum()),
-        'mae_hours': float(err.mean()) if err.size else float('nan'),
-        'median_hours': float(np.median(err)) if err.size else float('nan'),
-    }
-    for nN in tolerances:
-        res[f'hit_within_{nN}h'] = float((err <= nN).mean()) if err.size else float('nan')
-    res['onset_pod'] = float(both.sum() / max(int(has_o.sum()), 1))
-    res['onset_far'] = float((has_p & ~has_o).sum() / max(int(has_p.sum()), 1))
-    return res
 
 
 def temporal_fss(pred_wet, obs_wet, window=3):
@@ -689,14 +663,6 @@ def _promote_quantile_artifacts(param, models, offsets, features):
     _remove_quantile_bundle(legacy_prefix)
     return candidate_prefix
 
-
-def _invalidate_onset_artifacts():
-    """Prevent a failed/disabled retrain from reloading an older onset bundle."""
-    _remove_if_exists(
-        os.path.join(MODEL_DIR, 'onset_hazard.json'),
-        os.path.join(MODEL_DIR, 'onset_meta.json'),
-        os.path.join(MODEL_DIR, 'onset_iso.joblib'),
-    )
 
 LAT, LON = 42.2864, 18.84  # E viva!!
 # Open-Meteo defaults to GMT when timezone is omitted. Keep every live API
@@ -4022,11 +3988,19 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val,
 # seasons 2023-06..2026-08) the classifier won 12 seasons: pooled CSI 0.44 vs
 # 0.36 for the ensemble mean and <= 0.35 for any single model, and 0.46 vs
 # 0.39 for the ICON-2I gate on the hours where ICON-2I exists.
+# Feature version 2 widens the timing tolerance (+/-1..6h windows, hours to the
+# nearest wet hour per member, Gaussian-weighted wet agreement, local-day
+# regime). Forward-only test against version 1 on the same hours
+# (analysis_output/rain_v2_backtest.py): same-day 2024-09..2026-08 Brier
+# 0.0393 -> 0.0392, CSI 0.453 -> 0.472; runs one day older (previous_day1,
+# 2024-09..2026-02) Brier 0.0530 -> 0.0525, CSI 0.411 -> 0.435; two days
+# older CSI 0.376 -> 0.389. The day-ahead Platt map stays (a refit on
+# version 2 gives 0.67/0.78).
 # Rows follow Open-Meteo's convention: row t holds rain over [t-1, t].
 RAIN_OCC_CLF_PATH = os.path.join(MODEL_DIR, 'xgb_rain_occurrence.json')
 RAIN_OCC_AMOUNT_PATH = os.path.join(MODEL_DIR, 'xgb_rain_amount.json')
 RAIN_OCC_META_PATH = os.path.join(MODEL_DIR, 'rain_occurrence_meta.json')
-RAIN_OCC_FEATURE_VERSION = 1
+RAIN_OCC_FEATURE_VERSION = 2
 RAIN_OCC_LAMS = ("ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS")
 RAIN_OCC_CONTEXT_VARS = (
     ('cloud_cover', 'cc'), ('cloud_cover_low', 'ccl'), ('cloud_cover_mid', 'ccm'),
@@ -4069,12 +4043,47 @@ RAIN_OCC_MAX_LEAD_H = 72.0
 RAIN_OCC_MIN_MODELS = 3
 
 
+RAIN_OCC_WINDOWS_H = (1, 2, 3, 6)      # +/-k hour max windows
+RAIN_OCC_SUMS_H = (1, 3, 6, 12)        # +/-k hour accumulation windows
+RAIN_OCC_DIST_CAP_H = 8                # hours-to-nearest-wet-hour cap
+RAIN_OCC_SOFT_SIGMAS_H = (1.5, 3.0)    # Gaussian timing tolerance
+RAIN_OCC_DAY_MIN_HOURS = 12            # member hours needed for a day total
+
+
+def _centered_window(df, half_width, how):
+    """Centered rolling max/sum over +/-half_width hours of an hourly grid."""
+    roll = df.rolling(2 * half_width + 1, center=True, min_periods=1)
+    return getattr(roll, how)()
+
+
+def _hours_to_wet(wet, cap):
+    """Hours from each row to the member's nearest wet hour (either side),
+    capped at ``cap``; NaN where the member has no value."""
+    values = wet.to_numpy(dtype=float)
+    n = len(values)
+    rows = np.arange(n)
+    out = np.full(values.shape, float(cap))
+    for col in range(values.shape[1]):
+        wet_rows = np.flatnonzero(values[:, col] == 1)
+        if wet_rows.size == 0:
+            continue
+        pos = np.searchsorted(wet_rows, rows)
+        before = np.where(pos > 0, rows - wet_rows[np.clip(pos - 1, 0, None)], cap)
+        after = np.where(pos < wet_rows.size,
+                         wet_rows[np.clip(pos, None, wet_rows.size - 1)] - rows, cap)
+        out[:, col] = np.minimum(np.minimum(before, after), cap)
+    out[np.isnan(values)] = np.nan
+    return pd.DataFrame(out, index=wet.index, columns=wet.columns)
+
+
 def rain_occurrence_features(frame, models=None):
     """Timing-tolerant multi-model rain features, one row per input row.
 
     ``frame`` needs ``datetime`` plus ``{M}_{var}_model`` columns. Features are
-    computed on a gap-free hourly grid so the +/-1h windows never span a data
-    gap, then mapped back to the input rows.
+    computed on a gap-free hourly grid so the windows never span a data gap,
+    then mapped back to the input rows. Timing tolerance comes from +/-1..6h
+    max/sum windows, the hours to each member's nearest wet hour and a
+    Gaussian-weighted wet agreement; the local-day totals carry the regime.
     """
     models = list(models or MODELS)
     dt = pd.to_datetime(frame['datetime'])
@@ -4096,30 +4105,49 @@ def rain_occurrence_features(frame, models=None):
         }, index=grid)
 
     P = _block('precipitation')
-    Pm1, Pp1 = P.shift(1), P.shift(-1)
-    # Max over the +/-1h window; NaN only where the whole window is missing.
-    W3 = pd.concat([Pm1, P, Pp1]).groupby(level=0).max().reindex(grid)
-    W3 = W3.where(P.notna() | Pm1.notna() | Pp1.notna())
-    S3 = (Pm1.fillna(0) + P.fillna(0) + Pp1.fillna(0)).where(P.notna())
+    have = P.notna()
+    W = {k: _centered_window(P, k, 'max').where(have) for k in RAIN_OCC_WINDOWS_H}
+    S = {k: _centered_window(P.fillna(0), k, 'sum').where(have) for k in RAIN_OCC_SUMS_H}
+    wet01 = (P >= 0.1).astype(float).where(have)
+    D = _hours_to_wet(wet01, RAIN_OCC_DIST_CAP_H)
     WC = _block('weather_code')
 
     out = {}
-    avail = P.notna().sum(axis=1).astype(float)
+    avail = have.sum(axis=1).astype(float)
     den = avail.where(avail > 0)
-    avail_w3 = W3.notna().sum(axis=1).astype(float)
-    den_w3 = avail_w3.where(avail_w3 > 0)
     out['n_avail'] = avail
     for thr, tag in ((0.1, '01'), (0.2, '02'), (0.5, '05'), (1.0, '1'), (3.0, '3')):
         out[f'frac_wet{tag}'] = (P >= thr).sum(axis=1) / den
-        out[f'frac_w3_wet{tag}'] = (W3 >= thr).sum(axis=1) / den_w3
+    for k in RAIN_OCC_WINDOWS_H:
+        for thr, tag in ((0.1, '01'), (0.5, '05'), (2.0, '2')):
+            out[f'frac_w{k}_wet{tag}'] = (W[k] >= thr).sum(axis=1) / den
+        out[f'ens_w{k}max_mean'] = W[k].mean(axis=1)
+        out[f'ens_w{k}max_median'] = W[k].median(axis=1)
+    for k in RAIN_OCC_SUMS_H:
+        out[f'ens_s{k}_mean'] = S[k].mean(axis=1)
+        out[f'ens_s{k}_median'] = S[k].median(axis=1)
     out['ens_mean'] = P.mean(axis=1)
     out['ens_median'] = P.median(axis=1)
     out['ens_max'] = P.max(axis=1)
     out['ens_p75'] = P.quantile(0.75, axis=1)
-    out['ens_w3max_mean'] = W3.mean(axis=1)
-    out['ens_w3max_median'] = W3.median(axis=1)
-    out['ens_s3_mean'] = S3.mean(axis=1)
+    out['ens_p25'] = P.quantile(0.25, axis=1)
     out['ens_mean_wet'] = P.where(P >= 0.1).mean(axis=1).fillna(0).where(avail > 0)
+    out['dist_wet_mean'] = D.mean(axis=1)
+    out['dist_wet_median'] = D.median(axis=1)
+    out['dist_wet_min'] = D.min(axis=1)
+    out['dist_wet_std'] = D.std(axis=1)
+    offsets = np.arange(-6, 7)
+    wet_filled = wet01.fillna(0).to_numpy()
+    n_grid = len(grid)
+    for sigma in RAIN_OCC_SOFT_SIGMAS_H:
+        kernel = np.exp(-0.5 * (offsets / sigma) ** 2)
+        kernel /= kernel.sum()
+        # 'full' sliced back to the grid also works for frames shorter than the kernel
+        soft = np.column_stack([
+            np.convolve(wet_filled[:, c], kernel, mode='full')[6:6 + n_grid]
+            for c in range(wet_filled.shape[1])])
+        soft = pd.DataFrame(soft, index=grid, columns=wet01.columns).where(have)
+        out[f'soft_wet_s{int(sigma * 10)}'] = soft.mean(axis=1)
     ens_mean = out['ens_mean']
     ens_rev = ens_mean[::-1]
     out['ens_prev3'] = ens_mean.shift(1).rolling(3, min_periods=1).sum()
@@ -4127,38 +4155,46 @@ def rain_occurrence_features(frame, models=None):
     out['ens_prev6'] = ens_mean.shift(1).rolling(6, min_periods=1).sum()
     out['ens_next6'] = ens_rev.shift(1).rolling(6, min_periods=1).sum()[::-1]
 
+    # Local-day regime. Day totals are hourly means x 24 so a day the frame
+    # only partly covers (live horizon edge) is not read as a dry day.
+    day = grid.normalize()
+    day_hours = have.groupby(day).transform('sum')
+    day_tot = (P.groupby(day).transform('mean') * 24.0).where(
+        have & (day_hours >= RAIN_OCC_DAY_MIN_HOURS))
+    day_avail = day_tot.notna().sum(axis=1).astype(float)
+    out['day_frac_models_wet'] = (day_tot >= 0.5).sum(axis=1) / day_avail.where(day_avail > 0)
+    out['day_tot_median'] = day_tot.median(axis=1)
+    consensus_wet = (out['frac_wet01'] >= 0.5).astype(float).where(avail > 0)
+    out['day_wet_hours_ens'] = consensus_wet.groupby(day).transform('mean') * 24.0
+
     lams = [m for m in RAIN_OCC_LAMS if m in models]
     lam_avail = P[lams].notna().sum(axis=1).astype(float)
-    lam_w3_avail = W3[lams].notna().sum(axis=1).astype(float)
-    out['lam_n_avail'] = lam_avail
-    out['lam_frac_wet01'] = (P[lams] >= 0.1).sum(axis=1) / lam_avail.where(lam_avail > 0)
-    out['lam_frac_w3_wet01'] = (
-        (W3[lams] >= 0.1).sum(axis=1) / lam_w3_avail.where(lam_w3_avail > 0)
-    )
-    out['lam_max'] = P[lams].max(axis=1)
-    out['lam_w3max'] = W3[lams].max(axis=1)
-    globals_ = [m for m in models if m not in RAIN_OCC_LAMS]
-    glob_avail = P[globals_].notna().sum(axis=1).astype(float)
-    out['glob_frac_wet01'] = (
-        (P[globals_] >= 0.1).sum(axis=1) / glob_avail.where(glob_avail > 0)
-    )
+    lam_den = lam_avail.where(lam_avail > 0)
+    out['lam_frac_wet01'] = (P[lams] >= 0.1).sum(axis=1) / lam_den
+    out['lam_frac_w1_wet01'] = (W[1][lams] >= 0.1).sum(axis=1) / lam_den
+    out['lam_w1max'] = W[1][lams].max(axis=1)
 
     # WMO weather codes: drizzle/rain >= 51, showers 80-82, thunder >= 95.
     out['wc_frac_rain'] = (WC >= 51).sum(axis=1) / den
     out['wc_frac_shower'] = ((WC >= 80) & (WC <= 82)).sum(axis=1) / den
     out['wc_frac_thunder'] = (WC >= 95).sum(axis=1) / den
-    out['wc_n_thunder'] = (WC >= 95).sum(axis=1).astype(float)
+    wc_rain = (WC >= 51).astype(float).where(WC.notna())
+    wc_thunder = (WC >= 95).astype(float).where(WC.notna())
+    out['wc_frac_rain_w2'] = (_centered_window(wc_rain, 2, 'max') >= 1).sum(axis=1) / den
+    out['wc_frac_thunder_w3'] = (
+        (_centered_window(wc_thunder, 3, 'max') >= 1).sum(axis=1) / den)
 
     for var, name in RAIN_OCC_CONTEXT_VARS:
         values = _block(var)
         out[f'{name}_mean'] = values.mean(axis=1)
-        if name in ('cc', 'rh', 'mslp'):
+        if name in ('cc', 'rh', 'mslp', 'ccl', 'ccm'):
             out[f'{name}_std'] = values.std(axis=1)
     out['tdd_mean'] = out['t2m_mean'] - out['td_mean']
-    out['mslp_tend3'] = out['mslp_mean'].diff(3)
-    out['mslp_tend6'] = out['mslp_mean'].diff(6)
-    out['mslp_tend12'] = out['mslp_mean'].diff(12)
+    for k in (3, 6, 12):
+        out[f'mslp_tend{k}'] = out['mslp_mean'].diff(k)
+    out['mslp_fwd6'] = out['mslp_mean'].shift(-6) - out['mslp_mean']
     out['rh_tend3'] = out['rh_mean'].diff(3)
+    out['cc_w3max'] = _centered_window(out['cc_mean'], 3, 'max')
     direction = np.radians(_block('wind_direction_10m'))
     speed = _block('wind_speed_10m')
     out['wind_u'] = (-speed * np.sin(direction)).mean(axis=1)
@@ -4172,9 +4208,10 @@ def rain_occurrence_features(frame, models=None):
     out['doy_cos'] = np.cos(2 * np.pi * doy / 365.25)
     for m in models:
         out[f'{m}_p0'] = P[m]
-        out[f'{m}_pm1'] = Pm1[m]
-        out[f'{m}_pp1'] = Pp1[m]
-        out[f'{m}_w3max'] = W3[m]
+        out[f'{m}_w1max'] = W[1][m]
+        out[f'{m}_w3max'] = W[3][m]
+        out[f'{m}_s3'] = S[3][m]
+        out[f'{m}_dist'] = D[m]
         out[f'{m}_wc'] = WC[m]
 
     feats = pd.DataFrame(out, index=grid).replace([np.inf, -np.inf], np.nan)
@@ -4326,6 +4363,18 @@ def train_rain_occurrence_model(df):
         print(f"      {name:20s} POD={row['pod']:.3f} FAR={row['far']:.3f} "
               f"CSI={row['csi']:.3f} (n={row['n']})")
 
+    # The onset is read off these hourly decisions; score it and fit the
+    # P(rain starts by +k h) map on the same out-of-fold hours.
+    oof_decision = np.where(oof_mask, (oof >= tau).astype(float), np.nan)
+    onset_card = rain_onset_decision_scores(oof_decision, times, obs.values)
+    onset_fit = fit_onset_by_then(oof, times, obs.values)
+    if onset_fit is None:
+        raise RuntimeError("premalo out-of-fold slučajeva za onset kalibraciju")
+    print(f"    Onset iz satne odluke: {onset_card['declared_onsets']} najavljenih / "
+          f"{onset_card['observed_onsets']} izmjerenih, FAR={onset_card['event_far']:.2f}, "
+          f"±3h={onset_card['hit_within_3h']:.2f}, timed CSI={onset_card['timed_csi_3h']:.3f}")
+    print(f"    P(počinje do +k h): koef {onset_fit['coef']} ({onset_fit['cases']} slučajeva)")
+
     clf = _new_xgb_classifier(**RAIN_OCC_CLF_PARAMS)
     clf.fit(feats[labelled], y[labelled], verbose=False)
     amount_mask = labelled & wet.values
@@ -4351,6 +4400,8 @@ def train_rain_occurrence_model(df):
         'data_end': str(data_end),
         'oof_hours': int(oof_mask.sum()),
         'oof_scorecard': card,
+        'onset_scorecard': onset_card,
+        'onset_by_then': onset_fit,
         'trained_at': local_now().isoformat(timespec='seconds'),
     }
     clf.save_model(RAIN_OCC_CLF_PATH)
@@ -4412,526 +4463,265 @@ def predict_rain_occurrence(frame, bundle, lead_hours):
             'precipitation': precipitation, 'threshold': tau, 'usable': usable}
 
 
-# Rain-onset timing: discrete-time conditional-hazard model. The historical
-# data is a continuous valid-time series (no archived per-run lead tables),
-# so the discrete-time hazard is adapted to "dry spells":
-#   onset = first hour with obs precip >= ONSET_THRESHOLD_MM after >=
-#           ONSET_DRY_GAP_HOURS dry hours. We model h(t) = P(onset this hour |
-#           dry through t-1) as a function of atmospheric state + dry_age (t).
-# At inference we walk the live 48h forecast hour-by-hour, accumulate
-#   S(t)=Π(1-h), F(t)=1-S(t), and extract earliest/likely/latest onset.
-ONSET_THRESHOLD_MM = 0.2
-ONSET_DRY_GAP_HOURS = 3
-ONSET_MAX_DRY_AGE = 48          # cap the elapsed-dry feature
-ONSET_P_LIKELY = 0.50           # F(t) crossing (kept for context/CDF reporting)
-ONSET_P_EARLY = 0.25
-ONSET_P_LATE = 0.75
-# Precision-first declaration uses the INSTANTANEOUS per-hour hazard, not the
-# accumulated CDF: over a long dry spell F(t) creeps to 0.5 from base rate alone
-# (~1.8%/h) and would declare rain almost every day. We declare only when a
-# specific hour's hazard is genuinely elevated. Gate-tune this on held-out
-# ±Nh hit-rate vs false-early-alarm rate (report B5).
-ONSET_HAZARD_DECLARE = 0.10     # per-hour hazard for a confident onset hour
-ONSET_HAZARD_BAND = 0.05        # lower hazard bounding the earliest/latest window
+# Rain onset, read off the published hourly rain decision. The onset hour is the
+# first hour that turns wet after at least RAIN_ONSET_DRY_HOURS dry hours, so the
+# onset can never disagree with the hourly rain icons. It replaced a separate
+# discrete-time hazard model (1396 features, declare threshold 0.03) that on the
+# same held-out issue times (2025-07..2026-08, from every hour after 3 dry
+# station hours, next 24 h) declared 2230 onsets for 1482 observed, 45% of them
+# false, with 48% of the hits within +/-3 h; the onset from the hourly decision
+# has 9-12% false onsets and 81-85% of hits within +/-3 h (timed CSI +/-3 h
+# 0.19 -> 0.46-0.53; analysis_output/rain_v2_backtest.py).
+#
+# ``rain_onset_probability_by_then`` is a calibrated P(rain starts within the
+# first k hours | dry now): a logistic map of the running maximum PoP, the
+# independent-hours union 1 - prod(1 - PoP) and log k, fitted at --train-rain
+# on the classifier's walk-forward out-of-fold probabilities.
+RAIN_ONSET_DRY_HOURS = 3
+RAIN_ONSET_HORIZON_H = 48
+RAIN_ONSET_WINDOW_Q = (0.2, 0.8)  # earliest/latest from the conditional onset CDF
 
 
-def _score_onset_threshold(hazard, observed_onset, dry_age, datetimes,
-                           threshold):
-    """Score one onset threshold at event level, including false alarms."""
-    pred, obs = _onset_event_hours(
-        hazard, observed_onset, dry_age, datetimes, threshold=threshold,
-    )
-    pred = np.asarray(pred, dtype=float)
+def rain_onset_issue_cases(times, obs, horizon, dry_hours=RAIN_ONSET_DRY_HOURS):
+    """Issue rows for onset verification, in Open-Meteo row convention.
+
+    A row i qualifies when it and the ``dry_hours - 1`` rows before it are
+    known dry, consecutive hours. Returns an (n, 2) int array of the row and
+    the lead (1..horizon) of the first wet row after it, or -1 when the next
+    ``horizon`` rows are all known dry. Cases with an unknown hour before the
+    onset (or anywhere in a dry horizon) are left out.
+    """
+    stamps = (pd.to_datetime(pd.Series(times)).values
+              .astype('datetime64[h]').astype(np.int64))
     obs = np.asarray(obs, dtype=float)
-    has_pred = np.isfinite(pred)
-    has_obs = np.isfinite(obs)
-    tp = int((has_pred & has_obs).sum())
-    fp = int((has_pred & ~has_obs).sum())
-    fn = int((~has_pred & has_obs).sum())
-    metrics = onset_timing_metrics(pred, obs)
-    metrics.update({
-        'threshold': float(threshold),
-        'csi': float(tp / max(tp + fp + fn, 1)),
-        'tp': tp, 'fp': fp, 'fn': fn,
-    })
-    return metrics
-
-
-def _select_onset_hazard_threshold(hazard, observed_onset, dry_age, datetimes,
-                                   min_pod=0.50):
-    """Choose the precision-first onset threshold on validation spells.
-
-    The threshold is selected by event CSI, subject to retaining at least 50%
-    onset POD. This makes the production decision an explicit result of onset
-    scores (including false alarms), rather than a hand-written probability.
-    The untouched test period is used only after this selection.
-    """
-    candidates = np.round(np.arange(0.03, 0.305, 0.005), 3)
-    scored = [
-        _score_onset_threshold(
-            hazard, observed_onset, dry_age, datetimes, float(threshold),
-        )
-        for threshold in candidates
-    ]
-    feasible = [m for m in scored if m['onset_pod'] >= min_pod]
-    pool = feasible or scored
-    best = max(
-        pool,
-        key=lambda m: (
-            m['csi'], -m['onset_far'], m.get('hit_within_3h', float('-inf')),
-            m['threshold'],
-        ),
-    )
-    return float(best['threshold']), best
-
-
-def build_onset_person_period(df, feature_cols):
-    """Build the dry-spell person-period table (report B1).
-    Returns (X with dry_age column, y onset 0/1, datetimes) over period rows
-    (every dry hour = target 0; the hour a >=3h-dry spell ends in rain = 1).
-    Wet-but-continuation hours are excluded (we're inside an event, not a spell).
-    """
-    obs = pd.to_numeric(df.get('_derived_precip_obs', pd.Series(np.nan, index=df.index)),
-                        errors='coerce').values
-    n = len(df)
-    valid = np.isfinite(obs)
-    wet = valid & (obs >= ONSET_THRESHOLD_MM)
-    dry_age = np.zeros(n)
-    onset = np.zeros(n, dtype=bool)
-    period = np.zeros(n, dtype=bool)
-    prev_dry = 0
-    for i in range(n):
-        if not valid[i]:
-            prev_dry = 0          # unknown obs breaks the streak; no period row
+    known = np.isfinite(obs)
+    wet = known & (obs >= CORRECTED_RAIN_THRESHOLD_MM)
+    n = len(obs)
+    cases = []
+    for i in range(dry_hours - 1, n - horizon):
+        if (stamps[i + horizon] - stamps[i] != horizon
+                or stamps[i] - stamps[i - dry_hours + 1] != dry_hours - 1):
             continue
-        if wet[i]:
-            if prev_dry >= ONSET_DRY_GAP_HOURS:
-                onset[i] = True
-                dry_age[i] = min(prev_dry, ONSET_MAX_DRY_AGE)
-                period[i] = True   # onset row (target 1)
-            prev_dry = 0           # short-gap/continuation wet: not a period row
-        else:
-            prev_dry += 1
-            dry_age[i] = min(prev_dry, ONSET_MAX_DRY_AGE)
-            period[i] = True       # dry hazard row (target 0)
-    pos = np.where(period)[0]
-    feats = [c for c in feature_cols if c in df.columns and c != 'dry_age']
-    X = df.iloc[pos][feats].copy()
-    X['dry_age'] = dry_age[pos]
-    y = pd.Series(onset[pos].astype(int), index=X.index)
-    dt = df.iloc[pos]['datetime'].reset_index(drop=True)
-    X = X.reset_index(drop=True)
-    y = y.reset_index(drop=True)
-    return X, y, dt
-
-
-def _onset_cdf_from_hazard(hazard, dry_age):
-    """Given per-row hazard within a chronological dry-spell sequence, reset the
-    survival product whenever a new spell starts (dry_age drops) and return the
-    onset CDF F(t)=1-S(t) per row."""
-    h = np.clip(np.asarray(hazard, dtype=float), 0.0, 0.999)
-    da = np.asarray(dry_age, dtype=float)
-    F = np.zeros(len(h))
-    S = 1.0
-    prev_da = np.nan
-    for i in range(len(h)):
-        if not np.isfinite(da[i]) or not np.isfinite(h[i]):
-            F[i] = np.nan
-            S = 1.0
-            prev_da = np.nan
+        back = slice(i - dry_hours + 1, i + 1)
+        if not known[back].all() or wet[back].any():
             continue
-        # Equal values are normal after dry_age reaches its cap and on the
-        # positive onset row. Only a decrease marks a new spell.
-        if np.isfinite(prev_da) and da[i] < prev_da:
-            S = 1.0
-        S *= (1.0 - h[i])
-        F[i] = 1.0 - S
-        prev_da = da[i]
-    return F
+        ahead_wet = wet[i + 1:i + 1 + horizon]
+        ahead_known = known[i + 1:i + 1 + horizon]
+        if ahead_wet.any():
+            lead = int(np.argmax(ahead_wet))
+            if ahead_known[:lead].all():
+                cases.append((i, lead + 1))
+        elif ahead_known.all():
+            cases.append((i, -1))
+    return np.array(cases, dtype=int).reshape(-1, 2)
 
 
-def _onset_event_hours(hazard, observed_onset, dry_age, datetimes,
-                       threshold=ONSET_HAZARD_DECLARE):
-    """Return per-spell predicted/observed onset elapsed hours.
+def _onset_by_then_design(window):
+    """[logit running max, logit 1-prod(1-p), log k] for k = 1..len(window)."""
+    p = np.clip(np.asarray(window, dtype=float), 0.0, 0.999)
+    running_max = np.maximum.accumulate(p)
+    union = 1.0 - np.cumprod(1.0 - p)
 
-    Timing is derived from timestamps, not capped ``dry_age``. This prevents a
-    long spell whose age is fixed at 48 from receiving a mechanically zero
-    timing error. Gaps in the person-period table (unknown observations or
-    excluded wet-continuation rows) start a new spell.
+    def _logit(x):
+        x = np.clip(x, 1e-4, 1.0 - 1e-4)
+        return np.log(x / (1.0 - x))
+
+    k = np.arange(1, len(p) + 1, dtype=float)
+    return np.column_stack([_logit(running_max), _logit(union), np.log(k)])
+
+
+def onset_by_then_probability(pop, coef):
+    """Calibrated P(rain starts within the first k hours), k = 1..len(pop).
+
+    ``pop`` starts at the current hour. Hours from the first unknown PoP on
+    stay NaN: the chance cannot be carried across an hour with no forecast.
     """
-    hz = np.asarray(hazard, dtype=float)
-    onset = np.asarray(observed_onset, dtype=int)
-    ages = np.asarray(dry_age, dtype=float)
-    times = pd.to_datetime(pd.Series(datetimes)).reset_index(drop=True)
-    if not (len(hz) == len(onset) == len(ages) == len(times)):
-        raise ValueError('onset event arrays moraju imati istu duzinu')
-
-    predicted, observed = [], []
-    spell = None
-    previous_age = np.nan
-    previous_time = None
-    for i in range(len(hz)):
-        timestamp = pd.Timestamp(times.iloc[i])
-        time_gap = (
-            previous_time is not None and
-            timestamp - previous_time > pd.Timedelta(hours=1)
-        )
-        new_spell = (
-            spell is None or time_gap or
-            (np.isfinite(previous_age) and ages[i] < previous_age)
-        )
-        if new_spell:
-            if spell is not None:
-                predicted.append(spell['pred'])
-                observed.append(spell['obs'])
-            spell = {'start': timestamp, 'pred': np.nan, 'obs': np.nan}
-
-        elapsed = (timestamp - spell['start']).total_seconds() / 3600.0
-        if np.isnan(spell['pred']) and np.isfinite(hz[i]) and hz[i] >= threshold:
-            spell['pred'] = elapsed
-        if onset[i] == 1:
-            spell['obs'] = elapsed
-        previous_age = ages[i]
-        previous_time = timestamp
-
-    if spell is not None:
-        predicted.append(spell['pred'])
-        observed.append(spell['obs'])
-    return predicted, observed
+    pop = np.asarray(pop, dtype=float)
+    out = np.full(len(pop), np.nan)
+    if coef is None or len(pop) == 0:
+        return out
+    known = np.isfinite(pop)
+    n_known = len(pop) if known.all() else int(np.argmin(known))
+    if n_known == 0:
+        return out
+    X = _onset_by_then_design(pop[:n_known])
+    z = coef[0] + X @ np.asarray(coef[1:], dtype=float)
+    out[:n_known] = 1.0 / (1.0 + np.exp(-z))
+    return out
 
 
-def train_onset_model(df):
-    """Train the discrete-time onset hazard (XGBoost) on the dry-spell table.
-    Trains on < SPLIT_DATE, isotonic-calibrates on a tail val slice, verifies on
-    >= SPLIT_DATE with hazard Brier/reliability + event-based onset metrics
-    (report B4) against the first-wet-hour baseline. Saves model+calibrator."""
-    print("\n  [Onset] Treniranje discrete-time hazard modela...")
-    feature_cols = get_feature_columns(df)
-    try:
-        X, y, dt = build_onset_person_period(df, feature_cols)
-    except Exception as e:
-        print(f"  [Onset] build person-period failed ({e}); preskačem onset model.")
-        _invalidate_onset_artifacts()
+def fit_onset_by_then(proba, times, obs, horizon=RAIN_ONSET_HORIZON_H):
+    """Fit the P(rain starts by +k h) map on out-of-fold hourly probabilities."""
+    proba = np.asarray(proba, dtype=float)
+    cases = rain_onset_issue_cases(times, obs, horizon)
+    X, y = [], []
+    for i, lead in cases:
+        window = proba[i + 1:i + 1 + horizon]
+        if not np.isfinite(window).all():
+            continue
+        X.append(_onset_by_then_design(window))
+        k = np.arange(1, horizon + 1)
+        y.append(((lead > 0) & (k >= lead)).astype(int))
+    if len(X) < 300:
         return None
-    if len(X) < 1000 or int(y.sum()) < 30:
-        print(f"  [Onset] nedovoljno: rows={len(X)}, onsets={int(y.sum())}; preskačem.")
-        _invalidate_onset_artifacts()
-        return None
-
-    tr = (dt < SPLIT_DATE).values
-    te = (dt >= SPLIT_DATE).values
-    if tr.sum() < 500 or int(y[tr].sum()) < 20 or te.sum() < 100:
-        print(f"  [Onset] split premali (train onsets={int(y[tr].sum())}); preskačem.")
-        _invalidate_onset_artifacts()
-        return None
-
-    feats = list(X.columns)
-    # Monotone constraints where physics dictates (report A2/B): onset hazard
-    # increases with model agreement-wet and humidity.
-    mono_up = {'lam_frac_wet', 'rain_agreement', 'frac_high_res_wet',
-               'relative_humidity_2m_ens_mean', 'humidity_above_90',
-               'precip_ens_mean_rainy', 'lam_all_wet'}
-    constraints = tuple(1 if f in mono_up else 0 for f in feats)
-
-    X_tr, y_tr = X[tr], y[tr]
-    X_te, y_te = X[te], y[te]
-    dt_te = dt[te].reset_index(drop=True)
-    X_te = X_te.reset_index(drop=True)
-    y_te = y_te.reset_index(drop=True)
-
-    # tail val slice of train for calibration + early stopping
-    vcut = int(len(X_tr) * 0.9)
-    X_fit, y_fit = X_tr.iloc[:vcut], y_tr.iloc[:vcut]
-    X_val, y_val = X_tr.iloc[vcut:], y_tr.iloc[vcut:]
-
-    if 'month' in X_fit.columns:
-        sw_fit = seasonal_sample_weights(X_fit['month'].values, y_fit.values)
-    else:
-        sw_fit = np.ones(len(y_fit))
-
-    hp = dict(n_estimators=800, max_depth=5, learning_rate=0.03,
-              subsample=0.8, colsample_bytree=0.6, reg_alpha=0.2, reg_lambda=2.0,
-              min_child_weight=20, gamma=0.1, objective='binary:logistic',
-              eval_metric='logloss', tree_method='hist', max_bin=512,
-              monotone_constraints=constraints, random_state=42, n_jobs=-1,
-              early_stopping_rounds=40)
-    clf = _new_xgb_classifier(**hp)
-    clf.fit(X_fit, y_fit, sample_weight=sw_fit, eval_set=[(X_val, y_val)], verbose=False)
-    best_n = max(int(getattr(clf, 'best_iteration', 0)) + 1, 1)
-
-    # isotonic calibration of the hazard on val
-    proba_val = clf.predict_proba(X_val)[:, 1]
-    iso = None
-    if len(proba_val) >= 300 and y_val.sum() >= 5:
-        iso = IsotonicRegression(out_of_bounds='clip')
-        iso.fit(proba_val, y_val.astype(float))
-
-    calibrated_val = iso.transform(proba_val) if iso is not None else proba_val
-    dt_val = dt[tr].iloc[vcut:].reset_index(drop=True)
-    declare_threshold, threshold_selection = _select_onset_hazard_threshold(
-        calibrated_val, y_val.values, X_val['dry_age'].values, dt_val,
-    )
-
-    # Verify on the test period
-    proba_te = clf.predict_proba(X_te)[:, 1]
-    if iso is not None:
-        proba_te = iso.transform(proba_te)
-    brier = float(np.mean((proba_te - y_te.values) ** 2))
-
-    # Event-based onset metrics: reconstruct per-spell predicted vs observed
-    # onset. Predicted onset = first hour the INSTANTANEOUS hazard is elevated
-    # (>= ONSET_HAZARD_DECLARE), mirroring the precision-first inference rule.
-    da = X_te['dry_age'].values
-    pred_onset, obs_onset = _onset_event_hours(
-        proba_te, y_te.values, da, dt_te, declare_threshold
-    )
-    ometrics = onset_timing_metrics(pred_onset, obs_onset)
-    test_threshold_metrics = _score_onset_threshold(
-        proba_te, y_te.values, da, dt_te, declare_threshold,
-    )
-
-    # Baseline: fraction-of-models-wet crossing 0.5 as the onset anchor
-    print(f"  [Onset] test Brier={brier:.4f} | onsets(test)={int(y_te.sum())} | "
-          f"MAE={ometrics['mae_hours']:.2f}h | hit±1h={ometrics['hit_within_1h']:.2f} "
-          f"hit±2h={ometrics['hit_within_2h']:.2f} hit±3h={ometrics['hit_within_3h']:.2f} | "
-          f"onset POD={ometrics['onset_pod']:.2f} FAR={ometrics['onset_far']:.2f} | "
-          f"threshold={declare_threshold:.3f} CSI={test_threshold_metrics['csi']:.2f}")
-
-    # Keep the exact classifier whose validation scores were isotonic-calibrated.
-    # Refitting across that calibration tail would invalidate the saved map.
-    clf_prod = clf
-
-    clf_prod.save_model(os.path.join(MODEL_DIR, 'onset_hazard.json'))
-    _write_json_atomic(
-        os.path.join(MODEL_DIR, 'onset_meta.json'),
-        {'features': feats, 'best_iteration': best_n,
-         'threshold_mm': ONSET_THRESHOLD_MM, 'dry_gap': ONSET_DRY_GAP_HOURS,
-         'declare_threshold': declare_threshold,
-         'band_threshold': min(ONSET_HAZARD_BAND, declare_threshold / 2.0),
-         'threshold_selection': threshold_selection,
-         'metrics': test_threshold_metrics, 'brier': brier},
-        ensure_ascii=False, indent=2,
-    )
-    if iso is not None:
-        import joblib
-        joblib.dump(iso, os.path.join(MODEL_DIR, 'onset_iso.joblib'))
-    else:
-        _remove_if_exists(os.path.join(MODEL_DIR, 'onset_iso.joblib'))
-    print(f"  [Onset] sačuvan kalibrisani bundle (features={len(feats)}, best_n={best_n}).")
-    return {'model': clf_prod, 'calibrator': iso, 'features': feats,
-            'metrics': test_threshold_metrics,
-            'declare_threshold': declare_threshold,
-            'band_threshold': min(ONSET_HAZARD_BAND, declare_threshold / 2.0),
-            'threshold_source': 'validation_event_scores'}
+    X = np.vstack(X)
+    y = np.concatenate(y)
+    lr = LogisticRegression(C=1e3, max_iter=1000).fit(X, y)
+    coef = [float(lr.intercept_[0])] + [float(c) for c in lr.coef_[0]]
+    fitted = lr.predict_proba(X)[:, 1]
+    k = np.tile(np.arange(1, horizon + 1), len(y) // horizon)
+    diag = {}
+    for kk in (3, 6, 12, 24, 48):
+        m = k == kk
+        if m.any():
+            diag[f'k{kk}'] = {
+                'observed': round(float(y[m].mean()), 4),
+                'mean_prob': round(float(fitted[m].mean()), 4),
+                'brier': round(float(np.mean((fitted[m] - y[m]) ** 2)), 4),
+                'brier_climatology': round(float(np.mean((y[m].mean() - y[m]) ** 2)), 4),
+            }
+    return {'coef': [round(c, 5) for c in coef], 'cases': len(X) // horizon,
+            'horizon_h': horizon, 'in_sample': diag}
 
 
-def load_onset_model():
-    """Reload the onset hazard bundle for --skip-training; None if absent."""
-    mpath = os.path.join(MODEL_DIR, 'onset_hazard.json')
-    metapath = os.path.join(MODEL_DIR, 'onset_meta.json')
-    if not (os.path.exists(mpath) and os.path.exists(metapath)):
-        return None
-    try:
-        clf = _new_xgb_classifier()
-        clf.load_model(mpath)
-        _restore_xgb_device(clf)
-        with open(metapath, encoding='utf-8') as f:
-            meta = json.load(f)
-        iso = None
-        ipath = os.path.join(MODEL_DIR, 'onset_iso.joblib')
-        if os.path.exists(ipath):
-            import joblib
-            iso = joblib.load(ipath)
-        return {'model': clf, 'calibrator': iso, 'features': meta.get('features', []),
-                'metrics': meta.get('metrics', {}),
-                'declare_threshold': float(meta.get(
-                    'declare_threshold', ONSET_HAZARD_DECLARE)),
-                'band_threshold': float(meta.get(
-                    'band_threshold', ONSET_HAZARD_BAND)),
-                'threshold_source': ('validation_event_scores'
-                                     if 'declare_threshold' in meta
-                                     else 'heldout_report_legacy')}
-    except Exception as e:
-        if _DEVICE_REQUEST == 'cuda':
-            raise RuntimeError(f'Onset GPU reload failed: {e}') from e
-        print(f"  [Onset] reload failed ({e}); bez onset bloka.")
-        return None
+def rain_onset_decision_scores(decision, times, obs, horizon=24):
+    """Score the onset read off hourly decisions from every 3h-dry issue hour."""
+    decision = np.asarray(decision, dtype=float)
+    cases = rain_onset_issue_cases(times, obs, horizon)
+    pred, observed = [], []
+    for i, lead in cases:
+        window = decision[i + 1:i + 1 + horizon]
+        if not np.isfinite(window).all():
+            continue
+        wet = window >= 0.5
+        pred.append(int(np.argmax(wet)) + 1 if wet.any() else -1)
+        observed.append(lead)
+    pred = np.asarray(pred)
+    observed = np.asarray(observed)
+    has_pred, has_obs = pred > 0, observed > 0
+    both = has_pred & has_obs
+    err = np.abs(pred[both] - observed[both])
+    tp, fp, fn = int(both.sum()), int((has_pred & ~has_obs).sum()), int((~has_pred & has_obs).sum())
+    within3 = int((err <= 3).sum())
+    return {
+        'cases': int(len(pred)), 'observed_onsets': int(has_obs.sum()),
+        'declared_onsets': int(has_pred.sum()),
+        'event_pod': round(tp / max(tp + fn, 1), 4),
+        'event_far': round(fp / max(tp + fp, 1), 4),
+        'event_csi': round(tp / max(tp + fp + fn, 1), 4),
+        'median_abs_error_h': float(np.median(err)) if tp else None,
+        'hit_within_1h': round(float((err <= 1).mean()), 4) if tp else None,
+        'hit_within_2h': round(float((err <= 2).mean()), 4) if tp else None,
+        'hit_within_3h': round(float((err <= 3).mean()), 4) if tp else None,
+        # a declared onset counts only when it is within +/-3 h of the observed one
+        'timed_csi_3h': round(within3 / max(int(has_pred.sum() + has_obs.sum()) - within3, 1), 4),
+    }
 
 
-def _forecast_onset_dry_age(precip):
-    """Dry-age feature for live onset rows, matching training onset semantics."""
-    values = np.asarray(precip, dtype=float)
-    dry_age = np.zeros(len(values), dtype=float)
-    previous_dry = 0
-    for i, amount in enumerate(values):
-        if not np.isfinite(amount):
-            dry_age[i] = np.nan
-            previous_dry = 0
-        elif amount >= ONSET_THRESHOLD_MM:
-            dry_age[i] = min(previous_dry, ONSET_MAX_DRY_AGE)
-            previous_dry = 0
-        else:
-            previous_dry += 1
-            dry_age[i] = min(previous_dry, ONSET_MAX_DRY_AGE)
-    return dry_age
+def predict_rain_onset(corrected, onset_coef, now=None, horizon=RAIN_ONSET_HORIZON_H):
+    """Onset contract for the +48h horizon from the published hourly decision.
 
-
-def _align_onset_features_to_display(fc_features):
-    """Align the complete onset feature row to displayed rain intervals.
-
-    Open-Meteo precipitation at raw timestamp T describes [T-1h, T], while
-    the public output moves it to timestamp T-1h. The hazard model was trained
-    on the complete raw row, so live inference must move every model feature
-    with that precipitation row. Moving only corrected rain made dry age come
-    from T+1 while humidity/agreement still came from T.
+    ``corrected`` is in display convention (row T = rain over [T, T+1)) with
+    ``rain_signal`` (1/0/NaN) and ``precipitation_pop``. Hours of today before
+    ``now`` count toward the dry run that makes an hour eligible. Defensive:
+    never raises into the main pipeline.
     """
-    aligned = fc_features.copy()
-    feature_cols = [c for c in aligned.columns if c != 'datetime']
-    # Assign each shifted Series through ``frame[col]`` so pandas is allowed to
-    # widen integer/bool columns when the final shifted row becomes NaN.
-    # ``.loc[:, cols] = ...`` attempts an in-place dtype-preserving update in
-    # pandas 3 and raises LossySetitemError for live integer-valued features.
-    shifted = aligned[feature_cols].shift(-1)
-    for col in feature_cols:
-        aligned[col] = shifted[col]
-    return aligned
-
-
-def predict_onset_timing(fc, bundle):
-    """Return a scored onset decision for every hour of the +48h horizon.
-
-    The saved validation-selected hazard threshold drives all 48 hours. SKALA
-    is intentionally not baked into that long-range threshold: its support is
-    added later only to the short hours where radar nowcasting exists.
-    Defensive: never raises into the main pipeline.
-    """
-    if not bundle:
-        return None
     try:
-        feats = bundle['features']
-        model = bundle['model']
-        iso = bundle.get('calibrator')
-        declare_threshold = float(bundle.get(
-            'declare_threshold', ONSET_HAZARD_DECLARE))
-        band_threshold = float(bundle.get(
-            'band_threshold', ONSET_HAZARD_BAND))
-        threshold_source = bundle.get(
-            'threshold_source', 'heldout_report_legacy')
-
-        # Prefer the same gated/corrected precipitation that is displayed to
-        # users. Fall back to the raw ensemble only for older callers.
-        state_precip = fc.get(
-            '_onset_state_precip',
-            fc.get('precipitation_ens_mean', pd.Series(np.nan, index=fc.index)),
-        )
-        ens_precip = pd.to_numeric(state_precip, errors='coerce').values
-        dry_age = _forecast_onset_dry_age(ens_precip)
-
-        X = pd.DataFrame(index=fc.index)
-        for c in feats:
-            if c == 'dry_age':
-                continue
-            X[c] = pd.to_numeric(fc[c], errors='coerce') if c in fc.columns else np.nan
-        X['dry_age'] = dry_age
-        X = X[feats]
-        hazard = model.predict_proba(X)[:, 1]
-        if iso is not None:
-            hazard = iso.transform(hazard)
-
-        now = local_now().floor('h')
-        dts = pd.to_datetime(fc['datetime'])
-        fut = (dts >= now).values
-        idx = np.where(fut)[0]
+        frame = corrected.sort_values('datetime').reset_index(drop=True)
+        dts = pd.to_datetime(frame['datetime'])
+        rain = pd.to_numeric(frame.get('rain_signal', pd.Series(np.nan, index=frame.index)),
+                             errors='coerce').values
+        pop = pd.to_numeric(frame.get('precipitation_pop', pd.Series(np.nan, index=frame.index)),
+                            errors='coerce').values
+        now = (local_now() if now is None else pd.Timestamp(now)).floor('h')
+        idx = np.flatnonzero((dts >= now).values)[:horizon]
         if len(idx) == 0:
             return None
-        idx = idx[:48]  # 48h horizon
 
-        already_raining = bool(
-            np.isfinite(ens_precip[idx[0]])
-            and ens_precip[idx[0]] >= ONSET_THRESHOLD_MM
-        )
-        S = 1.0
-        prob_by_hour = []
-        scored_hazard = np.full(len(idx), np.nan)
-        cumulative = np.zeros(len(idx), dtype=float)
-        for j, i in enumerate(idx):
-            amount = ens_precip[i]
-            eligible = bool(
-                np.isfinite(amount) and np.isfinite(dry_age[i])
-                and dry_age[i] >= ONSET_DRY_GAP_HOURS
-            )
-            if not eligible:
-                # A wet/unknown hour or the start of a new dry spell cannot be
-                # an onset-after-3h-dry decision. Reset the spell CDF.
-                S = 1.0
-                h = None
-                p_by_then = 0.0
+        # Dry hours before each row; an unknown hour breaks the run.
+        dry_before = np.zeros(len(frame), dtype=int)
+        run = 0
+        for i in range(len(frame)):
+            dry_before[i] = run
+            if not np.isfinite(rain[i]):
+                run = 0
+            elif rain[i] >= 0.5:
+                run = 0
             else:
-                h = float(np.clip(hazard[i], 0, 0.999))
-                scored_hazard[j] = h
-                S *= (1.0 - h)
-                p_by_then = float(1.0 - S)
-            cumulative[j] = p_by_then
-            ts = dts.iloc[i]
-            signal = bool(h is not None and h >= declare_threshold)
-            prob_by_hour.append({
-                'datetime': ts.isoformat(), 'hour': int(ts.hour),
-                'lead_h': j + 1, 'eligible': eligible,
-                'hazard': round(h, 3) if h is not None else None,
-                'p_by_then': round(p_by_then, 3),
-                'threshold': round(declare_threshold, 3),
-                'signal': signal,
-            })
-        finite_hazard = np.where(np.isfinite(scored_hazard))[0]
-        peak = (float(np.nanmax(scored_hazard)) if finite_hazard.size else 0.0)
-        max_prob = round(float(cumulative.max()), 3)
-        signal_hours = np.where(
-            np.isfinite(scored_hazard) & (scored_hazard >= declare_threshold)
-        )[0]
+                run += 1
+        known = np.isfinite(rain)
+        wet = known & (rain >= 0.5)
+        eligible = known & (dry_before >= RAIN_ONSET_DRY_HOURS)
+        onset = eligible & wet
 
-        # Precision-first: declare only when a specific hour's hazard is elevated
-        # (avoids declaring from base-rate CDF accumulation over long dry spells).
-        if signal_hours.size == 0:
-            return {'already_raining': already_raining,
-                    'declared': already_raining,
-                    'likely_datetime': (dts.iloc[idx[0]].isoformat()
-                                        if already_raining else None),
-                    'max_prob': max_prob, 'peak_hazard': round(peak, 3),
-                    'declare_threshold': round(declare_threshold, 3),
-                    'threshold_source': threshold_source,
-                    'prob_by_hour': prob_by_hour}
-        likely_j = int(signal_hours[0])
-        band = np.where(
-            np.isfinite(scored_hazard) & (scored_hazard >= band_threshold)
-        )[0]
-        early_j = int(band.min()) if band.size else likely_j
-        late_j = int(band.max()) if band.size else likely_j
-        return {
+        already_raining = bool(wet[idx[0]])
+        if already_raining:
+            by_then = np.ones(len(idx))
+        else:
+            by_then = onset_by_then_probability(pop[idx], onset_coef)
+        previous = np.concatenate([[0.0], by_then[:-1]])
+        hazard = np.where(previous < 1.0, (by_then - previous) / np.maximum(1.0 - previous, 1e-9),
+                          np.nan)
+        hazard = np.clip(hazard, 0.0, 1.0)
+
+        prob_by_hour = []
+        for j, i in enumerate(idx):
+            ts = dts.iloc[i]
+            prob_by_hour.append({
+                'datetime': ts.isoformat(), 'hour': int(ts.hour), 'lead_h': j + 1,
+                'eligible': bool(eligible[i]),
+                'hazard': (round(float(hazard[j]), 3)
+                           if np.isfinite(hazard[j]) and not already_raining else None),
+                'p_by_then': round(float(by_then[j]), 3) if np.isfinite(by_then[j]) else None,
+                'signal': bool(onset[i]),
+            })
+
+        finite = np.isfinite(by_then)
+        result = {
             'already_raining': already_raining,
-            'declared': True,
-            'likely_datetime': (dts.iloc[idx[0]].isoformat() if already_raining
-                                else dts.iloc[idx[likely_j]].isoformat()),
-            'earliest_datetime': dts.iloc[idx[early_j]].isoformat(),
-            'latest_datetime': dts.iloc[idx[late_j]].isoformat(),
-            'peak_hazard': round(peak, 3),
-            'max_prob': max_prob,
-            'declare_threshold': round(declare_threshold, 3),
-            'threshold_source': threshold_source,
+            'declared': already_raining,
+            'likely_datetime': dts.iloc[idx[0]].isoformat() if already_raining else None,
+            'max_prob': round(float(by_then[finite].max()), 3) if finite.any() else None,
+            'peak_hazard': (round(float(np.nanmax(hazard)), 3)
+                            if np.isfinite(hazard).any() and not already_raining else None),
+            'method': 'first_rain_hour_after_3h_dry',
+            'threshold_source': 'rain_classifier',
             'prob_by_hour': prob_by_hour,
         }
+        onset_rows = np.flatnonzero(onset[idx])
+        if already_raining or onset_rows.size == 0:
+            return result
+        likely = int(onset_rows[0])
+        early = late = likely
+        total = by_then[finite][-1] if finite.any() else np.nan
+        if np.isfinite(total) and total > 0:
+            conditional = by_then / total
+            lo, hi = RAIN_ONSET_WINDOW_Q
+            reach_lo = np.flatnonzero(np.isfinite(conditional) & (conditional >= lo))
+            reach_hi = np.flatnonzero(np.isfinite(conditional) & (conditional >= hi))
+            if reach_lo.size:
+                early = min(int(reach_lo[0]), likely)
+            if reach_hi.size:
+                late = max(int(reach_hi[0]), likely)
+        result.update({
+            'declared': True,
+            'likely_datetime': dts.iloc[idx[likely]].isoformat(),
+            'earliest_datetime': dts.iloc[idx[early]].isoformat(),
+            'latest_datetime': dts.iloc[idx[late]].isoformat(),
+        })
+        return result
     except Exception as e:
-        if _DEVICE_REQUEST == 'cuda':
-            raise RuntimeError(f'Onset GPU inference failed: {e}') from e
-        print(f"  [Onset] inference failed ({e}); bez onset bloka.")
+        print(f"  [Onset] nije izračunat ({e}); bez onset bloka.")
         return None
 
 
 def attach_hourly_onset_signal(corrected, onset_info):
-    """Attach the dedicated +48h onset contract to corrected hourly rows.
+    """Attach the +48h onset contract to corrected hourly rows.
 
-    The hazard model supplies the full horizon. SKALA can only corroborate a
-    short-lead signal already present in the radar-corrected hourly forecast;
-    it is never carried forward into hours where radar has no skill window.
+    The onset comes from the hourly decision, which already carries SKALA's
+    short-lead support. SKALA can also open an onset itself, but only in the
+    first two hours and only for an eligible dry-spell hour that the radar-
+    corrected forecast already shows as wet.
     """
     if not onset_info or not onset_info.get('prob_by_hour'):
         return corrected
@@ -4945,7 +4735,6 @@ def attach_hourly_onset_signal(corrected, onset_info):
 
     hazard_values = []
     cumulative_values = []
-    threshold_values = []
     eligible_values = []
     signal_values = []
     skala_values = []
@@ -4955,7 +4744,6 @@ def attach_hourly_onset_signal(corrected, onset_info):
         if item is None:
             hazard_values.append(np.nan)
             cumulative_values.append(np.nan)
-            threshold_values.append(np.nan)
             eligible_values.append(np.nan)
             signal_values.append(np.nan)
             skala_values.append(np.nan)
@@ -4972,16 +4760,15 @@ def attach_hourly_onset_signal(corrected, onset_info):
             and pd.notna(skala_raw) and bool(skala_raw)
             and pd.notna(rain_raw) and bool(rain_raw)
         )
-        # The replay supports SKALA as short-range corroboration. It can open
-        # the onset signal only for an eligible dry-spell hour, never at +3h+.
         signal = signal or (eligible and skala_support)
-        source = 'ITALIAMETEO_XGB_ONSET'
+        source = 'RAIN_CLASSIFIER'
         if skala_support:
             source += '+SKALA'
 
-        hazard_values.append(item.get('hazard'))
-        cumulative_values.append(item.get('p_by_then'))
-        threshold_values.append(item.get('threshold'))
+        hazard = item.get('hazard')
+        by_then = item.get('p_by_then')
+        hazard_values.append(np.nan if hazard is None else hazard)
+        cumulative_values.append(np.nan if by_then is None else by_then)
         eligible_values.append(float(eligible))
         signal_values.append(float(signal))
         skala_values.append(float(skala_support))
@@ -4989,7 +4776,6 @@ def attach_hourly_onset_signal(corrected, onset_info):
 
     out['rain_onset_hazard'] = hazard_values
     out['rain_onset_probability_by_then'] = cumulative_values
-    out['rain_onset_threshold'] = threshold_values
     out['rain_onset_eligible'] = eligible_values
     out['rain_onset_signal'] = signal_values
     out['rain_onset_skala_support'] = skala_values
@@ -9098,7 +8884,7 @@ def generate_output(corrected, trained, results, fc_raw=None, marine=None, onset
         for pcol in ['precipitation_pop', 'p_precip_gt1', 'p_precip_gt5',
                       'p_gust_gt10', 'p_gust_gt17',
                      'rain_signal_confidence', 'rain_onset_hazard',
-                     'rain_onset_probability_by_then', 'rain_onset_threshold']:
+                     'rain_onset_probability_by_then']:
             v = row.get(pcol, None)
             if v is not None and pd.notna(v):
                 entry[pcol] = round(float(v), 3)
@@ -9424,7 +9210,6 @@ if __name__ == "__main__":
     if skip_training:
         print("\n  MODE: --skip-training (ucitavam sacuvane modele)")
         trained, results, bias_tables = load_trained_models()
-        onset_bundle = load_onset_model()
     else:
         hist = load_historical_data()
 
@@ -9455,14 +9240,6 @@ if __name__ == "__main__":
             rain_bundle = load_rain_occurrence_bundle()
         if 'precipitation' in trained and 'precip_info' in trained['precipitation']:
             trained['precipitation']['precip_info']['rain_occurrence'] = rain_bundle
-        try:
-            onset_bundle = train_onset_model(hist)
-        except Exception as _e:
-            _invalidate_onset_artifacts()
-            if _DEVICE_REQUEST == 'cuda':
-                raise
-            print(f"  [Onset] trening preskočen ({_e})")
-            onset_bundle = None
 
     try:
         fc_all = fetch_live_forecasts()
@@ -9484,25 +9261,15 @@ if __name__ == "__main__":
 
         corrected = apply_correction(fc_all, trained, bias_tables, local_dry_nowcast=dry_nowcast_active)
 
-        # Rain-onset timing (report Part B) — NEW output, doesn't touch the
-        # existing hourly/precip display. Best-effort: never breaks the forecast.
+        # Rain onset: the first hour the published hourly decision turns wet
+        # after 3 dry hours, plus the calibrated chance that rain has started
+        # by each hour. Best-effort: never breaks the forecast.
         onset_info = None
         try:
-            _fc_onset = apply_bias_features(fc_all.copy(), bias_tables)
-            _onset_now = local_now().floor('h')
-            _fc_onset['lead_time'] = (
-                (pd.to_datetime(_fc_onset['datetime']) - _onset_now)
-                .dt.total_seconds() / 3600.0
-            ).clip(lower=0.0, upper=72.0)
-            _fc_feat = _align_onset_features_to_display(
-                engineer_features(_fc_onset)
-            )
-            if 'precipitation_xgb' in corrected.columns:
-                _state_by_time = corrected.set_index('datetime')['precipitation_xgb']
-                _fc_feat['_onset_state_precip'] = pd.to_datetime(
-                    _fc_feat['datetime']
-                ).map(_state_by_time)
-            onset_info = predict_onset_timing(_fc_feat, onset_bundle)
+            _rain_bundle = (trained.get('precipitation', {}).get('precip_info', {})
+                            .get('rain_occurrence'))
+            _onset_fit = ((_rain_bundle or {}).get('meta', {}).get('onset_by_then') or {})
+            onset_info = predict_rain_onset(corrected, _onset_fit.get('coef'))
             corrected = attach_hourly_onset_signal(corrected, onset_info)
             if onset_info and onset_info.get('declared'):
                 if onset_info.get('already_raining'):

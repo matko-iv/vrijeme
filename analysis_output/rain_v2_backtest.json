@@ -1,0 +1,185 @@
+{
+  "eval_start": "2024-09-01",
+  "data_end": "2026-08-18 15:00:00",
+  "retired_hazard_onset_archive_2025_07": {
+    "cases": 6815,
+    "observed_onsets": 1482,
+    "declared_onsets": 2230,
+    "event_pod": 0.829,
+    "event_far": 0.449,
+    "event_csi": 0.495,
+    "median_abs_error_h": 4.0,
+    "hit_within_1h": 0.184,
+    "hit_within_2h": 0.347,
+    "hit_within_3h": 0.478,
+    "timed_csi_3h": 0.188
+  },
+  "v1": {
+    "same_day": {
+      "hours": 15810,
+      "wet_hours": 1257,
+      "log_loss": 0.1283,
+      "brier": 0.03932,
+      "brier_skill": 0.4628,
+      "auc": 0.9595,
+      "csi": 0.4529,
+      "pod": 0.677,
+      "far": 0.4223,
+      "rainy_day_hours_pop_30_60": 767,
+      "rainy_day_hit_rate_pop_30_60": 0.468,
+      "onset": {
+        "cases": 12388,
+        "observed_onsets": 3080,
+        "declared_onsets": 2454,
+        "event_pod": 0.6974,
+        "event_far": 0.1247,
+        "event_csi": 0.6344,
+        "median_abs_error_h": 2.0,
+        "hit_within_1h": 0.48,
+        "hit_within_2h": 0.6546,
+        "hit_within_3h": 0.7565,
+        "timed_csi_3h": 0.4157
+      }
+    },
+    "previous_day1": {
+      "hours": 12380,
+      "wet_hours": 1187,
+      "log_loss": 0.1718,
+      "brier": 0.05297,
+      "brier_skill": 0.389,
+      "auc": 0.9387,
+      "csi": 0.4109,
+      "pod": 0.6116,
+      "far": 0.4441,
+      "rainy_day_hours_pop_30_60": 753,
+      "rainy_day_hit_rate_pop_30_60": 0.505,
+      "onset": {
+        "cases": 9397,
+        "observed_onsets": 2669,
+        "declared_onsets": 2039,
+        "event_pod": 0.662,
+        "event_far": 0.1334,
+        "event_csi": 0.6008,
+        "median_abs_error_h": 3.0,
+        "hit_within_1h": 0.3797,
+        "hit_within_2h": 0.4844,
+        "hit_within_3h": 0.6197,
+        "timed_csi_3h": 0.3031
+      }
+    },
+    "previous_day2": {
+      "hours": 12380,
+      "wet_hours": 1187,
+      "log_loss": 0.1908,
+      "brier": 0.05864,
+      "brier_skill": 0.3236,
+      "auc": 0.9213,
+      "csi": 0.3758,
+      "pod": 0.6108,
+      "far": 0.5058,
+      "rainy_day_hours_pop_30_60": 911,
+      "rainy_day_hit_rate_pop_30_60": 0.445,
+      "onset": {
+        "cases": 9397,
+        "observed_onsets": 2669,
+        "declared_onsets": 2141,
+        "event_pod": 0.6628,
+        "event_far": 0.1738,
+        "event_csi": 0.5817,
+        "median_abs_error_h": 3.0,
+        "hit_within_1h": 0.3318,
+        "hit_within_2h": 0.4777,
+        "hit_within_3h": 0.5676,
+        "timed_csi_3h": 0.2638
+      }
+    },
+    "wet_hour_amount": {
+      "hours": 1257,
+      "mae_mm": 2.1445
+    }
+  },
+  "v2": {
+    "same_day": {
+      "hours": 15810,
+      "wet_hours": 1257,
+      "log_loss": 0.1283,
+      "brier": 0.03921,
+      "brier_skill": 0.4643,
+      "auc": 0.9598,
+      "csi": 0.4719,
+      "pod": 0.716,
+      "far": 0.4194,
+      "rainy_day_hours_pop_30_60": 743,
+      "rainy_day_hit_rate_pop_30_60": 0.505,
+      "onset": {
+        "cases": 12388,
+        "observed_onsets": 3080,
+        "declared_onsets": 2427,
+        "event_pod": 0.7019,
+        "event_far": 0.1092,
+        "event_csi": 0.6463,
+        "median_abs_error_h": 1.0,
+        "hit_within_1h": 0.5264,
+        "hit_within_2h": 0.7285,
+        "hit_within_3h": 0.7914,
+        "timed_csi_3h": 0.4507
+      }
+    },
+    "previous_day1": {
+      "hours": 12380,
+      "wet_hours": 1187,
+      "log_loss": 0.1708,
+      "brier": 0.05251,
+      "brier_skill": 0.3943,
+      "auc": 0.9399,
+      "csi": 0.4351,
+      "pod": 0.6554,
+      "far": 0.4358,
+      "rainy_day_hours_pop_30_60": 754,
+      "rainy_day_hit_rate_pop_30_60": 0.515,
+      "onset": {
+        "cases": 9397,
+        "observed_onsets": 2669,
+        "declared_onsets": 1968,
+        "event_pod": 0.6501,
+        "event_far": 0.1184,
+        "event_csi": 0.5979,
+        "median_abs_error_h": 2.0,
+        "hit_within_1h": 0.3839,
+        "hit_within_2h": 0.5458,
+        "hit_within_3h": 0.6611,
+        "timed_csi_3h": 0.3287
+      }
+    },
+    "previous_day2": {
+      "hours": 12380,
+      "wet_hours": 1187,
+      "log_loss": 0.1867,
+      "brier": 0.05765,
+      "brier_skill": 0.335,
+      "auc": 0.9255,
+      "csi": 0.3891,
+      "pod": 0.6428,
+      "far": 0.5036,
+      "rainy_day_hours_pop_30_60": 957,
+      "rainy_day_hit_rate_pop_30_60": 0.445,
+      "onset": {
+        "cases": 9397,
+        "observed_onsets": 2669,
+        "declared_onsets": 2116,
+        "event_pod": 0.6583,
+        "event_far": 0.1697,
+        "event_csi": 0.5803,
+        "median_abs_error_h": 2.0,
+        "hit_within_1h": 0.3193,
+        "hit_within_2h": 0.5242,
+        "hit_within_3h": 0.6255,
+        "timed_csi_3h": 0.2982
+      }
+    },
+    "wet_hour_amount": {
+      "hours": 1257,
+      "mae_mm": 2.1286
+    }
+  }
+}

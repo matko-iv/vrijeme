@@ -1,0 +1,172 @@
+{
+ "note": "Variants tried on 2026-10-28 while building feature version 2; none beat it. Exploratory scripts were not kept; the shipped comparison is rain_v2_backtest.py.",
+ "lead_stacked_training_forward_only": {
+  "protocol": "forward-only 3-month blocks 2024-06..2026-02, 8 members/9 variables; trained on archive + previous_day1 + previous_day2 rows with a lead feature, vs the production archive model + day-ahead Platt (scored as PoP)",
+  "production_previous_day1": {
+   "n": 12380,
+   "logloss": 0.1718,
+   "brier": 0.05297,
+   "bss": 0.389,
+   "auc": 0.9387,
+   "csi_prequential_threshold": 0.3875
+  },
+  "stacked_previous_day1": {
+   "n": 12380,
+   "logloss": 0.1791,
+   "brier": 0.05489,
+   "bss": 0.3668,
+   "auc": 0.9353,
+   "csi_prequential_threshold": 0.3977
+  },
+  "production_previous_day2": {
+   "n": 12380,
+   "logloss": 0.1908,
+   "brier": 0.05864,
+   "bss": 0.3236,
+   "auc": 0.9213,
+   "csi_prequential_threshold": 0.353
+  },
+  "stacked_previous_day2": {
+   "n": 12380,
+   "logloss": 0.1914,
+   "brier": 0.05919,
+   "bss": 0.3172,
+   "auc": 0.923,
+   "csi_prequential_threshold": 0.3748
+  }
+ },
+ "two_stage_temporal_stacking_blocked_cv": {
+  "protocol": "blocked 3-month CV (3-day embargo) 2024-03..2026-02, 8 members; stage 2 sees stage-1 out-of-fold probabilities at t-3..t+3; a = archive rows, d1/d2 = previous_day1/2 rows",
+  "stage1_a": {
+   "n": 16765,
+   "logloss": 0.1408,
+   "brier": 0.0434,
+   "bss": 0.4402,
+   "auc": 0.9537,
+   "csi_at_pooled_best_threshold": 0.4573
+  },
+  "stage1_d1": {
+   "n": 16765,
+   "logloss": 0.1595,
+   "brier": 0.04889,
+   "bss": 0.3693,
+   "auc": 0.9395,
+   "csi_at_pooled_best_threshold": 0.4075
+  },
+  "stage1_d2": {
+   "n": 16765,
+   "logloss": 0.1746,
+   "brier": 0.05329,
+   "bss": 0.3126,
+   "auc": 0.9253,
+   "csi_at_pooled_best_threshold": 0.367
+  },
+  "stage2_a": {
+   "n": 16765,
+   "logloss": 0.1454,
+   "brier": 0.04518,
+   "bss": 0.4172,
+   "auc": 0.9498,
+   "csi_at_pooled_best_threshold": 0.4409
+  },
+  "stage2_d1": {
+   "n": 16765,
+   "logloss": 0.1613,
+   "brier": 0.04996,
+   "bss": 0.3556,
+   "auc": 0.9368,
+   "csi_at_pooled_best_threshold": 0.3938
+  },
+  "stage2_d2": {
+   "n": 16765,
+   "logloss": 0.1773,
+   "brier": 0.05437,
+   "bss": 0.2987,
+   "auc": 0.9211,
+   "csi_at_pooled_best_threshold": 0.353
+  }
+ },
+ "learners_blocked_cv": {
+  "protocol": "blocked 3-month CV (3-day embargo); full_* = same-day archive rows 2024-03..2026-08 with 10 members (v1/v2 features, XGBoost/LightGBM/average); stk_* = lead-stacked 8-member models on previous_day1 rows 2024-03..2026-02",
+  "full_v1_xgb_prod": {
+   "n": 20195,
+   "logloss": 0.1213,
+   "brier": 0.03706,
+   "bss": 0.4577,
+   "auc": 0.9608,
+   "csi_at_pooled_best_threshold": 0.4687
+  },
+  "full_v1_lgb": {
+   "n": 20195,
+   "logloss": 0.1208,
+   "brier": 0.0369,
+   "bss": 0.46,
+   "auc": 0.9615,
+   "csi_at_pooled_best_threshold": 0.4685
+  },
+  "full_v2_xgb_prod": {
+   "n": 20195,
+   "logloss": 0.1205,
+   "brier": 0.03701,
+   "bss": 0.4584,
+   "auc": 0.9615,
+   "csi_at_pooled_best_threshold": 0.4679
+  },
+  "full_v2_lgb": {
+   "n": 20195,
+   "logloss": 0.1207,
+   "brier": 0.03703,
+   "bss": 0.4581,
+   "auc": 0.962,
+   "csi_at_pooled_best_threshold": 0.4711
+  },
+  "full_v2_avg": {
+   "n": 20195,
+   "logloss": 0.1202,
+   "brier": 0.0369,
+   "bss": 0.46,
+   "auc": 0.962,
+   "csi_at_pooled_best_threshold": 0.4686
+  },
+  "stk_v2_xgb_prod_previous_day1": {
+   "n": 16765,
+   "logloss": 0.1601,
+   "brier": 0.04894,
+   "bss": 0.3687,
+   "auc": 0.9389,
+   "csi_at_pooled_best_threshold": 0.4113
+  },
+  "stk_v2_xgb_d5_previous_day1": {
+   "n": 16765,
+   "logloss": 0.1615,
+   "brier": 0.0491,
+   "bss": 0.3667,
+   "auc": 0.9381,
+   "csi_at_pooled_best_threshold": 0.4036
+  },
+  "stk_v2_xgb_d3_previous_day1": {
+   "n": 16765,
+   "logloss": 0.1592,
+   "brier": 0.04876,
+   "bss": 0.371,
+   "auc": 0.9394,
+   "csi_at_pooled_best_threshold": 0.4122
+  },
+  "stk_v2_lgb_previous_day1": {
+   "n": 16765,
+   "logloss": 0.1617,
+   "brier": 0.04936,
+   "bss": 0.3634,
+   "auc": 0.9388,
+   "csi_at_pooled_best_threshold": 0.4083
+  },
+  "stk_v2_avg_previous_day1": {
+   "n": 16765,
+   "logloss": 0.1604,
+   "brier": 0.04902,
+   "bss": 0.3678,
+   "auc": 0.9392,
+   "csi_at_pooled_best_threshold": 0.411
+  }
+ }
+}
