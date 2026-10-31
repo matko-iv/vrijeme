@@ -126,6 +126,10 @@
             border-bottom: none;
         }
 
+        td.change {
+            white-space: nowrap;
+        }
+
         details {
             margin: 18px 0;
             border: 1px solid #e1e4e8;
@@ -331,7 +335,7 @@
     </div>
 	
 	<h2 id="evaluacija-ljeto-2026">Šta korekcija prognoze može, a šta ne može naučiti</h2>
-	<p class="date">13. septembar 2026 · dopunjeno 27. septembra 2026.</p>
+	<p class="date">13. septembar 2026 · dopunjeno 27. septembra i 29. oktobra 2026.</p>
 	<p>U februaru sam napisao da je moja korigovana prognoza za Budvu tačnija od bilo kog pojedinačnog globalnog modela. Ta tvrdnja je počivala na unakrsnoj validaciji, dakle na podacima koje je model već vidio. Ovog ljeta sam je provjerio kako treba, i odgovor se dijeli na dva dijela. Za temperaturu i vjetar tvrdnja stoji, sa većom razlikom nego što sam očekivao. Za kišu ne stoji, i to ne za malo: korigovani izlaz koji objavljujem bio je ovog ljeta lošiji od svakog globalnog modela koji koriguje, i lošiji od sopstvenog nekorigovanog ulaza.</p>
 	<p>Iznosim oba dijela, jer je razlog zbog kojeg se razlikuju zanimljiviji od bilo kog pojedinačnog rezultata, i jer govori nešto o tome gdje mašinsko učenje u fizičkim naukama pomaže, a gdje tiho šteti.</p>
 	<h3>Kako sam provjerio</h3>
@@ -351,6 +355,24 @@
 	<h3>Šta je urađeno</h3>
 	<p>Odluku o kiši sada donosi klasifikator koji gleda svih deset modela, sat prije i poslije svakog sata, njihove vremenske kodove, vlažnost i oblačnost. Prag bira na podacima koje nije vidio tokom treninga, a vjerovatnoća kiše na sajtu je njegova vjerovatnoća. Cilj za trening je poravnat sa satom modela, a evaluacione skripte sada broje stvarnu satnu kišu.</p>
 	<p>U provjeri kroz 13 sezona (2023–2026), gdje je svaku sezonu prognozirao model treniran samo na ranijim podacima, klasifikator je bio najbolji u 12: indeks uspjeha 0,44, naspram 0,36 za prosjek modela i najviše 0,35 za bilo koji pojedinačni model. Za ljeto 2026. to je 0,32 naspram 0,23 za najbolji model, a od 19. avgusta do 26. septembra, na podacima koje isporučeni model nikad nije vidio, 0,40 naspram 0,32. Kiša u jednoj tački, sat po sat, ostaje teška, ali korigovana kiša je sada bolja od svakog modela koji koriguje, umjesto da bude najgora.</p>
+	<h3 id="kisa-v2">Dopuna 29. oktobra: druga verzija klasifikatora i novi početak kiše</h3>
+	<p>Klasifikator sada podnosi i veće greške modela u vremenu. Umjesto sata prije i poslije gleda prozore do šest sati oko svakog sata, koliko je svaki model udaljen od svog najbližeg kišnog sata, ponderisano slaganje modela i dnevnu sliku: koliko modela taj dan uopšte vidi kišu. Provjera je ista kao u produkciji. Svaki tromjesečni blok prognozira model treniran samo na starijim podacima, a prag se bira na satima prije bloka. Za sutra i prekosutra klasifikator dobija prognoze modela stare jedan odnosno dva dana, iz arhive prethodnih ciklusa, pa vidi isto što vidi i živa prognoza za te sate. Isti dan je provjeren od septembra 2024. do avgusta 2026, a sutra i prekosutra do februara 2026, dokle seže arhiva starijih prognoza.</p>
+	<div class="table-wrap">
+	<table>
+		<thead>
+			<tr><th>Rok</th><th>Indeks uspjeha</th><th>Lažne uzbune</th><th>Brier</th></tr>
+		</thead>
+		<tbody>
+			<tr><td>Isti dan</td><td class="change">0,453 → 0,472</td><td class="change">0,422 → 0,419</td><td class="change">0,0393 → 0,0392</td></tr>
+			<tr><td>Sutra (24–30 h)</td><td class="change">0,411 → 0,435</td><td class="change">0,444 → 0,436</td><td class="change">0,0530 → 0,0525</td></tr>
+			<tr><td>Prekosutra (48–54 h)</td><td class="change">0,376 → 0,389</td><td class="change">0,506 → 0,504</td><td class="change">0,0586 → 0,0577</td></tr>
+		</tbody>
+	</table>
+	</div>
+	<p>Kod lažnih uzbuna i Briera manje je bolje. Nijedan broj nije lošiji, ali dobitak je skroman i treba ga tako i čitati: između tri i šest odsto na indeksu uspjeha.</p>
+	<p>Veća promjena je početak kiše. Računao ga je poseban model sa 1396 ulaza i pragom od 0,03, odvojen od satne prognoze. Na istim slučajevima (od jula 2025. do avgusta 2026, iz svakog sata kada je stanica bila suva bar tri sata, za narednih 24 sata) najavio je 2230 početaka za 1482 stvarna. Lažnih je bilo 45%, a od pogođenih početaka samo 48% je bilo unutar tri sata od stvarnog. Znao je i da najavi početak kiše za sat u kom sama satna prognoza nije imala kišu. Sada je početak kiše prvi sat u kom satna prognoza kaže kiša, poslije najmanje tri suva sata, pa se početak i satna prognoza više ne mogu razići. Na istim slučajevima lažnih najava je 9–12%, a 81–85% pogođenih početaka je unutar tri sata. Uz početak objavljujem i šansu da kiša počne do svakog sata, kalibrisanu na podacima koje model nije vidio tokom treninga.</p>
+	<h3>Gdje je granica</h3>
+	<p>Jedna stvar se nije promijenila. Na kišnim danima (sep 2024 – feb 2026) oko 750 sati za sutra dobije šansu od 30 do 60%, i kiša padne u otprilike polovini njih. To nije greška kalibracije, niti greška stanice: suvi sati među njima su stvarno bili suvi. Deset modela se jednostavno ne slaže u kom satu kiša stiže. Probao sam i trening direktno na prognozama starim dan-dva, drugi model koji gleda susjedne sate, LightGBM i različitu dubinu stabala. Ništa nije bilo bolje od druge verzije, a trening na starim prognozama je za sutra izgubio 6% Brier skill-a. Oštriji odgovor na pitanje „pada li kiša u ovom satu” traži novu informaciju: članove ansambla (ECMWF ENS, ICON-EPS), živu stanicu u svakom pokretanju, ili radar, koji već koristim za prva dva sata.</p>
 	<h3>O otvaranju koda</h3>
 	<p>Repozitorijum je već neko vrijeme javan, što sam tretirao kao isto što i otvoreni kod. Nije. Nema licence, a pod podrazumijevanim autorskim pravom to znači da niko ne smije legalno koristiti, mijenjati ni redistribuirati ništa od toga. Svi mogu da čitaju, a niko ne može da gradi, što je blizu najgoreg od oba aranžmana.</p>
 	<p>Namjeravam to da ispravim, i razlog je direktno vezan za sve gore. Ova evaluacija je bila moguća zato što su izlazi arhivirani i uporedivi. Jedna stanica u Budvi je uzorak od jedan. Zanimljivo pitanje nije da li ovaj pipeline radi ovdje, nego da li obrazac važi šire: da li korekcija grubog globalnog modela donosi velik dobitak na sistematskim veličinama i gubi na konvektivnim padavinama i na drugim priobalnim lokacijama slične geografije. Na to ne mogu odgovoriti sam, niti moram.</p>
@@ -389,6 +411,7 @@
 	
 	<h3>Problem sa aspekta kreiranja pouzdanog signala za kišu</h3>
 	<p>Prventsveno u ljetnjim mjesecima dolazi do izražaja nepovjerljivosti velikih modela, prije svega za tačnu aproksimaciju padavina i nestabilnosti u atmosferi. Zbog ovoga, potrebno je kreirati pouzdan signal koji će se aktivirati samo tada kada su uslovi idealni za početak vremenskog događaja. Za ovo je potrebna još jedna aproksimacija.<br>\( S_{\text{onset}} = \alpha \left( \frac{\Delta P}{\Delta t} \right) + \beta (\Delta H) + \gamma (R_t) \) predstavlja prvi dio signala koji će aktivirati kišu u izvještaju. Sastoji se od više parametara, čiji ukupni zbroj, kada prevagne svoj namješteni prag, otvara gejt za drugi dio signala. Sastoji se od težinskih koeficijenata, promjene u pritisku relativno vremenu, promjene u relativnoj vlažnosti zraka, te prvom procijenjenom intezitetu kiše koji ulazi u sklop signala. Drugi dio signala je veliki model najveće rezolucije, koji je u ovom slučaju ICON2I od talijanske meteorološke službe. On je izabran prvenstveno zbog njegove visoke rezolucije naspram većine drugih javno dostupnih modela. Bez obzira na ovo i on sadrži mane, koje se najčešće manifestuju u pretjeranom deklarisanju padavina tokom ljetnjih i jesenjih mjeseci.</p>
+	<p><em>Od 29. oktobra 2026. ovaj signal i poseban model početka kiše više nisu aktivni. Početak kiše je sada prvi sat u kom satna prognoza kaže kiša, poslije najmanje tri suva sata, pa se početak i satna prognoza ne mogu razići. Detalji i brojevi su u <a href="#kisa-v2">dopuni evaluacije</a>.</em></p>
 	
 	<h3>Težina problema šuma u signalu i nadovezivanje na prethodna dva problema</h3>
 	<p>Nadovezujem se na prethodne probleme koji ulaze u temu šuma signala. Dakle, u svim veliko-modelskim ansamblima postoji šum, koji u određenim situacijama, može kompromitovati glavni ulazni signal. Posljedica ovoga je netačna evaluacija vremenskih prilika. Ovo se tehnički može događati vrlo često, što je pokazala i praksa. Dovoljan udio šuma u ulazni signal kompromituje sam izlazni signal, jer modeli sa stablima odlučivanja nemaju funkcionalnost provjeravanja legitimiteta ulaznog signala. U haotičnim sistemima, ako je evolucija atmosfere definisana nelinearnim dinamičkim sistemom \(\frac{dx}{dt} = f(x)\), male perturbacije šuma u početnom signalu \(\delta x_0\) evoluiraju tokom vremena prema sledećoj jednačini: \[ \frac{d(\delta x)}{dt} = \mathbf{J}(x(t)) \cdot \delta x(t) + \eta(t) \] 
@@ -424,7 +447,7 @@
         <li>Iz istorije napravim bias tabele po satu, mjesecu i sezoni, za svaki model i parametar.</li>
         <li>Dodam lokalne feature-e: mjesec, sat, sezona, SST, lead-time, prekodinaridski gradijent, gust faktor, komšijske padavinske statistike, cirkulacione režime (bura/maestral), cross-parameter signale i tendency-je.</li>
         <li>Za svaki parametar primijenim korekcioni model, najčešće stack više boostera, i uz tačku dam pun skup kvantila (p05–p95) sa konformnom kalibracijom.</li>
-        <li>Padavine prolaze kroz trusted rain gate (ili kalibrisani PoP-blend gdje je dokazano bolji); radarski nowcast blendam za prvih 6 sati; weather code usklađujem sa korigovanom kišom i oblačnošću.</li>
+        <li>O kiši u svakom satu odlučuje klasifikator koji gleda svih 10 modela i toleriše njihove greške u vremenu; početak kiše je prvi kišni sat poslije tri suva; radarski nowcast blendam za prvih 6 sati; weather code usklađujem sa korigovanom kišom i oblačnošću.</li>
         <li>Izvezem rezultate: tačka, kvantilne trake, vjerovatnoće prelaska pragova (P(kiša&gt;1mm), P(udar&gt;17 m/s)), i ECC scenariji za vremensku koherentnost.</li>
     </ol>
 
@@ -476,7 +499,7 @@
 
     <h3>Metrike za kišu</h3>
 
-    <p>Padavine ne mjerim MAE-om. Većina sati je suva, pa bi model koji uvijek javlja "0 mm" imao sjajan MAE a bio beskoristan. Zato za kišu pravim contingency tabele. Za prag od 0.1 mm/h dijelim svaki sat na četiri kategorije:</p>
+    <p>Padavine ne mjerim MAE-om. Većina sati je suva, pa bi model koji uvijek javlja "0 mm" imao sjajan MAE a bio beskoristan. Zato za kišu pravim contingency tabele. Za prag od 0.2 mm u satu dijelim svaki sat na četiri kategorije:</p>
 
     <ul>
         <li><strong>hits (a):</strong> model rekao kiša, stvarno padalo</li>
@@ -524,7 +547,7 @@
 
     <p>Za većinu parametara ansambl koristi sve modele. Za <strong>vjetar</strong> radim suprotno: trening uzima feature-e samo od tri high-res LAM-a, ItaliaMeteo ICON-2I (2 km), KNMI Seamless i DMI Seamless. Globalni modeli (GFS, ECMWF na 25 km) izglađuju lokalne efekte poput bure niz Lovćen, pa ih za vjetar izbacujem iz feature seta. Engineered features (sat, sezona, bias) ostaju.</p>
 
-    <p>Za <strong>padavine</strong> imam jedan trusted signal: <span class="trusted">ItaliaMeteo ICON-2I</span>. Ako on ne vidi barem 0.10 mm, korekcioni model prikazuje suvo. KNMI i DMI ostaju u feature setu, ali ne mogu sami otvoriti rain gate. (Ima i alternativa, kalibrisani PoP-blend svih modela, koja se uključuje samo u režimima gdje je dokazano bolja od veta; više dolje.)</p>
+    <p>Za <strong>padavine</strong> <span class="trusted">ItaliaMeteo ICON-2I</span> više nema veto. Do 27. septembra 2026. kišu je mogao najaviti samo on; sada o kiši odlučuje klasifikator koji gleda svih deset modela. ICON-2I je jedan od njih, a sa KNMI i DMI čini grupu lokalnih modela visoke rezolucije koja dobija i svoje zasebne ulaze. Njegova sirova kiša ostaje u <code>forecast_48h.json</code> kao dijagnostika (<code>italiameteo_rain_signal</code>).</p>
 
     <h3>Prošireni podaci za 2026.</h3>
 
@@ -677,6 +700,30 @@
 
     <p>Kiša nije kao temperatura. Većina sati je potpuno suva, a kada padavine postoje, često su lokalne i kratke. Klasičan regresor bi mogao samo da uči da prognozira 0 i imao bi sjajne metrike, ali nikakvu vrijednost. Zato je pipeline za kišu drugačiji.</p>
 
+    <h3>Kako sada radi odluka o kiši</h3>
+
+    <p>Da li u satu pada barem 0.2 mm odlučuje jedan XGBoost klasifikator koji gleda svih deset modela. Ulazi su napravljeni tako da prežive grešku modela u vremenu: maksimumi i zbirovi u prozorima od ±1 do ±6 sati, koliko je svaki model udaljen od svog najbližeg kišnog sata, udio modela koji vide kišu u satu i u tim prozorima, Gauss-ponderisano slaganje, dnevna slika, weather code-ovi, vlažnost, oblačnost i tendencija pritiska. Prag bira na walk-forward podacima, gdje daje najveći indeks uspjeha (trenutno 0.28). Od 6 do 30 sati unaprijed prag se spušta do 0.6×, jer su starije prognoze manje oštre.</p>
+
+    <p>Šansa za kišu na sajtu je vjerovatnoća tog klasifikatora. Za sate dalje od 6 sati ona je rekalibrisana (Platt), jer bi sirova vjerovatnoća za sutra bila preniska. Zato sat prikazan kao kišni nikad nema šansu ispod praga od 28%. Količina u kišnom satu dolazi iz posebnog regresora koji daje medijanu.</p>
+
+    <p>Početak kiše je prvi sat u kom ta odluka kaže kiša, poslije najmanje tri suva sata. Šansa da kiša počne do sata \(k\) od sada je logistička mapa najveće satne šanse do tog sata (\(m_k\)), šanse da kiša padne u bar jednom satu kad bi sati bili nezavisni (\(u_k\)), i \(\log k\):</p>
+
+    <div class="math-block">
+        \[
+        \begin{aligned}
+        P(\text{počne do } k) &= \sigma(z_k)\\
+        z_k &= b_0 + b_1\,\text{logit}(m_k)\\
+        &\quad {}+ b_2\,\text{logit}(u_k) + b_3\log k\\
+        m_k &= \max_{s\le k} p_s\\
+        u_k &= 1-\textstyle\prod_{s\le k}(1-p_s)
+        \end{aligned}
+        \]
+    </div>
+
+    <p>Koeficijente fitujem pri svakom treningu klasifikatora, na vjerovatnoćama koje model nije vidio. Brojevi su u <a href="#kisa-v2">dopuni evaluacije</a>.</p>
+
+    <p><em>Two-stage pipeline, kalibracija i biranje praga opisani ispod, kao i trusted rain gate, ostaju samo kao rezerva za slučaj da sačuvani klasifikator ne postoji.</em></p>
+
     <h3>Two-stage: prvo klasifikacija, pa regresija</h3>
 
     <p>Prva faza je binarni klasifikator: <em>hoće li padati barem 0.1 mm u ovom satu?</em> Drugi stage je regresor koji predviđa <em>koliko</em>, ali se primjenjuje samo tamo gdje je klasifikator izrekao "da".</p>
@@ -729,7 +776,7 @@
 
     <h3>Radarski nowcast za prvih 6 sati</h3>
 
-    <p>Za vrlo kratke rokove radar zna više od bilo kog NWP modela. Moj zasebni projekat <a href="https://matko-iv.github.io/budva-radar/" target="_blank" rel="noreferrer">SKALA</a> interpretira DHMZ/OPERA radar i objavljuje nowcast (vjerovatnoća kiše na 15/30/60/120 min). Njega <strong>težinski blendam</strong> sa NWP-om: težina radara pada linearno sa 1 (sada) na 0 (+6h). Ako je radar svjež i javlja suvo, gasim slabu blisku kišu; ako vidi kišu koja stiže, podižem prvih par sati; ako je ćelija već prošla, ne dam da je 120-min signal drži mokrom. Ako radar nije svjež (stariji od 25 min) ili nedostupan, vraćam se na staro ponašanje. Radarski log i arhiviram, da kasnije postane feature za model početka kiše.</p>
+    <p>Za vrlo kratke rokove radar zna više od bilo kog NWP modela. Moj zasebni projekat <a href="https://matko-iv.github.io/budva-radar/" target="_blank" rel="noreferrer">SKALA</a> interpretira DHMZ/OPERA radar i objavljuje nowcast (vjerovatnoća kiše na 15/30/60/120 min). Njega <strong>težinski blendam</strong> sa NWP-om: težina radara pada linearno sa 1 (sada) na 0 (+6h). Ako je radar svjež i javlja suvo, gasim slabu blisku kišu; ako vidi kišu koja stiže, podižem prvih par sati; ako je ćelija već prošla, ne dam da je 120-min signal drži mokrom. Ako radar nije svjež (stariji od 25 min) ili nedostupan, vraćam se na staro ponašanje. Radarski log i arhiviram, da kasnije postane feature za klasifikator kiše.</p>
 
     <h3>Burst wind boost</h3>
 
@@ -782,6 +829,7 @@
         <li><strong>Kvantilne trake:</strong> graf temperature pokazuje raspon p05–p95 (fan chart), ne samo liniju, pa se vidi koliko je prognoza sigurna.</li>
         <li><strong>Vjerovatnoće:</strong> šansa za kišu (PoP) po satu, P(kiša&gt;1 mm), i upozorenje kad je P(udar&gt;17 m/s) ≥ 30%.</li>
         <li><strong>Scenariji kiše:</strong> P(ima kiše) u prozorima 0–12h / 12–24h / 24–48h iz koherentnih ECC scenarija.</li>
+        <li><strong>Početak kiše:</strong> prvi kišni sat poslije tri suva i šansa da kiša počne do svakog sata, u <code>forecast_48h.json</code> (blok <code>rain_onset</code> i satna polja <code>rain_onset_*</code>).</li>
         <li><strong>Dnevni narativ:</strong> kratak opis dana, bez previše tehničkog jezika.</li>
         <li><strong>Raw vs corrected:</strong> grafovi pokazuju gdje je korekcija pomjerila ansambl.</li>
         <li><strong>Jasnije padavine:</strong> sitni šum ispod 0.20 mm se ne prikazuje kao kiša.</li>
@@ -793,7 +841,7 @@
 
     <p>Ovo je korekcija postojećih modela, ne novi fizički model. Ako nijedan ulazni model ne vidi pljusak, XGBoost može prepoznati uslove koji favorizuju padavine, ali ne može pouzdano odrediti položaj, početak i kraj lokalne konvektivne ćelije.</p>
 
-    <p>Najveća poboljšanja su tamo gdje postoji stabilan, ponavljajući bias. Najveći rizik ostaje kod konvektivnih padavina, kratkih pljuskova i situacija kada je granica kiše baš preko Budve. Zato je za padavine važno čuvati trusted gate, summer abstention pravilo i WU nowcast kao zaštitne slojeve.</p>
+    <p>Najveća poboljšanja su tamo gdje postoji stabilan, ponavljajući bias. Najveći rizik ostaje kod konvektivnih padavina, kratkih pljuskova i situacija kada je granica kiše baš preko Budve. Zato šansu za kišu treba čitati kao šansu: sat sa 30–60% je stvarno neizvjestan, i na kišnim danima kiša padne u otprilike polovini takvih sati. Za prva dva sata radar zna više od svih modela.</p>
 
     <p>Drugo realno ograničenje: stanica IBUDVA5 nije meteorološka referentna stanica, nego privatni WU instrument. Greške u njenim očitanjima ulaze direktno u bias tabele. Periodično je treba uporediti sa zvaničnim DHMZ/Tivat podacima.</p>
 
