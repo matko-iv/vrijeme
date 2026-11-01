@@ -34,27 +34,50 @@ const TOOLS = [
   { key: 'rain', icon: '🌧', label: 'Rain', opts: ['brush', 'intensity'], hint: 'Paint lift and moisture: a rain area that drifts with the steering wind and fades once its forcing decays (~3 h).' },
   { key: 'cell', icon: '⛈', label: 'Storm', opts: ['brush', 'intensity', 'celltype'], hint: 'Paint thunderstorms like rain: heavy rain with convective cores and lightning appears where you brush, then drifts and evolves. With Supercell selected, a click drops one supercell instead.' },
   { key: 'line', icon: '〰', label: 'Squall', opts: [], hint: 'Drag a line of storms. It propagates forward and rebuilds itself while there is CAPE ahead of it.' },
-  { key: 'low', icon: 'L', label: 'Low', opts: ['intensity'], hint: 'Press at the centre and drag outward to size the low. Strength = depth (3–30 hPa). Lows drift with the steering wind.' },
-  { key: 'high', icon: 'H', label: 'High', opts: ['intensity'], hint: 'Press at the centre and drag outward to size the high. Strength = intensity (3–30 hPa).' },
+  { key: 'low', icon: 'L', label: 'Low', opts: ['intensity', 'evolve'], hint: 'Press at the centre and drag outward to size the low. Strength = depth (3–30 hPa). Its wind comes from the pressure field it makes, so it is oval, stronger where isobars crowd, and changes as the low deepens, fills and drifts with the flow.' },
+  { key: 'high', icon: 'H', label: 'High', opts: ['intensity', 'evolve'], hint: 'Press at the centre and drag outward to size the high. Strength = intensity (3–30 hPa). It builds, then slowly weakens (Life cycle), or holds steady.' },
   { key: 'cold', icon: '▲', label: 'Cold front', opts: [], hint: 'Drag along the front. Cold air goes on the side the steering wind blows from; a squall line fires if there is CAPE.' },
   { key: 'warm', icon: '◐', label: 'Warm front', opts: [], hint: 'Drag along the front. Warm air goes behind it and a wide rain shield forms ahead of it.' },
   { key: 'moist', icon: '💧', label: 'Moisture', opts: ['brush', 'sign'], hint: 'Paint humid (＋) or dry (－) air.' },
-  { key: 'heat', icon: '🌡', label: 'Heat', opts: ['brush', 'sign'], hint: 'Paint warmer (＋) or colder (－) surface air. Heat plus moisture builds CAPE.' },
+  { key: 'heat', icon: '🌡', label: 'Heat', opts: ['brush', 'intensity', 'heatmode'], hint: 'Paint warmer or colder air, or Set it to a target temperature. It is an air mass: it drifts with the wind and lasts for the Air-mass memory hours. Heat plus moisture builds CAPE.' },
+  { key: 'form', icon: '🌀', label: 'Formations', opts: ['brush', 'intensity', 'formation'], hint: '' },
   { key: 'erase', icon: '🧽', label: 'Erase', opts: ['brush'], hint: 'Wipe rain, storms, lightning and pressure centres under the brush.' },
   { key: 'radar', icon: '📡', label: 'Radar site', opts: [], hint: 'Click to place a radar: range ring, beam overshoot, terrain blocking, clutter and C-band attenuation.' },
 ];
 
 const SLIDERS = [
-  { key: 'shear', label: 'Shear 0–6 km', min: 0, max: 35, step: 1, fmt: v => `${v} m/s` },
+  { group: 'Temperature' },
   { key: 't850', label: 'T 850 hPa', min: -20, max: 26, step: 0.5, fmt: v => `${v}°` },
+  { key: 'tSfc', label: 'Surface offset', min: -15, max: 15, step: 0.5, fmt: v => `${v > 0 ? '+' : ''}${v}°` },
   { key: 't500', label: 'T 500 hPa', min: -42, max: -4, step: 0.5, fmt: v => `${v}°` },
-  { key: 'rh', label: 'Humidity', min: 20, max: 98, step: 1, fmt: v => `${v}%` },
   { key: 'sst', label: 'Sea temp', min: 4, max: 31, step: 0.5, fmt: v => `${v}°` },
+  { key: 'diurnal', label: 'Day–night range', min: 0, max: 2.5, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
+  { key: 'tGrad', label: 'N–S contrast', min: 0, max: 3, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
+  { key: 'inversion', label: 'Valley inversions', min: 0, max: 2, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
+  { key: 'memory', label: 'Air-mass memory', min: 1, max: 72, step: 1, fmt: v => `${v} h` },
+  { group: 'Moisture & storms' },
+  { key: 'rh', label: 'Humidity', min: 20, max: 98, step: 1, fmt: v => `${v}%` },
+  { key: 'shear', label: 'Shear 0–6 km', min: 0, max: 35, step: 1, fmt: v => `${v} m/s` },
   { key: 'sun', label: 'Sun heating', min: 0, max: 1.6, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
   { key: 'trigger', label: 'Storm trigger', min: 0, max: 3, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
-  { key: 'breeze', label: 'Sea breeze', min: 0, max: 2, step: 0.1, fmt: v => `${(+v).toFixed(1)}×` },
   { key: 'natural', label: 'Natural rain', min: 0, max: 1, step: 0.05, fmt: v => (+v === 0 ? 'only mine' : `${Math.round(v * 100)}%`) },
+  { group: 'Flow' },
+  { key: 'breeze', label: 'Sea breeze', min: 0, max: 2, step: 0.1, fmt: v => `${(+v).toFixed(1)}×` },
   { key: 'variability', label: 'Flow variety', min: 0, max: 2.5, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
+];
+
+// Formations tool. how: 'line' = drag a line, 'click' = one press (brush
+// size = radius), 'paint' = brush like rain.
+const FORMS = [
+  { key: 'band', group: 'Rain', label: 'Rain band', how: 'line', hint: 'Drag a line: a narrow, wavy frontal or convergence rain band that drifts with the steering wind for several hours.' },
+  { key: 'streets', group: 'Rain', label: 'Shower streets', how: 'click', hint: 'Click: rows of elongated showers lined up with the wind (cold air over a warm sea). Strength 7+ makes them thundery.' },
+  { key: 'spiral', group: 'Rain', label: 'Spiral bands', how: 'click', hint: 'Click: rain bands spiralling into a centre (brush = radius). Near a low they lock onto it and travel with it.' },
+  { key: 'bow', group: 'Rain', label: 'Bow echo', how: 'line', hint: 'Drag a line: a line of strong storms that bows out downwind, with damaging straight-line gusts at its apex.' },
+  { key: 'oro', group: 'Rain', label: 'Orographic rain', how: 'click', hint: 'Click on mountains: rain that stays on the slopes the wind climbs, heaviest on the windward side.' },
+  { key: 'drizzle', group: 'Rain', label: 'Drizzle', how: 'paint', hint: 'Paint a grey, low stratus deck with light drizzle (weak echoes).' },
+  { key: 'fog', group: 'Clouds', label: 'Fog / low stratus', how: 'paint', hint: 'Paint fog. It lasts in calm, humid air, burns off in sunshine and mixes out in wind. Clear calm nights also make it on their own, first in valleys.' },
+  { key: 'cumulus', group: 'Clouds', label: 'Cumulus field', how: 'paint', hint: 'Paint fair-weather cumulus. Sunny days also grow them on their own over land; cold air over a warm sea lines them up in streets.' },
+  { key: 'cirrus', group: 'Clouds', label: 'Cirrus', how: 'paint', hint: 'Paint thin, fibrous high cloud that streams with the upper wind. Lows, warm fronts and storm anvils also make it.' },
 ];
 
 // Local wall time in Europe/Podgorica -> UTC ms.
@@ -94,6 +117,7 @@ const state = {
   layers: { borders: true, cities: true, lightning: true, systems: true, isobars: false, particles: false, barbs: false, clutter: true, attenuation: true },
   palette: 'dhmz', siteKey: 'none', customSite: null, satMode: 'auto', stepMin: 15, fps: 4, playing: false,
   P: { ...DEFAULT_PARAMS }, preset: 'autumn', auto: true, baseP: { ...DEFAULT_PARAMS },
+  heatMode: 'warm', target: 25, form: 'band', evolve: 'auto',
 };
 
 const LAYER_LABELS = { borders: 'Borders', cities: 'Cities', lightning: 'Lightning', systems: 'L / H', isobars: 'Isobars', particles: 'Wind flow', barbs: 'Wind barbs', clutter: 'Radar clutter', attenuation: 'Attenuation' };
@@ -131,6 +155,7 @@ function buildUI() {
   }
   const sl = $('sliders');
   for (const s of SLIDERS) {
+    if (s.group) { sl.insertAdjacentHTML('beforeend', `<div class="sgroup">${s.group}</div>`); continue; }
     const row = document.createElement('label');
     row.className = 'row';
     row.innerHTML = `<span>${s.label}</span><input type="range" min="${s.min}" max="${s.max}" step="${s.step}" data-key="${s.key}"><output></output>`;
@@ -175,6 +200,24 @@ function buildUI() {
     state.sign = +b.dataset.sign;
     document.querySelectorAll('#optSign button').forEach(x => x.classList.toggle('on', x === b));
   });
+  document.querySelectorAll('#optHeatMode button').forEach(b => b.onclick = () => {
+    state.heatMode = b.dataset.hm;
+    document.querySelectorAll('#optHeatMode button').forEach(x => x.classList.toggle('on', x === b));
+    setTool(state.tool);
+  });
+  const target = $('target');
+  target.oninput = () => { state.target = +target.value; $('targetOut').textContent = `${target.value}°`; };
+  target.value = String(state.target); target.oninput();
+  const formSel = $('formType');
+  for (const g of ['Rain', 'Clouds']) {
+    formSel.insertAdjacentHTML('beforeend', `<optgroup label="${g}">${FORMS.filter(f => f.group === g).map(f => `<option value="${f.key}">${f.label}</option>`).join('')}</optgroup>`);
+  }
+  formSel.value = state.form;
+  formSel.onchange = () => { state.form = formSel.value; setTool('form'); };
+  document.querySelectorAll('#optEvolve button').forEach(b => b.onclick = () => {
+    state.evolve = b.dataset.ev;
+    document.querySelectorAll('#optEvolve button').forEach(x => x.classList.toggle('on', x === b));
+  });
 
   $('auto').checked = state.auto;
   $('auto').onchange = e => { state.auto = e.target.checked; if (state.auto) state.baseP = { ...state.P }; else state.P.pockets = 0; };
@@ -187,8 +230,8 @@ function buildUI() {
   $('fps').oninput = e => { state.fps = +e.target.value; };
   $('resetAcc').onclick = () => { sim.acc.fill(0); commitEdit(); };
   $('clearAll').onclick = () => {
-    sim.cells = []; sim.systems = []; sim.strikes = [];
-    for (const f of [sim.C, sim.Fz, sim.R, sim.Rc, sim.out, sim.anvil, sim.acc]) f.fill(0);
+    sim.cells = []; sim.systems = []; sim.strikes = []; sim.pockets = []; sim.forms = [];
+    for (const f of [sim.C, sim.Fz, sim.R, sim.Rc, sim.out, sim.anvil, sim.acc, sim.TS, sim.CB, sim.Ta, sim.LS, sim.DZ, sim.CU, sim.CI]) f.fill(0);
     commitEdit();
   };
   $('startTime').onchange = e => {
@@ -232,11 +275,16 @@ function setTool(k) {
   state.tool = k;
   const t = TOOLS.find(x => x.key === k);
   document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('on', b.dataset.tool === k));
-  $('optBrush').style.display = t.opts.includes('brush') ? '' : 'none';
+  const form = k === 'form' ? FORMS.find(f => f.key === state.form) : null;
+  $('optBrush').style.display = t.opts.includes('brush') && !(form && form.how === 'line') ? '' : 'none';
   $('optIntensity').style.display = t.opts.includes('intensity') ? '' : 'none';
   $('optCellType').style.display = t.opts.includes('celltype') ? '' : 'none';
   $('optSign').style.display = t.opts.includes('sign') ? '' : 'none';
-  $('toolHint').textContent = t.hint;
+  $('optHeatMode').style.display = t.opts.includes('heatmode') ? '' : 'none';
+  $('optTarget').style.display = t.opts.includes('heatmode') && state.heatMode === 'set' ? '' : 'none';
+  $('optForm').style.display = t.opts.includes('formation') ? '' : 'none';
+  $('optEvolve').style.display = t.opts.includes('evolve') ? '' : 'none';
+  $('toolHint').textContent = form ? form.hint : t.hint;
   cv && (cv.style.cursor = k === 'move' ? 'grab' : 'crosshair');
 }
 
@@ -686,9 +734,18 @@ function readout(vx, vy) {
   <span>Wind</span><span>${cardinal(dirFrom(u, v))} ${(spd * 3.6).toFixed(0)} km/h · gust ${(S(sim.gust) * 3.6).toFixed(0)}</span>
   <span>Pressure</span><span>${S(sim.p).toFixed(1)} hPa</span>
   <span>CAPE</span><span>${S(sim.cape).toFixed(0)} J/kg</span>
-  <span>Cloud</span><span>${(S(sim.cf) * 100).toFixed(0)}%</span>
+  <span>Cloud</span><span>${(S(sim.cf) * 100).toFixed(0)}%${cloudKinds(S)}</span>
   </div>`;
   el.style.display = 'block';
+}
+
+// Which special cloud layers are present at the cursor.
+function cloudKinds(S) {
+  const k = [];
+  if (S(sim.LS) > 0.25) k.push(S(sim.DZ) > 0.2 ? 'stratus, drizzle' : 'fog/stratus');
+  if (S(sim.CU) > 0.2) k.push('cumulus');
+  if (S(sim.CI) > 0.2) k.push('cirrus');
+  return k.length ? ` · ${k.join(', ')}` : '';
 }
 
 // ---------- auto weather ----------
@@ -842,6 +899,20 @@ function setupPointer() {
       lastPaint = performance.now();
       applyPaint(0.12);
       paintLoop = requestAnimationFrame(paintTick);
+    } else if (t === 'form' && FORMS.find(f => f.key === state.form).how !== 'line') {
+      const how = FORMS.find(f => f.key === state.form).how, km = state.brushKm, s5 = state.intensity;
+      if (how === 'click') {
+        if (state.form === 'streets') sim.addStreets(lat, lon, km, s5);
+        else if (state.form === 'spiral') sim.addSpiral(lat, lon, km, s5);
+        else if (state.form === 'oro') sim.addOrographic(lat, lon, km, s5);
+        commitEdit();
+      } else {
+        drag = { kind: 'paint', at: { lat, lon } };
+        sim.strokeSeed = Math.random() * 1000;
+        lastPaint = performance.now();
+        applyPaint(0.12);
+        paintLoop = requestAnimationFrame(paintTick);
+      }
     } else if (t === 'cell' && state.cellType === 'super') {
       dropStorm(lat, lon);
       commitEdit();
@@ -895,9 +966,11 @@ function setupPointer() {
     if (d.kind === 'shape') {
       const t = state.tool, { a, b } = d;
       const km = Math.hypot((b.lat - a.lat) * 111.32, (b.lon - a.lon) * 111.32 * Math.cos(a.lat * D2R));
-      if (t === 'low' || t === 'high') sim.addSystem(t === 'low' ? 'L' : 'H', a.lat, a.lon, 3 * state.intensity, Math.max(150, km || 400));
+      if (t === 'low' || t === 'high') sim.addSystem(t === 'low' ? 'L' : 'H', a.lat, a.lon, 3 * state.intensity, Math.max(150, km || 400), state.evolve);
       else if (km > 15) {
         if (t === 'line') sim.addLine(a.lat, a.lon, b.lat, b.lon, { forced: true });
+        else if (t === 'form' && state.form === 'band') sim.addBand(a.lat, a.lon, b.lat, b.lon, state.intensity);
+        else if (t === 'form' && state.form === 'bow') sim.addBow(a.lat, a.lon, b.lat, b.lon, state.intensity);
         else if (t === 'cold' || t === 'warm') { sim.diagnose(); sim.addFront(t, a.lat, a.lon, b.lat, b.lon); }
       }
     }
@@ -922,7 +995,10 @@ function applyPaint(dt) {
   const { lat, lon } = drag.at, km = state.brushKm, t = state.tool;
   if (t === 'rain') sim.paintRain(lat, lon, km, state.intensity / 5 * dt * 4);
   else if (t === 'moist') sim.paintMoisture(lat, lon, km, state.sign * dt * 3);
-  else if (t === 'heat') sim.paintHeat(lat, lon, km, state.sign * dt * 3);
+  else if (t === 'heat') {
+    if (state.heatMode === 'set') sim.paintHeatTo(lat, lon, km, state.target, dt * 0.5 * state.intensity / 5);
+    else sim.paintHeat(lat, lon, km, (state.heatMode === 'cold' ? -1 : 1) * state.intensity / 5 * dt * 3);
+  } else if (t === 'form') sim.paintCloud(state.form, lat, lon, km, state.intensity / 5 * dt * 4);
   else if (t === 'erase') sim.erase(lat, lon, km);
   else if (t === 'cell') sim.paintStorm(lat, lon, km, state.intensity / 5 * dt * 4);
   const now = performance.now();
@@ -952,7 +1028,8 @@ function drawUI(p) {
   g.translate(view.ox, view.oy);
   const t = state.tool;
   const lat = view.lat(p.vy);
-  if (TOOLS.find(x => x.key === t).opts.includes('brush')) {
+  const lineForm = t === 'form' && FORMS.find(f => f.key === state.form).how === 'line';
+  if (TOOLS.find(x => x.key === t).opts.includes('brush') && !lineForm) {
     const r = state.brushKm / kmPerPx(lat);
     g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 1.5 * dpr;
     g.setLineDash([5 * dpr, 4 * dpr]);
@@ -980,7 +1057,7 @@ function drawUI(p) {
       g.font = `600 ${Math.round(12 * dpr)}px Inter, sans-serif`;
       g.fillText(`${t === 'low' ? '−' : '+'}${3 * state.intensity} hPa · ${Math.round(r * kmPerPx(lat))} km`, a.vx, a.vy + 22 * dpr);
     } else {
-      g.strokeStyle = t === 'cold' ? '#2f6bff' : t === 'warm' ? '#ff3b3b' : '#ffd24a';
+      g.strokeStyle = t === 'cold' ? '#2f6bff' : t === 'warm' ? '#ff3b3b' : t === 'form' ? (state.form === 'bow' ? '#ff7a1a' : '#46c46a') : '#ffd24a';
       g.beginPath(); g.moveTo(a.vx, a.vy); g.lineTo(b.vx, b.vy); g.stroke();
       if (t === 'cold' || t === 'warm') {
         const L = Math.hypot(b.vx - a.vx, b.vy - a.vy), n = Math.floor(L / (26 * dpr));

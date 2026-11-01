@@ -182,8 +182,19 @@ export class Raster {
       gy = gy < 0 ? 0 : gy > NY - 1.001 ? NY - 1.001 : gy;
       const i = gx | 0, j = gy | 0, fx = gx - i, fy = gy - j, k = j * NX + i;
       const r = (R[k] * (1 - fx) + R[k + 1] * fx) * (1 - fy) + (R[k + NX] * (1 - fx) + R[k + NX + 1] * fx) * fy;
-      if (r < 0.02) continue;
       const bil = f => (f[k] * (1 - fx) + f[k + 1] * fx) * (1 - fy) + (f[k + NX] * (1 - fx) + f[k + NX + 1] * fx) * fy;
+      // Drizzle from stratus: widespread, weak, fine-grained echoes (4-17 dBZ)
+      // instead of the sparse showers light rain otherwise draws as.
+      const dz = sim.DZ ? bil(sim.DZ) * bil(sim.LS) : 0;
+      if (dz > 0.04) {
+        const t = 0.5 + 0.5 * fbm(this.nC, bil(tAx) / 6, bil(tAy) / 6, 3);
+        if (t > 0.45 - 0.35 * dz) {
+          const dd = 4 + 13 * Math.min(1, dz) * (0.4 + 0.6 * t);
+          zlin[p] = Math.pow(10, dd / 10);
+          top[p] = clamp(this.elev[p] / 1000 + 1.2, 0.8, 3);
+        }
+      }
+      if (r < 0.02) continue;
       // Where in the real rain pattern this pixel sits (flow-following coordinates).
       let a;
       if (atlas) {
@@ -204,10 +215,21 @@ export class Raster {
       }
       const tsx = bil(sim.TS);
       if (tsx > 0.1) env = Math.max(env, 0.6 + 0.6 * tsx); // storm areas always show where lightning is
-      const f = wetFraction(r * env);
+      // Painted rain and drawn formations carry their own shape: the
+      // large-scale texture must not switch them off.
+      const pkx = sim.pkn ? bil(sim.pkn) : 0;
+      if (pkx > 0.05) env = Math.max(env, 0.45 + 0.6 * pkx);
+      let f = wetFraction(r * env);
+      // Drawn formations (bands, spirals, orographic rain) are continuous
+      // where it rains properly, not chopped up by the texture's patches.
+      const pkf = sim.pkf ? bil(sim.pkf) : 0;
+      if (pkf > 0.3) f = Math.max(f, Math.min(0.92, 1.1 * pkf) * clamp(r, 0, 1));
       if (a < 1 - f) continue;
       // Real wet-pixel dBZ distribution, shifted by how heavy the rain is.
-      const v = Math.min(0.985, (a - (1 - f)) / Math.max(f, F0));
+      let v = Math.min(0.985, (a - (1 - f)) / Math.max(f, F0));
+      // Formation rain sits in the upper part of that distribution, so the
+      // band reads as one body of moderate echo rather than scattered specks.
+      if (pkf > 0.3) v += (0.985 - v) * 0.4 * pkf * clamp(r / 2, 0, 1);
       let d = (ATLAS.rainQ ? realDbz(v) : 8 + 30 * v) + 4 * Math.log10(Math.max(r * env, 0.05) / 1.5);
       // Thunderstorm areas: the strongest parts of the real pattern become
       // convective cores (45-60 dBZ) with sharp gradients.
@@ -215,7 +237,7 @@ export class Raster {
       if (ts > 0.05) d += ts * (2 + 20 * Math.pow(Math.max(0, v - 0.55) / 0.45, 2));
       if (d > 58) d = 58 + 4 * Math.tanh((d - 58) / 6); // real storm cores top out near 60 dBZ
       if (d < 4) continue;
-      zlin[p] = Math.pow(10, d / 10);
+      zlin[p] = Math.max(zlin[p], Math.pow(10, d / 10));
       top[p] = clamp(this.elev[p] / 1000 + T[k] / 6.5 + 2.2 + 2 * v + 6 * bil(sim.TS) * v, 2, 14);
     }
     this._cells(sim);
@@ -398,6 +420,59 @@ export class Raster {
   }
 
   // Satellite: 'ir', 'ir-enh' or 'vis'. base = Uint8ClampedArray RGBA (terrain basemap at raster size).
+  // Fog/low stratus, cumulus and cirrus on top of the ordinary cloud, each
+  // with its own look: fog is smooth and low (bright by day, nearly invisible
+  // in IR), cumulus is small separate cells, cirrus is thin, fibrous and
+  // cold. Layers are composited top-down by height into one opacity,
+  // brightness and effective cloud-top height per pixel.
+  _cloudLayers(sim, cloud, refl, ztop) {
+    if (!sim.LS) return;
+    const { W, H } = this, NX = sim.NX, CA = ATLAS.cloud;
+    const ph = sim.texPhase(), wA = Math.sin(Math.PI * ph) ** 2, wB = 1 - wA;
+    const tex = (x, y, ch) => (CA ? sampleMirror(CA, x, y, ch) : 0.5 + 0.5 * fbm(this.nC, x / 20, y / 20, 3));
+    const [udx, udy] = sim.texDir ? sim.texDir.A : [1, 0];
+    const L = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]]; // [opacity, brightness, top km]
+    for (let p = 0; p < W * H; p++) {
+      const gx = clamp(this.gx[p], 0, sim.NX - 1.001), gy = clamp(this.gy[p], 0, sim.NY - 1.001);
+      const i = gx | 0, j = gy | 0, fx = gx - i, fy = gy - j, k = j * NX + i;
+      const bil = f => (f[k] * (1 - fx) + f[k + 1] * fx) * (1 - fy) + (f[k + NX] * (1 - fx) + f[k + NX + 1] * fx) * fy;
+      const ls = bil(sim.LS), cu = bil(sim.CU), ci = bil(sim.CI);
+      if (ls < 0.02 && cu < 0.02 && ci < 0.02) continue;
+      const tx = wA >= wB ? bil(sim.tAx) : bil(sim.tBx), ty = wA >= wB ? bil(sim.tAy) : bil(sim.tBy);
+      const ground = this.elev[p] / 1000;
+      let n = 0;
+      L[n][0] = cloud[p]; L[n][1] = refl[p]; L[n][2] = ztop[p]; n++;
+      if (ls >= 0.02) {
+        const t = tex(tx * 0.3 + 911, ty * 0.3 + 377, 'b');
+        L[n][0] = clamp((ls - 0.12 + 0.3 * (t - 0.5)) / 0.25, 0, 1) * 0.95;
+        L[n][1] = 0.5 + 0.2 * t; L[n][2] = ground + 0.4; n++;
+      }
+      if (cu >= 0.02) {
+        const t = tex(tx * 3.2 + 51, ty * 3.2 + 13, 'b');
+        L[n][0] = clamp((t - (1 - 0.8 * cu)) / 0.07, 0, 1) * clamp(cu * 2.5, 0, 1);
+        L[n][1] = 0.72 + 0.25 * t; L[n][2] = ground + 1.6 + 1.2 * t; n++;
+      }
+      if (ci >= 0.02) {
+        // Wispy streaks, ~3x longer along the upper wind, in patches.
+        const al = tx * udx + ty * udy, ac = -tx * udy + ty * udx;
+        const t = tex(al * 0.4 + 1700, ac * 1.1 + 2300, 'g');
+        const patch = tex(al * 0.08 + 300, ac * 0.08 + 900, 'b');
+        L[n][0] = clamp((t - (1 - 0.75 * ci)) / 0.4, 0, 1) * 0.55 * clamp(0.35 + patch, 0, 1);
+        L[n][1] = 0.3 + 0.25 * t; L[n][2] = 9.5 + 1.2 * t; n++;
+      }
+      // Top-down by height: higher layers hide the ones below.
+      for (let a = 1; a < n; a++) for (let b = a; b > 0 && L[b][2] > L[b - 1][2]; b--) { const s = L[b]; L[b] = L[b - 1]; L[b - 1] = s; }
+      let trans = 1, br = 0, zt = 0;
+      for (let a = 0; a < n; a++) {
+        const o = L[a][0];
+        if (o <= 0) continue;
+        br += trans * o * L[a][1]; zt += trans * o * L[a][2]; trans *= 1 - o;
+      }
+      const op = 1 - trans;
+      if (op > 0.001) { cloud[p] = op; refl[p] = br / op; ztop[p] = zt / op; }
+    }
+  }
+
   satellite(sim, mode, base, out) {
     const { W, H } = this;
     const NX = sim.NX, cf = sim.cf, C = sim.C, T = sim.T;
@@ -410,7 +485,7 @@ export class Raster {
       const gx = clamp(this.gx[p], 0, sim.NX - 1.001), gy = clamp(this.gy[p], 0, sim.NY - 1.001);
       const i = gx | 0, j = gy | 0, fx = gx - i, fy = gy - j, k = j * NX + i;
       const bil = f => (f[k] * (1 - fx) + f[k + 1] * fx) * (1 - fy) + (f[k + NX] * (1 - fx) + f[k + NX + 1] * fx) * fy;
-      const c0 = bil(cf), cw = bil(C);
+      const c0 = bil(sim.cfg || cf), cw = bil(C);
       // Real cloud scene texture (or noise), thresholded to the cloud fraction.
       let n = 0, rv = 0.5, rc = 0.5;
       const CA = ATLAS.cloud;
@@ -485,6 +560,7 @@ export class Raster {
         if (zt > ztop[p]) ztop[p] = zt;
       }
     }
+    this._cloudLayers(sim, cloud, refl, ztop);
     const sunMid = clamp(sim.cosz[(sim.NY >> 1) * NX + (NX >> 1)] * 1.6 + 0.08, 0, 1);
     for (let p = 0; p < W * H; p++) {
       const o = cloud[p], q = p * 4;
