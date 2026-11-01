@@ -30,6 +30,10 @@
           <button data-ct="single" class="on">Paint</button><button data-ct="super">Supercell</button>
         </div>
         <div class="row seg" id="optSign"><button data-sign="1" class="on">＋ Add</button><button data-sign="-1">－ Remove</button></div>
+        <div class="row seg" id="optHeatMode"><button data-hm="warm" class="on">＋ Warmer</button><button data-hm="cold">－ Colder</button><button data-hm="set">= Set</button></div>
+        <label class="row" id="optTarget"><span>Target</span><input type="range" id="target" min="-25" max="45" step="1" value="25"><output id="targetOut"></output></label>
+        <label class="row" id="optForm"><span>Type</span><select id="formType"></select></label>
+        <div class="row seg" id="optEvolve"><button data-ev="auto" class="on">Life cycle</button><button data-ev="deepen">Deepen</button><button data-ev="steady">Steady</button><button data-ev="fill">Fill</button></div>
         <p class="hint" id="toolHint"></p>
       </div>
     </section>
