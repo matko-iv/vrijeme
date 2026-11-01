@@ -1,10 +1,11 @@
 // Cloudflare Worker: serves DHMZ's Uljenje radar image with CORS headers, so
-// docs/forecast.html can read its pixels in the browser. Only needed if
-// vrijeme.hr itself does not send Access-Control-Allow-Origin.
+// docs/forecast.html can read its pixels in the browser. vrijeme.hr itself does
+// not send Access-Control-Allow-Origin.
 //
-// Deploy: Cloudflare dashboard -> Workers & Pages -> Create -> Worker, paste this
-// file, Deploy. Put the worker URL in DHMZ_PROXY_URL in docs/forecast.html.
-// Nothing to run afterwards; the free plan covers 100k requests a day.
+// Deploy: npx wrangler deploy cloudflare/dhmz_radar_proxy.js --name dhmz-radar
+//             --compatibility-date 2026-10-01
+// DHMZ_PROXY_URL in docs/forecast.html holds its URL. Nothing to run afterwards;
+// the free plan covers 100k requests a day.
 
 const SOURCE = 'https://vrijeme.hr/uljenje-stat.png';
 
@@ -25,6 +26,11 @@ export default {
             if (value) headers.set(name, value);
         }
         headers.set('Cache-Control', 'public, max-age=60');
+        // The page revalidates every 2 min: an unchanged frame costs a 304, not the PNG.
+        const etag = upstream.headers.get('ETag');
+        if (upstream.ok && etag && request.headers.get('If-None-Match') === etag) {
+            return new Response(null, { status: 304, headers });
+        }
         return new Response(upstream.body, { status: upstream.status, headers });
     },
 };
