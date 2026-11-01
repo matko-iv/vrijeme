@@ -28,9 +28,9 @@ mjerenja i objavljuje JSON koji pokreće web stranicu.
    Kad SKALA podaci zastare (pipeline ne radi), stranica sama čita DHMZ
    radarsku sliku (`vrijeme.hr/uljenje-stat.png`) u pregledaču, istom paletom
    i speckle filterom kao budva-radar, i kaže pada li kiša u Budvi i gdje je
-   najbliža kiša. Za to vrijeme.hr mora dozvoliti CORS; ako ne dozvoljava,
-   `cloudflare/dhmz_radar_proxy.js` je Worker koji ga dodaje (URL ide u
-   `DHMZ_PROXY_URL`). Bez toga linija kaže da nema svježih podataka.
+   najbliža kiša. vrijeme.hr ne dozvoljava CORS, pa sliku služi Cloudflare
+   Worker `cloudflare/dhmz_radar_proxy.js` (URL je u `DHMZ_PROXY_URL`). Ako ni
+   on ne radi, linija kaže da nema svježih podataka.
 
 ## Modeli
 
