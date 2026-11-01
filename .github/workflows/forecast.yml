@@ -65,6 +65,7 @@ jobs:
           python test_gemini_narrative.py
           python test_narrative_variants.py
           node test_nowcast_hourly.js
+          node test_dhmz_radar.js
 
       - name: Run forecast pipeline (skip training)
         env:

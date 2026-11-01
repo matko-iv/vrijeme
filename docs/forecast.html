@@ -3461,6 +3461,149 @@ function parseRadarState(data) {
     };
 }
 
+// ---- DHMZ radar read in the browser, no pipeline needed ----
+// When SKALA's radar_status.json is stale, the page reads DHMZ's Uljenje radar
+// composite itself: the same 720x751 PNG budva-radar downloads, classified pixel
+// by pixel with budva-radar's legend (docs/radar-map.html, radar/colormap.py) and
+// its 3x3 speckle filter (radar/sampling.py). One frame has no motion, so this
+// says whether it rains at Budva and where the closest rain is, never an ETA.
+// Reading pixels across origins needs CORS: either vrijeme.hr sends
+// Access-Control-Allow-Origin, or DHMZ_PROXY_URL points at a proxy that adds it
+// (cloudflare/dhmz_radar_proxy.js). Without either, the status line says the
+// radar has no fresh data instead of repeating a stale verdict.
+const DHMZ_IMAGE_URL = 'https://vrijeme.hr/uljenje-stat.png';
+const DHMZ_PROXY_URL = '';      // e.g. 'https://dhmz-radar.<account>.workers.dev'
+const DHMZ_GEOM = {
+    w: 720, h: 751, valid: [3, 96, 657, 716], pxPerKm: 1.3648,
+    budva: { x: 485, y: 480 }, lat: 42.2864, lon: 18.84,
+    site: { lat: 42.8944, lon: 17.4783, rangeKm: 248 },   // Uljenje, drawn rim minus 1 km
+};
+const DHMZ_LEGEND = [            // r, g, b, dBZ (legend range midpoints)
+    [  0, 150, 219, 12.5], [  0,  85, 190, 17.5], [  0,  78, 128, 22.5],
+    [  0, 150,  10, 27.5], [  0, 192,  39, 32.5], [  0, 232,  10, 37.5],
+    [255, 255,   0, 42.5], [255, 187,   0, 47.5], [255, 131,   0, 52.5],
+    [255,   0,   0, 57.5], [161,   0,   0, 62.5], [115,   0, 112, 67.5],
+];
+const DHMZ_BG_TONES = [          // basemap, relief and text tones: never echo
+    [  0,  60, 112], [  0,  75, 140], [ 65,  91, 138], [110, 140, 170],
+    [ 64, 104,  40], [ 80, 130,  51], [130, 160, 130], [180, 200, 180],
+    [192, 192, 192], [220, 215, 200], [200, 200, 195],
+    [189, 189, 255], [230, 222, 189], [239, 214, 189], [247, 230, 189],
+    [212, 155,  95], [190, 140,  85], [170, 130,  90], [155, 120,  85], [140, 105,  70],
+    [255, 255, 255], [  0,   0,   0], [240, 240, 240], [165, 165, 165],
+];
+const DHMZ_NO_MATCH = 35;        // max RGB distance to a legend colour
+const DHMZ_RAIN_DBZ = 20;        // light rain begins
+const DHMZ_SEVERE_DBZ = 50;
+const DHMZ_SCAN_KM = 150;
+const DHMZ_AT_BUDVA_KM = 2;      // a wet pixel this close counts as rain at Budva
+const DHMZ_SPECKLE_MIN = 4;      // wet 3x3 neighbours a wet pixel needs
+const DHMZ_RETRY_MS = 15 * 60000;
+const dhmzFailedAt = {};         // url -> time of the last failed read
+
+function dhmzClassify(r, g, b) {
+    let bestLeg = Infinity, dbz = NaN;
+    for (const L of DHMZ_LEGEND) {
+        const d = (r - L[0]) ** 2 + (g - L[1]) ** 2 + (b - L[2]) ** 2;
+        if (d < bestLeg) { bestLeg = d; dbz = L[3]; }
+    }
+    if (bestLeg >= DHMZ_NO_MATCH * DHMZ_NO_MATCH) return NaN;
+    for (const B of DHMZ_BG_TONES) {
+        if ((r - B[0]) ** 2 + (g - B[1]) ** 2 + (b - B[2]) ** 2 <= bestLeg) return NaN;
+    }
+    return dbz;
+}
+
+// Rain at Budva, the closest rain pixel and the local peak, from RGBA pixels.
+function scanDhmzPixels(px) {
+    const G = DHMZ_GEOM, ppk = G.pxPerKm, bx = G.budva.x, by = G.budva.y;
+    const kx = 111.32 * Math.cos(G.lat * Math.PI / 180);
+    const sx = bx + (G.site.lon - G.lon) * kx * ppk;
+    const sy = by - (G.site.lat - G.lat) * 110.57 * ppk;
+    const site2 = (G.site.rangeKm * ppk) ** 2;
+    const R = Math.floor(DHMZ_SCAN_KM * ppk) + 1;
+    const x0 = Math.max(G.valid[0], bx - R), x1 = Math.min(G.valid[2], bx + R + 1);
+    const y0 = Math.max(G.valid[1], by - R), y1 = Math.min(G.valid[3], by + R + 1);
+    const W = x1 - x0, H = y1 - y0;
+    const dbz = new Float32Array(W * H).fill(NaN);
+    const wet = new Uint8Array(W * H);
+    for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+            const distKm = Math.hypot(x - bx, y - by) / ppk;
+            if (distKm > DHMZ_SCAN_KM || (x - sx) ** 2 + (y - sy) ** 2 > site2) continue;
+            const i = (y * G.w + x) * 4;
+            const d = dhmzClassify(px[i], px[i + 1], px[i + 2]);
+            const k = (y - y0) * W + (x - x0);
+            dbz[k] = d;
+            if (d >= DHMZ_RAIN_DBZ) wet[k] = 1;
+        }
+    }
+    let best = null, localMax = null;
+    for (let yy = 0; yy < H; yy++) {
+        for (let xx = 0; xx < W; xx++) {
+            const k = yy * W + xx;
+            if (!wet[k]) continue;
+            let n = 0;
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (!dx && !dy) continue;
+                    const nx = xx + dx, ny = yy + dy;
+                    if (nx >= 0 && nx < W && ny >= 0 && ny < H && wet[ny * W + nx]) n++;
+                }
+            }
+            if (n < DHMZ_SPECKLE_MIN) continue;
+            const ddx = xx + x0 - bx, ddy = yy + y0 - by;
+            const km = Math.hypot(ddx, ddy) / ppk;
+            if (!best || km < best.km) {
+                best = { km, bearing: (Math.atan2(ddx, -ddy) * 180 / Math.PI + 360) % 360, dbz: dbz[k] };
+            }
+            if (km <= 5 && (localMax == null || dbz[k] > localMax)) localMax = dbz[k];
+        }
+    }
+    const rainHere = !!(best && best.km <= DHMZ_AT_BUDVA_KM);
+    return {
+        rainAtLocation: rainHere,
+        bestRain: best && {
+            km: best.km, dbz: best.dbz,
+            cardinal: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(best.bearing / 45) % 8],
+        },
+        severe: rainHere && localMax != null && localMax >= DHMZ_SEVERE_DBZ,
+    };
+}
+
+// The current DHMZ frame as a radarState, or null when it cannot be read.
+async function fetchDhmzState() {
+    for (const url of [DHMZ_PROXY_URL, DHMZ_IMAGE_URL].filter(Boolean)) {
+        if (Date.now() - (dhmzFailedAt[url] || 0) < DHMZ_RETRY_MS) continue;
+        try {
+            // no-cache revalidates, so an unchanged frame costs a 304, not the PNG
+            const resp = await fetch(url, { mode: 'cors', cache: 'no-cache' });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const modified = Date.parse(resp.headers.get('Last-Modified') || '');
+            const bmp = await createImageBitmap(await resp.blob(),
+                { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+            if (bmp.width !== DHMZ_GEOM.w || bmp.height !== DHMZ_GEOM.h) throw new Error('size');
+            const canvas = document.createElement('canvas');
+            canvas.width = bmp.width;
+            canvas.height = bmp.height;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(bmp, 0, 0);
+            const scan = scanDhmzPixels(ctx.getImageData(0, 0, bmp.width, bmp.height).data);
+            return {
+                ok: true, source: 'dhmz', verdict: null, motionKnown: false,
+                rainAtLocation: scan.rainAtLocation, approaching: false,
+                anyRainVicinity: !!scan.bestRain, etaMin: null,
+                bestRain: scan.bestRain, threat: null, severe: scan.severe,
+                ageMin: isNaN(modified) ? null
+                    : Math.max(0, Math.round((Date.now() - modified) / 60000)),
+            };
+        } catch (e) {
+            dhmzFailedAt[url] = Date.now();   // CORS refusal or network error
+        }
+    }
+    return null;
+}
+
 // SKALA NOWCAST status (budva-radar repo): the DGMR rain forecast for Budva.
 const NOWCAST_STATUS_URLS = [
     'https://pub-3d539da10a4c4aa8a3f0048f8dcb067c.r2.dev/nowcast_status.json',  // R2 (instant)
@@ -3501,6 +3644,11 @@ async function refreshRadar() {
     const [rdata, ndata] = await Promise.all([fetchRadarData(), fetchNowcastData()]);
     radarState = rdata ? parseRadarState(rdata) : null;
     nowcastState = (ndata && ndata.ok) ? ndata : null;
+    // SKALA not running: read the DHMZ radar image here instead.
+    if (!nowcastFresh(nowcastState) && !radarFresh(radarState)) {
+        const live = await fetchDhmzState();
+        if (live) radarState = live;
+    }
     renderStatusLine();
     applyRadarGating();
 }
@@ -3568,6 +3716,17 @@ function renderHourlyUv() {
     });
 }
 
+// SKALA publishes every few minutes; a verdict older than this is not shown as current.
+const RADAR_STALE_MIN = 60;
+
+// "25 min", "5 h", "42 dana".
+function fmtAgeMin(min) {
+    if (min < 90) return min + ' min';
+    if (min < 48 * 60) return Math.round(min / 60) + ' h';
+    const days = Math.round(min / 1440);
+    return days + (days % 10 === 1 && days % 100 !== 11 ? ' dan' : ' dana');
+}
+
 function renderRadarStatusLine(state) {
     const el = document.getElementById('radarStatusLine');
     if (!el) return;
@@ -3578,9 +3737,24 @@ function renderRadarStatusLine(state) {
         return;
     }
 
+    const live = state.source === 'dhmz';
+    if ((!live && state.ageMin == null) || state.ageMin > RADAR_STALE_MIN) {
+        // A stale snapshot is history, not the weather now. A DHMZ frame without
+        // Last-Modified has no known age, but it is what DHMZ serves right now.
+        el.style.color = '#777';
+        el.style.fontWeight = '400';
+        el.innerHTML = 'Radar: nema svježih podataka'
+            + (state.ageMin != null ? ' (zadnji ' + (live ? 'DHMZ' : 'SKALA') + ' snimak prije '
+                                      + fmtAgeMin(state.ageMin) + ')' : '')
+            + ' · <a href="' + DHMZ_IMAGE_URL + '">DHMZ radarska slika</a>';
+        return;
+    }
+
     const bestRain = state.bestRain;
-    const age = state.ageMin != null ? ' · podatak star ' + state.ageMin + ' min' : '';
-    const LINK = '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: ';
+    const age = state.ageMin != null
+        ? (live ? ' · snimak star ' : ' · podatak star ') + fmtAgeMin(state.ageMin) : '';
+    const LINK = live ? '<a href="' + DHMZ_IMAGE_URL + '">Radar DHMZ</a>: '
+                      : '<a href="https://matko-iv.github.io/budva-radar/">Radar</a>: ';
 
     // KANONSKI verdikt iz pipeline-a (vidi parseRadarState) — ista rečenica
     // kao zaključak na budva-radar stranicama, samo kraći format. Logika ispod
@@ -3652,16 +3826,19 @@ function renderRadarStatusLine(state) {
                        ', ~' + fmtKm(bestRain.km) + ' km ' + smjer(bestRain.cardinal) + eta + age;
     } else if (bestRain && bestRain.km != null && bestRain.km <= 20) {
         // "blizu/zaobilazi" samo unutar ~20 km — nikad za kišu stotinama km daleko.
+        // Jedan DHMZ snimak nema kretanje, pa ne može reći da kiša zaobilazi.
         const move = bestRain.motionCardinal ? ' (ide ka ' + smjer(bestRain.motionCardinal) + ')' : '';
+        const what = state.motionKnown === false ? 'kiša je blizu Budve' : 'kiša je blizu, ali zaobilazi Budvu';
         el.style.color = '#1565c0';
         el.style.fontWeight = '600';
-        el.innerHTML = LINK + '<b>kiša je blizu, ali zaobilazi Budvu</b> — ' + intenzitet(bestRain.dbz) +
+        el.innerHTML = LINK + '<b>' + what + '</b> — ' + intenzitet(bestRain.dbz) +
                        ', ~' + fmtKm(bestRain.km) + ' km ' + smjer(bestRain.cardinal) + move + age;
     } else if (bestRain && bestRain.km != null) {
         // Kiša postoji ali dalje od ~20 km — nije relevantna za Budvu; navedi razdaljinu.
         el.style.color = '#2e7d32';
         el.style.fontWeight = '400';
-        el.innerHTML = LINK + 'nema kiše ka Budvi (najbliža jeka ~' + fmtKm(bestRain.km) +
+        el.innerHTML = LINK + (state.motionKnown === false ? 'nema kiše u Budvi' : 'nema kiše ka Budvi') +
+                       ' (najbliža jeka ~' + fmtKm(bestRain.km) +
                        ' km ' + smjer(bestRain.cardinal) + ')' + age;
     } else {
         el.style.color = '#2e7d32';

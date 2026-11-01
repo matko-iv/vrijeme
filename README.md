@@ -25,6 +25,12 @@ mjerenja i objavljuje JSON koji pokreće web stranicu.
    odbacuje svaku halucinaciju i vraća sigurnu rečenicu.
 5. **Web prikaz** — statična stranica (`docs/forecast.html`) čita JSON i
    prikazuje kartice, grafikone, marine prognozu i radar status.
+   Kad SKALA podaci zastare (pipeline ne radi), stranica sama čita DHMZ
+   radarsku sliku (`vrijeme.hr/uljenje-stat.png`) u pregledaču, istom paletom
+   i speckle filterom kao budva-radar, i kaže pada li kiša u Budvi i gdje je
+   najbliža kiša. Za to vrijeme.hr mora dozvoliti CORS; ako ne dozvoljava,
+   `cloudflare/dhmz_radar_proxy.js` je Worker koji ga dodaje (URL ide u
+   `DHMZ_PROXY_URL`). Bez toga linija kaže da nema svježih podataka.
 
 ## Modeli
 
@@ -77,6 +83,7 @@ python test_narrative_variants.py
 
 node test_nowcast_hourly.js                # SKALA NOWCAST gating u docs/forecast.html
 node test_daily_conditions.js              # Usklađenost dnevnih ikonica, opisa i narativa
+node test_dhmz_radar.js                    # DHMZ radar sken u docs/forecast.html
 ```
 
 ## GPU trening
