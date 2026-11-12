@@ -1,0 +1,52 @@
+{
+  "ARPEGE_EUROPE": {
+    "complete_until": "2026-11-10 21:00:00",
+    "fetched_at": "2026-11-10T22:00:00",
+    "wind_unit": "m/s"
+  },
+  "GFS_SEAMLESS": {
+    "complete_until": "2026-11-10 21:00:00",
+    "fetched_at": "2026-11-10T22:00:00",
+    "wind_unit": "m/s"
+  },
+  "ICON_SEAMLESS": {
+    "complete_until": "2026-11-10 21:00:00",
+    "fetched_at": "2026-11-10T22:00:00",
+    "wind_unit": "m/s"
+  },
+  "METEOFRANCE": {
+    "complete_until": "2026-11-10 21:00:00",
+    "fetched_at": "2026-11-10T22:00:00",
+    "wind_unit": "m/s"
+  },
+  "ECMWF_IFS025": {
+    "complete_until": "2026-11-10 21:00:00",
+    "fetched_at": "2026-11-10T22:00:00",
+    "wind_unit": "m/s"
+  },
+  "ITALIAMETEO_ICON2I": {
+    "complete_until": "2026-11-10 21:00:00",
+    "fetched_at": "2026-11-10T22:00:00",
+    "wind_unit": "m/s"
+  },
+  "UKMO_SEAMLESS": {
+    "complete_until": "2026-11-10 21:00:00",
+    "fetched_at": "2026-11-10T22:00:00",
+    "wind_unit": "m/s"
+  },
+  "ECMWF_IFS": {
+    "complete_until": "2026-11-10 21:00:00",
+    "fetched_at": "2026-11-10T22:00:00",
+    "wind_unit": "m/s"
+  },
+  "KNMI_SEAMLESS": {
+    "complete_until": "2026-11-10 21:00:00",
+    "fetched_at": "2026-11-10T22:00:00",
+    "wind_unit": "m/s"
+  },
+  "DMI_SEAMLESS": {
+    "complete_until": "2026-11-10 21:00:00",
+    "fetched_at": "2026-11-10T22:00:00",
+    "wind_unit": "m/s"
+  }
+}
