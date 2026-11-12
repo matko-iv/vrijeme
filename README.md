@@ -54,7 +54,13 @@ forecast_48h_v3.py          # Glavni pipeline (fetch → train → correct → o
 prob_forecast.py            # Probabilistički alati (EMOS, CQR, ECC, verifikacija)
 gemini_narrative.py         # Gemini prefraziranje + guardrail
 narrative_variants.py       # Pool fraza za dnevni narativ
-wu_scraper.py               # Scraper historijskih obs (Weather Underground)
+wu_scraper.py               # IBUDVA5 5-min obs (WU PWS history API)
+wu_update.py                # Inkrementalni update stanice + merged_observations.csv
+update_model_csvs.py        # Inkrementalni update budva_{MODEL}_detailed.csv
+fetch_previous_runs.py      # previous_runs_data/ (day-1/day-2 runovi, vjetar m/s)
+fetch_aux_history.py        # budva_{MODEL}_stability.csv (CAPE/CIN/upper-air)
+analysis_output/rain_v3_backtest.py  # bira feature set klasifikatora kiše
+portable/                   # Portabilni runner (exe + GUI + build skripta)
 advanced_model_analysis.py  # Analiza grešaka po modelu
 visualize_analysis*.py      # Grafikoni analize
 trained_models_v2/          # Trenirani modeli + bias tabele
@@ -113,6 +119,28 @@ stabla grade na GPU-u. Skupa pomoćna dijagnostika je podrazumijevano isključen
 uključuje se sa `--aux-diagnostics` ili `FC_AUX_DIAGNOSTICS=1`. GitHub-hosted
 `ubuntu-latest` job ostaje CPU-only i pokreće samo `--skip-training`; modeli
 trenirani lokalno na GPU-u mogu se normalno učitati tamo.
+
+## Svježi podaci i puni trening
+
+```powershell
+python wu_update.py                         # stanica do sada
+python update_model_csvs.py                 # modelske arhive
+python fetch_previous_runs.py               # day-1/day-2 runovi
+python fetch_aux_history.py                 # stability/upper-air istorija
+python analysis_output/rain_v3_backtest.py  # bira v2 / v3-* feature set za kišu
+python forecast_48h_v3.py                   # trening (FC_TRIALS=30 default)
+```
+
+Kiša po satu je porast dnevnog brojača kišomjera (`precip_mm`), ne srednja
+5-min stopa (koja je precjenjivala ukupnu kišu ~27%). `training_results.json`
+sada ima i `mae_lead27` / `mae_lead51` za temperaturu, vjetar i udare; glavni
+MAE je kratki lead (archive redovi). Day-ahead PoP/prag klasifikatora kiše se
+refituje pri svakom treningu (`rain_occurrence_meta.json` → `day_ahead`).
+
+Portabilni runner: `powershell -ExecutionPolicy Bypass -File
+portable\build_portable.ps1 -Target E:\MLForecastPipeline` pravi folder sa
+`ML Forecasting Pipeline.exe`, ugrađenim Pythonom i svim paketima; na drugom
+računaru pokreće cijeli pipeline i čuva model na istom disku (`models\`).
 
 Puni retraining zahtijeva `wu_data/merged_observations.csv`. Canonical WU tabela
 zamjenjuje stale observation kolone iz modelskih CSV fajlova (uključujući stari

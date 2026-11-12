@@ -4,7 +4,6 @@ Izvlači satne podatke za 2 godine unazad
 """
 
 import requests
-from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime, timedelta
 import time
@@ -15,26 +14,15 @@ import json
 from wu_aggregation import resample_to_hourly
 
 STATION_ID = "IBUDVA5"
-BASE_URL = f"https://www.wunderground.com/dashboard/pws/{STATION_ID}/table"
 OUTPUT_DIR = "wu_data"
 YEARS_BACK = 2
 START_DATE_OVERRIDE = "2020-04-01" 
 
-# Headers da izgleda kao browser
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.5',
 }
-
-def parse_value(text):
-    """Parsira vrijednost iz teksta (npr. '52.4 °F' -> 52.4)"""
-    if not text or text.strip() == '--':
-        return None
-    match = re.search(r'([\d.]+)', text.replace(',', ''))
-    if match:
-        return float(match.group(1))
-    return None
 
 def f_to_c(f):
     """Fahrenheit to Celsius"""
@@ -60,96 +48,113 @@ def inhg_to_hpa(inhg):
         return None
     return round(inhg * 33.8639, 2)
 
-def scrape_day(date_str, session):
+# The dashboard table is now rendered client-side, so the HTML holds no rows.
+# The same 5-min records come from the PWS history API that the page calls.
+# Fields match the old table exactly (units=e): tempAvg, dewptAvg, humidityAvg,
+# windspeedAvg, windgustAvg, pressureMax, precipRate, precipTotal, uvHigh,
+# solarRadiationHigh.
+API_URL = "https://api.weather.com/v2/pws/history/all"
+# Key used by the wunderground.com front end; set WU_API_KEY to use your own.
+WEB_API_KEY = "6532d6454b8aa370768e63d6ba5a832e"
+COMPASS = ['North', 'NNE', 'NE', 'ENE', 'East', 'ESE', 'SE', 'SSE',
+           'South', 'SSW', 'SW', 'WSW', 'West', 'WNW', 'NW', 'NNW']
+
+
+def api_key():
+    return os.environ.get("WU_API_KEY") or WEB_API_KEY
+
+
+def deg_to_compass(deg):
+    if deg is None:
+        return None
+    return COMPASS[int((float(deg) % 360) / 22.5 + 0.5) % 16]
+
+
+def _clock_text(ts):
+    h12 = ts.hour % 12 or 12
+    return f"{h12}:{ts.minute:02d} {'AM' if ts.hour < 12 else 'PM'}"
+
+
+def observations_to_frame(observations, date_str):
+    """API observations (units=e) -> rows with the raw_5min.csv columns."""
+    rows = []
+    for o in observations:
+        imp = o.get('imperial') or {}
+        local = o.get('obsTimeLocal')
+        if not local:
+            continue
+        ts = pd.Timestamp(local).floor('min')
+        if ts.strftime("%Y-%m-%d") != date_str:
+            continue
+        row = {
+            'datetime': ts.strftime("%Y-%m-%d %H:%M:%S"),
+            'date': date_str,
+            'time': _clock_text(ts),
+            'temp_f': imp.get('tempAvg'),
+            'dewpoint_f': imp.get('dewptAvg'),
+            'humidity_pct': o.get('humidityAvg'),
+            'wind_dir': deg_to_compass(o.get('winddirAvg')),
+            'wind_mph': imp.get('windspeedAvg'),
+            'gust_mph': imp.get('windgustAvg'),
+            'pressure_in': imp.get('pressureMax'),
+            'precip_rate_in': imp.get('precipRate'),
+            'precip_accum_in': imp.get('precipTotal'),
+            'uv': o.get('uvHigh'),
+            'solar_wm2': o.get('solarRadiationHigh'),
+        }
+        row['temp_c'] = f_to_c(row['temp_f'])
+        row['dewpoint_c'] = f_to_c(row['dewpoint_f'])
+        row['wind_ms'] = mph_to_ms(row['wind_mph'])
+        row['gust_ms'] = mph_to_ms(row['gust_mph'])
+        row['pressure_hpa'] = inhg_to_hpa(row['pressure_in'])
+        row['precip_rate_mm'] = in_to_mm(row['precip_rate_in'])
+        row['precip_accum_mm'] = in_to_mm(row['precip_accum_in'])
+        rows.append(row)
+    if not rows:
+        return None
+    return pd.DataFrame(rows).drop_duplicates(subset=['datetime'], keep='last')
+
+
+def scrape_day(date_str, session, retries=3):
     """
-    Scrape jedan dan podataka
-    date_str format: "2026-02-07"
+    Skini jedan dan 5-min podataka (date_str format: "2026-02-07").
+    Vraca DataFrame sa kolonama raw_5min.csv ili None.
     """
-    url = f"{BASE_URL}/{date_str}/{date_str}/daily"
-    
-    try:
-        response = session.get(url, headers=HEADERS, timeout=30)
-        if response.status_code != 200:
-            print(f"   HTTP {response.status_code}")
-            return None
-            
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        rows = []
-        
-        tables = soup.find_all('table')
-        
-        for table in tables:
-            tbody = table.find('tbody')
-            if not tbody:
+    params = {
+        'stationId': STATION_ID, 'format': 'json', 'units': 'e',
+        'numericPrecision': 'decimal', 'date': date_str.replace('-', ''),
+        'apiKey': api_key(),
+    }
+    headers = {'User-Agent': HEADERS['User-Agent'],
+               'Origin': 'https://www.wunderground.com',
+               'Referer': 'https://www.wunderground.com/'}
+    for attempt in range(retries):
+        try:
+            response = session.get(API_URL, params=params, headers=headers, timeout=30)
+            if response.status_code == 204:
+                print("   Nema podataka (204)")
+                return None
+            if response.status_code in (401, 403):
+                print(f"   HTTP {response.status_code}: {response.text[:80]} "
+                      "(postavi WU_API_KEY)")
+                return None
+            if response.status_code == 429 or response.status_code >= 500:
+                time.sleep(10 * (attempt + 1))
                 continue
-                
-            for tr in tbody.find_all('tr'):
-                tds = tr.find_all('td')
-                if len(tds) >= 11:  # Očekujemo 11 kolona
-                    try:
-                        time_text = tds[0].get_text(strip=True)
-                        
-                        if 'AM' in time_text or 'PM' in time_text:
-                            try:
-                                time_obj = datetime.strptime(f"{date_str} {time_text}", "%Y-%m-%d %I:%M %p")
-                            except:
-                                continue
-                        else:
-                            continue
-                        
-                        row = {
-                            'datetime': time_obj.strftime("%Y-%m-%d %H:%M:%S"),
-                            'date': date_str,
-                            'time': time_text,
-                            'temp_f': parse_value(tds[1].get_text()),
-                            'dewpoint_f': parse_value(tds[2].get_text()),
-                            'humidity_pct': parse_value(tds[3].get_text()),
-                            'wind_dir': tds[4].get_text(strip=True) if len(tds) > 4 else None,
-                            'wind_mph': parse_value(tds[5].get_text()) if len(tds) > 5 else None,
-                            'gust_mph': parse_value(tds[6].get_text()) if len(tds) > 6 else None,
-                            'pressure_in': parse_value(tds[7].get_text()) if len(tds) > 7 else None,
-                            'precip_rate_in': parse_value(tds[8].get_text()) if len(tds) > 8 else None,
-                            'precip_accum_in': parse_value(tds[9].get_text()) if len(tds) > 9 else None,
-                            'uv': parse_value(tds[10].get_text()) if len(tds) > 10 else None,
-                            'solar_wm2': parse_value(tds[11].get_text()) if len(tds) > 11 else None,
-                        }
-                        
-                        row['temp_c'] = f_to_c(row['temp_f'])
-                        row['dewpoint_c'] = f_to_c(row['dewpoint_f'])
-                        row['wind_ms'] = mph_to_ms(row['wind_mph'])
-                        row['gust_ms'] = mph_to_ms(row['gust_mph'])
-                        row['pressure_hpa'] = inhg_to_hpa(row['pressure_in'])
-                        row['precip_rate_mm'] = in_to_mm(row['precip_rate_in'])
-                        row['precip_accum_mm'] = in_to_mm(row['precip_accum_in'])
-                        
-                        rows.append(row)
-                    except Exception as e:
-                        continue
-        
-        if rows:
-            return pd.DataFrame(rows)
-        else:
-            scripts = soup.find_all('script')
-            for script in scripts:
-                if script.string and 'observations' in script.string:
-                    try:
-                        match = re.search(r'observations["\s:]+(\[.*?\])', script.string, re.DOTALL)
-                        if match:
-                            data = json.loads(match.group(1))
-                            pass
-                    except:
-                        pass
-            
-            print(f"   Nema podataka u tabeli")
+            if response.status_code != 200:
+                print(f"   HTTP {response.status_code}")
+                return None
+            df = observations_to_frame(response.json().get('observations', []), date_str)
+            if df is None:
+                print("   Nema podataka")
+            return df
+        except requests.exceptions.Timeout:
+            print("   Timeout")
+            time.sleep(5)
+        except Exception as e:
+            print(f"   Error: {str(e)[:80]}")
             return None
-            
-    except requests.exceptions.Timeout:
-        print(f"   ⏱Timeout")
-        return None
-    except Exception as e:
-        print(f"   Error: {str(e)[:50]}")
-        return None
+    return None
 
 # resample_to_hourly is now imported from wu_aggregation.py
 # Aggregation rules:

@@ -16,3 +16,6 @@ build/
 
 outlook_docs/era5_*.json
 analysis_output/cache_previous_runs/
+
+# portable build cache (python runtime download)
+portable/cache/

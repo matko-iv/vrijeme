@@ -987,12 +987,21 @@ MODEL_IDS = {
     "DMI_SEAMLESS": "dmi_seamless",
 }
 
-PREV_RUNS_MODELS = [m for m in MODELS if m not in ("ITALIAMETEO_ICON2I", "ECMWF_IFS")]
+# The previous-runs API serves ICON-2I from ~2025-05 and ECMWF IFS from late
+# 2025; earlier hours are simply NaN for them.
+PREV_RUNS_MODELS = list(MODELS)
 PREV_RUNS_VARS = [
     "temperature_2m", "dew_point_2m", "relative_humidity_2m",
     "wind_speed_10m", "wind_gusts_10m", "pressure_msl",
     "cloud_cover", "precipitation",
+    # rain-classifier members (day-ahead twin + lead stack)
+    "weather_code", "wind_direction_10m", "cloud_cover_low", "cloud_cover_mid",
+    "cloud_cover_high", "shortwave_radiation",
 ]
+# Continuous variables whose run-to-run revisions are features (a weather-code
+# or wind-direction difference is not a meaningful number).
+PREV_RUNS_REVISION_VARS = [v for v in PREV_RUNS_VARS
+                           if v not in ("weather_code", "wind_direction_10m")]
 PREV_RUNS_API = "https://previous-runs-api.open-meteo.com/v1/forecast"
 WU_STATION_ID = os.environ.get("WU_STATION_ID", "IBUDVA5")
 WU_API_KEY = os.environ.get("WU_API_KEY", "")
@@ -1018,7 +1027,10 @@ RADAR_STATUS_CANDIDATES = [
 # HP budget — 10-15 Optuna trials is too small for XGBoost's
 # learning_rate/n_estimators/min_child_weight; ~50 with early stopping.
 # Override per run: FC_TRIALS=15 for a quick retrain.
-N_TRIALS = int(os.environ.get('FC_TRIALS', '50'))
+N_TRIALS = int(os.environ.get('FC_TRIALS', '30'))
+# The two-stage precipitation model is only a fallback (the rain-occurrence
+# bundle drives live rain), so its three Optuna searches stay small.
+PRECIP_TRIALS = int(os.environ.get('FC_PRECIP_TRIALS', '6'))
 
 
 def local_now():
@@ -1032,7 +1044,16 @@ HOURLY_VARS = [
     "cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high",
     "wind_speed_10m", "wind_speed_100m", "wind_direction_10m", "wind_gusts_10m",
     "shortwave_radiation", "direct_radiation", "diffuse_radiation",
-    "cape", "convective_inhibition", "lightning_potential"
+    "cape", "convective_inhibition", "lightning_potential",
+    # upper-air / convective inputs of the rain classifier (STABILITY_VARS);
+    # history comes from budva_{M}_stability.csv (fetch_aux_history.py)
+    "lifted_index", "total_column_integrated_water_vapour", "freezing_level_height",
+    "precipitation_probability",
+    "wind_speed_850hPa", "wind_direction_850hPa", "wind_speed_700hPa",
+    "wind_direction_700hPa", "wind_speed_500hPa",
+    "relative_humidity_700hPa", "relative_humidity_850hPa",
+    "temperature_850hPa", "temperature_500hPa", "geopotential_height_500hPa",
+    "vertical_velocity_700hPa",
 ]
 
 TARGET_PARAMS = {
@@ -1425,10 +1446,12 @@ def load_historical_data():
         )
         required_obs = {'datetime', 'temp_c', 'dewpoint_c', 'humidity_pct',
                         'wind_ms', 'gust_ms', 'pressure_hpa',
-                        'precip_rate_mm', 'solar_wm2'}
+                        'precip_mm', 'solar_wm2'}
         missing_obs = sorted(required_obs - set(canonical_obs.columns))
         if missing_obs:
-            raise ValueError(f"nedostaju kolone: {missing_obs}")
+            raise ValueError(
+                f"nedostaju kolone: {missing_obs} (regenerisi "
+                "wu_data/merged_observations.csv: python wu_update.py)")
         if canonical_obs['datetime'].isna().any():
             raise ValueError('canonical observations sadrze neispravan datetime')
         if canonical_obs['datetime'].duplicated().any():
@@ -1449,7 +1472,7 @@ def load_historical_data():
             'wind_ms': 'wind_speed_10m_obs',
             'gust_ms': 'wind_gusts_10m_obs',
             'pressure_hpa': 'pressure_msl_obs',
-            'precip_rate_mm': '_canonical_precip_rate_mm',
+            'precip_mm': '_canonical_precip_mm',
             'solar_wm2': 'shortwave_radiation_obs',
         }
         optional_map = {
@@ -1487,18 +1510,20 @@ def load_historical_data():
           f"(station-calibrated monthly/hourly clear envelope; "
           f"median={station_clear_envelope.dropna().median():.0f} W/m2)")
 
-    # Use canonical precipitation RATE (mm/hr), not accumulated precipitation.
-    vals = pd.to_numeric(base['_canonical_precip_rate_mm'], errors='coerce')
+    # Hourly rain = increase of the gauge's daily accumulation counter
+    # (wu_aggregation.hourly_precip_from_accum). The mean of 5-min
+    # instantaneous rates over-counted the gauge total by ~27%.
+    vals = pd.to_numeric(base['_canonical_precip_mm'], errors='coerce')
     if (vals.dropna() < 0).any() or np.isinf(vals.to_numpy(dtype=float)).any():
         raise RuntimeError('Canonical precipitation contains negative/infinite values')
-    _validate_precip_observations(base, vals, '_canonical_precip_rate_mm')
+    _validate_precip_observations(base, vals, '_canonical_precip_mm')
     base['_derived_precip_obs'] = station_rain_for_model_rows(
-        base['datetime'], canonical_obs.set_index('datetime')['precip_rate_mm']
+        base['datetime'], canonical_obs.set_index('datetime')['precip_mm']
     )
-    base.drop(columns=['_canonical_precip_rate_mm'], inplace=True)
+    base.drop(columns=['_canonical_precip_mm'], inplace=True)
     n_valid = int(vals.notna().sum())
     n_nonzero = int((vals > 0).sum())
-    print(f"  Hourly precip from canonical WU rate: {n_nonzero} non-zero, "
+    print(f"  Hourly precip from WU gauge accumulation: {n_nonzero} non-zero, "
           f"{n_valid} valid")
 
     print("  Ucitavanje previous runs podataka (Day1/Day2)...")
@@ -1533,8 +1558,9 @@ def load_historical_data():
     # ERA5 archive (drugi izvor) - nije implementirano.
 
     # --- Stability/synoptic features ---
-    # Merge in CAPE/CIN/lifted_index/wind@500-700hPa per model. Generated by
-    # fetch_stability_features.py. Missing files are silently skipped (no break).
+    # budva_{M}_stability.csv holds {M}_{var}_model columns for STABILITY_VARS
+    # (CAPE/CIN/showers/lightning/upper-air). Generated by fetch_aux_history.py.
+    # Missing files are skipped (the rain classifier then falls back to v2).
     stab_loaded = 0
     for m in MODELS:
         stab_path = os.path.join(BASE_DIR, f"budva_{m}_stability.csv")
@@ -1722,7 +1748,75 @@ def _convective_rescue_mask(frame, isolated_signal):
     return (isolated & (direct_support | shower_support | neighborhood_support)).values
 
 
+def _row_nanquantiles(values, qs):
+    """Row-wise NaN-skipping quantiles (linear), same as
+    ``DataFrame.quantile(q, axis=1)`` but ~10x faster. Returns (n_rows, len(qs))."""
+    a = np.sort(np.asarray(values, dtype=float), axis=1)   # NaN sort last
+    n = np.isfinite(a).sum(axis=1)
+    out = np.full((a.shape[0], len(qs)), np.nan)
+    ok = n > 0
+    rows = a[ok]
+    idx = np.arange(rows.shape[0])
+    for j, q in enumerate(qs):
+        pos = q * (n[ok] - 1)
+        lo = np.floor(pos).astype(int)
+        hi = np.ceil(pos).astype(int)
+        out[ok, j] = rows[idx, lo] + (rows[idx, hi] - rows[idx, lo]) * (pos - lo)
+    return out
+
+
+def _row_trimmed_mean(values, min_valid=4):
+    """Row mean without the row's min and max, over valid members only.
+
+    Rows with fewer than ``min_valid`` valid members get the plain mean
+    (NaN when none is valid)."""
+    a = np.asarray(values, dtype=float)
+    fin = np.isfinite(a)
+    n = fin.sum(axis=1)
+    z = np.where(fin, a, 0.0)
+    total = z.sum(axis=1)
+    mx = np.where(fin, a, -np.inf).max(axis=1)
+    mn = np.where(fin, a, np.inf).min(axis=1)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        plain = np.where(n > 0, total / n, np.nan)
+        trimmed = (total - mx - mn) / (n - 2)
+    return np.where(n >= min_valid, trimmed, plain)
+
+
 def engineer_features(df):
+    """Feature engineering on a gap-free hourly grid.
+
+    Tendencies, lags and rolling windows below work on row order. The
+    archive has gaps (129 of them, up to 623 h), so the frame is reindexed to
+    a full hourly grid first, and only the original rows are returned, in
+    their original order and index."""
+    dt = pd.to_datetime(df['datetime'], errors='coerce')
+    if len(df) < 2 or dt.isna().any() or not dt.is_unique:
+        return _engineer_features_rows(df)
+    key = pd.DatetimeIndex(dt)
+    grid = pd.date_range(key.min(), key.max(), freq='h')
+    if len(grid) == len(key) and (key == grid).all():
+        return _engineer_features_rows(df)
+    if not key.isin(grid).all() or len(grid) > 400_000:
+        return _engineer_features_rows(df)
+    work = df.copy()
+    work.index = key
+    work = work.reindex(grid)
+    work['datetime'] = grid
+    res = _engineer_features_rows(work.reset_index(drop=True))
+    res.index = grid
+    res = res.reindex(key)
+    res.index = df.index
+    for c in df.columns:
+        if c in res.columns and res[c].dtype != df[c].dtype:
+            try:
+                res[c] = res[c].astype(df[c].dtype)
+            except (TypeError, ValueError):
+                pass
+    return res
+
+
+def _engineer_features_rows(df):
     out = df.copy()
 
     model_cols = [c for c in out.columns if c.endswith('_model')]
@@ -1801,8 +1895,7 @@ def engineer_features(df):
         out[f'{param}_ens_max'] = vals.max(axis=1)
 
         if len(mcols) >= 4:
-            sorted_vals = np.sort(vals.values, axis=1)
-            out[f'{param}_ens_trimmed_mean'] = np.nanmean(sorted_vals[:, 1:-1], axis=1)
+            out[f'{param}_ens_trimmed_mean'] = _row_trimmed_mean(vals.values)
         for m in MODELS:
             c = f"{m}_{param}_model"
             if c in out.columns:
@@ -1886,10 +1979,11 @@ def engineer_features(df):
 
         # Precipitation quantile features — tails matter more than mean for intermittent precip
         if len(rain_mcols) >= 4:
-            out['precip_ens_p10'] = rain_vals.quantile(0.1, axis=1)
-            out['precip_ens_p25'] = rain_vals.quantile(0.25, axis=1)
-            out['precip_ens_p75'] = rain_vals.quantile(0.75, axis=1)
-            out['precip_ens_p90'] = rain_vals.quantile(0.9, axis=1)
+            _pq = _row_nanquantiles(rain_vals.values, (0.1, 0.25, 0.75, 0.9))
+            out['precip_ens_p10'] = _pq[:, 0]
+            out['precip_ens_p25'] = _pq[:, 1]
+            out['precip_ens_p75'] = _pq[:, 2]
+            out['precip_ens_p90'] = _pq[:, 3]
             # Conditional ensemble mean: mean only of models predicting rain (avoids dilution by zeros)
             rain_only = rain_vals.where(rain_vals > 0.1)
             out['precip_ens_mean_rainy'] = rain_only.mean(axis=1).fillna(0)
@@ -2418,7 +2512,7 @@ def engineer_features(df):
             out['is_jugo'] * out.get('is_winter', pd.Series(0, index=out.index))
         )
 
-    for v in PREV_RUNS_VARS:
+    for v in PREV_RUNS_REVISION_VARS:
         day1_cols = [f"{m}_{v}_previous_day1" for m in PREV_RUNS_MODELS
                      if f"{m}_{v}_previous_day1" in out.columns]
         day2_cols = [f"{m}_{v}_previous_day2" for m in PREV_RUNS_MODELS
@@ -2491,9 +2585,8 @@ def engineer_features(df):
         mcols = [f"{m}_{param}_model" for m in MODELS if f"{m}_{param}_model" in out.columns]
         if len(mcols) >= 4:
             vals = out[mcols].apply(pd.to_numeric, errors='coerce')
-            q25 = vals.quantile(0.25, axis=1)
-            q75 = vals.quantile(0.75, axis=1)
-            out[f'{param}_ens_iqr'] = q75 - q25
+            _iq = _row_nanquantiles(vals.values, (0.25, 0.75))
+            out[f'{param}_ens_iqr'] = _iq[:, 1] - _iq[:, 0]
             out[f'{param}_ens_skew'] = vals.skew(axis=1)
 
     if 'hour_sin' in out.columns and 'season' in out.columns:
@@ -2705,8 +2798,10 @@ def engineer_features(df):
                              .fillna(0) >= 0.5).astype(float)
 
     # --- Lead-time interactions ---
-    # 'lead_time' is set by the caller: 12 for day-0 archive rows, 36/60 for the
-    # previous-runs stacked rows, true hours-ahead at inference.
+    # 'lead_time' is set by the caller: 3 for day-0 archive rows, 27/51 for the
+    # previous-runs stacked rows, true hours-ahead at inference. The archive is
+    # a ~0-6 h splice of the latest run; previous_day1/2 are that run's values
+    # 24/48 h older, so their true leads are ~27/51 h (not 36/60).
     if 'lead_time' in out.columns:
         lt = pd.to_numeric(out['lead_time'], errors='coerce')
         if 'is_daytime' in out.columns:
@@ -2737,7 +2832,7 @@ def get_feature_columns(df):
         'strong_wind', 'very_strong_wind', 'is_bura', 'winter_bura',
         'cloudy', 'extreme_cold', 'extreme_hot',
         '_derived_cloud_obs', '_derived_precip_obs',
-        '_canonical_precip_rate_mm',
+        '_canonical_precip_rate_mm', '_canonical_precip_mm', 'precip_mm',
         # Legacy observation-derived columns: unavailable live and historically
         # biased because missing station observations were treated as dry.
         'dry_spell_length', 'monthly_clim_rain_freq',
@@ -2766,6 +2861,36 @@ def get_feature_columns(df):
             continue
         features.append(col)
     return features
+
+
+_TIMINGS = []
+
+
+class _stage_timer:
+    """Times a block and prints a machine-readable line for the GUI:
+    ``##TIMING {"stage": ..., "seconds": ...}``."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        self.t0 = time.perf_counter()
+        return self
+
+    def __exit__(self, *exc):
+        sec = round(time.perf_counter() - self.t0, 2)
+        _TIMINGS.append({'stage': self.name, 'seconds': sec})
+        print('##TIMING ' + json.dumps({'stage': self.name, 'seconds': sec}),
+              flush=True)
+        return False
+
+
+def progress(stage, step, total, label):
+    """``##PROGRESS`` line for the GUI when FC_PROGRESS=1."""
+    if os.environ.get('FC_PROGRESS') == '1':
+        print('##PROGRESS ' + json.dumps({'stage': stage, 'step': step,
+                                          'total': total, 'label': label},
+                                         ensure_ascii=False), flush=True)
 
 
 def _make_val_split(X_tr, y_tr, val_frac=0.05):
@@ -2808,15 +2933,20 @@ def _timestamp_grouped_cv_splits(datetimes, n_splits=3, embargo_hours=72):
     return splits
 
 
+XGB_TUNE_MAX_BIN = 256
+
+
 def _optuna_tune_hp(X_tr, y_tr, param_name, n_trials=15, base_objective='reg:quantileerror',
-                    train_datetimes=None):
-    """Bayesian hyperparameter optimization using Optuna with TimeSeriesSplit CV.
-    Uses reg:quantileerror α=0.5 which directly minimizes MAE.
-    3-fold TimeSeriesSplit with embargo gap.
-    Wider search bounds + more trials.
-    Optionally tunes decay_half_life_days."""
+                    train_datetimes=None, row_weight=None):
+    """Bayesian hyperparameter search (Optuna TPE) with timestamp-grouped CV.
+
+    Each fold's ``QuantileDMatrix`` is built once and reused by every trial;
+    a trial only swaps the decay sample weights. Trials are scored by
+    validation MAE (also the early-stopping metric) and pruned against the
+    median of earlier trials after each fold. ``row_weight`` multiplies the
+    decay weights (e.g. 0.5 for stacked long-lead rows)."""
     # Build folds on unique valid timestamps, not rows. Lead-stacked training can
-    # contain 12/36/60h copies of the same observation; row-based splitting can
+    # contain 3/27/51h copies of the same observation; row-based splitting can
     # otherwise place the same target timestamp on both sides of a fold.
     datetime_series = None
     cv_splits = []
@@ -2825,6 +2955,18 @@ def _optuna_tune_hp(X_tr, y_tr, param_name, n_trials=15, base_objective='reg:qua
         cv_splits = _timestamp_grouped_cv_splits(datetime_series)
     if not cv_splits:
         cv_splits = list(TimeSeriesSplit(n_splits=3, gap=72).split(X_tr))
+    if row_weight is not None:
+        row_weight = np.asarray(row_weight, dtype=float)
+
+    X_np = np.asarray(X_tr, dtype=np.float32)
+    y_np = np.asarray(pd.to_numeric(y_tr, errors='coerce'), dtype=np.float32)
+    folds = []
+    for train_idx, val_idx in cv_splits:
+        dtrain = xgb.QuantileDMatrix(X_np[train_idx], y_np[train_idx],
+                                     max_bin=XGB_TUNE_MAX_BIN)
+        dval = xgb.QuantileDMatrix(X_np[val_idx], y_np[val_idx], ref=dtrain)
+        dt_t = datetime_series.iloc[train_idx] if datetime_series is not None else None
+        folds.append((dtrain, dval, train_idx, dt_t))
 
     # Variable-specific objective selection
     def get_objective_for_param(trial, param):
@@ -2835,27 +2977,20 @@ def _optuna_tune_hp(X_tr, y_tr, param_name, n_trials=15, base_objective='reg:qua
                 hs = trial.suggest_float('huber_slope', 0.5, 5.0)
                 return 'reg:pseudohubererror', {'huber_slope': hs}
             return 'reg:quantileerror', {'quantile_alpha': 0.5}
-        elif param in ('wind_speed_10m', 'wind_gusts_10m'):
-            return 'reg:quantileerror', {'quantile_alpha': 0.5}
         elif param == 'pressure_msl':
             # Pressure errors are near-Gaussian: MSE is appropriate
             obj = trial.suggest_categorical('obj_type', ['quantile', 'mse'])
             if obj == 'mse':
                 return 'reg:squarederror', {}
             return 'reg:quantileerror', {'quantile_alpha': 0.5}
-        elif param in ('cloud_cover', 'shortwave_radiation'):
-            return 'reg:quantileerror', {'quantile_alpha': 0.5}
-        else:
-            return 'reg:quantileerror', {'quantile_alpha': 0.5}
+        return 'reg:quantileerror', {'quantile_alpha': 0.5}
 
     def objective(trial):
         obj_name, obj_params = get_objective_for_param(trial, param_name)
-        # Tunable temporal decay half-life
         decay_hl = trial.suggest_categorical('decay_half_life', [90, 180, 365, 545, 730])
-        hp = {
-            'n_estimators': 1500,  # Use early stopping to find optimal count
+        params = {
             'max_depth': trial.suggest_int('max_depth', 4, 8),
-            'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.3, log=True),
+            'learning_rate': trial.suggest_float('learning_rate', 0.02, 0.3, log=True),
             'subsample': trial.suggest_float('subsample', 0.5, 0.95),
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.3, 0.9),
             'colsample_bylevel': trial.suggest_float('colsample_bylevel', 0.5, 1.0),
@@ -2864,37 +2999,42 @@ def _optuna_tune_hp(X_tr, y_tr, param_name, n_trials=15, base_objective='reg:qua
             'min_child_weight': trial.suggest_int('min_child_weight', 1, 20),
             'gamma': trial.suggest_float('gamma', 0.0, 0.5),
             'objective': obj_name,
-            'tree_method': 'hist',
-            'max_bin': 512,  # Higher bins for constrained trees
-            'random_state': 42,
-            'n_jobs': -1,
-            'early_stopping_rounds': 30,
+            'eval_metric': 'mae',
+            'max_bin': XGB_TUNE_MAX_BIN,
+            'seed': 42,
+            'verbosity': 0,
         }
-        hp.update(obj_params)
+        params.update(obj_params)
         scores = []
-        for train_idx, val_idx in cv_splits:
-            X_t, X_v = X_tr.iloc[train_idx], X_tr.iloc[val_idx]
-            y_t, y_v = y_tr.iloc[train_idx], y_tr.iloc[val_idx]
-            # Compute sample weights with tuned half-life
-            if datetime_series is not None:
-                dt_t = datetime_series.iloc[train_idx]
-                sw = _compute_sample_weights(y_t, dt_t, decay_half_life_days=decay_hl)
-            elif train_datetimes is not None:
-                dt_t = train_datetimes.iloc[train_idx] if hasattr(train_datetimes, 'iloc') else train_datetimes[train_idx]
-                sw = _compute_sample_weights(y_t, dt_t, decay_half_life_days=decay_hl)
+        for step, (dtrain, dval, train_idx, dt_t) in enumerate(folds):
+            if dt_t is not None:
+                sw = _compute_sample_weights(dt_t, dt_t, decay_half_life_days=decay_hl)
             else:
-                sw = None
-            model = _new_xgb_regressor(**hp)
-            model.fit(X_t, y_t, eval_set=[(X_v, y_v)], verbose=False, sample_weight=sw)
-            y_pred = model.predict(X_v)
-            scores.append(mean_absolute_error(y_v, y_pred))
-        return np.mean(scores)
+                sw = np.ones(len(train_idx))
+            if row_weight is not None:
+                sw = sw * row_weight[train_idx]
+            dtrain.set_weight(np.asarray(sw, dtype=np.float32))
+            booster = _train_xgb_booster(
+                params, dtrain, num_boost_round=1500,
+                evals=[(dval, 'val')], early_stopping_rounds=30,
+                verbose_eval=False,
+            )
+            scores.append(float(booster.best_score))
+            trial.report(float(np.mean(scores)), step)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
+        return float(np.mean(scores))
 
-    study = optuna.create_study(direction='minimize',
-                                sampler=optuna.samplers.TPESampler(seed=42, multivariate=True, warn_independent_sampling=False))
+    study = optuna.create_study(
+        direction='minimize',
+        sampler=optuna.samplers.TPESampler(seed=42, multivariate=True,
+                                           warn_independent_sampling=False),
+        pruner=optuna.pruners.MedianPruner(n_startup_trials=8, n_warmup_steps=0),
+    )
     study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+    n_pruned = sum(t.state == optuna.trial.TrialState.PRUNED for t in study.trials)
 
-    best = study.best_params
+    best = dict(study.best_params)
     # Extract tuned half-life before popping categorical params
     best_decay_hl = best.pop('decay_half_life', 365)
     # Reconstruct objective from best trial
@@ -2907,7 +3047,7 @@ def _optuna_tune_hp(X_tr, y_tr, param_name, n_trials=15, base_objective='reg:qua
         best['objective'] = 'reg:quantileerror'
         best['quantile_alpha'] = 0.5
     best['tree_method'] = 'hist'
-    best['max_bin'] = 512
+    best['max_bin'] = XGB_TUNE_MAX_BIN
     best['n_estimators'] = 1500
     best['random_state'] = 42
     best['n_jobs'] = -1
@@ -2915,27 +3055,16 @@ def _optuna_tune_hp(X_tr, y_tr, param_name, n_trials=15, base_objective='reg:qua
     print(f"    Optuna ({param_name}): best MAE={study.best_value:.4f} "
           f"(depth={best['max_depth']}, lr={best['learning_rate']:.4f}, "
           f"obj={best['objective']}, sub={best['subsample']:.2f}, "
-          f"decay_hl={best_decay_hl}d)")
+          f"decay_hl={best_decay_hl}d, pruned={n_pruned}/{len(study.trials)})")
     best['_decay_half_life'] = best_decay_hl
     return best
 
 
 def _select_features_by_importance(model, feature_cols, X_tr, y_tr, X_val, y_val,
                                    min_features=80, importance_type='gain'):
-    """SHAP-based feature pruning: uses SHAP values for more accurate importance.
-    Falls back to gain-based if SHAP fails. Removes bottom 5% of features."""
-    try:
-        import shap
-        # Use TreeExplainer for efficient SHAP computation on tree models
-        # Sample up to 500 rows for speed
-        sample_size = min(300, len(X_tr))
-        X_sample = X_tr.iloc[:sample_size]
-        explainer = shap.TreeExplainer(model)
-        shap_values = explainer.shap_values(X_sample)
-        importances = np.abs(shap_values).mean(axis=0)
-    except Exception:
-        # Fallback to gain-based importance
-        importances = model.feature_importances_
+    """Gain-based feature pruning: removes the bottom 5% of features with
+    non-zero gain importance (no-op when that would keep >92% or <80)."""
+    importances = np.asarray(model.feature_importances_, dtype=float)
 
     nonzero_mask = importances > 0
     n_nonzero = nonzero_mask.sum()
@@ -3000,32 +3129,22 @@ def _train_residual_blended(X_tr, y_tr, X_te, y_te, hp, param, ens_col, df_v_tr,
     ens_tr = pd.to_numeric(df_v_tr[ens_col], errors='coerce').fillna(0) if ens_col in df_v_tr.columns else pd.Series(0, index=y_tr.index)
     ens_te = pd.to_numeric(df_v_te[ens_col], errors='coerce').fillna(0) if ens_col in df_v_te.columns else pd.Series(0, index=y_te.index)
 
-    # --- Optuna hyperparameter tuning ---
-    tuned_hl = 365
-    if use_optuna:
-        hp = _optuna_tune_hp(X_tr, y_tr, param, n_trials=N_TRIALS, base_objective='reg:absoluteerror',
-                             train_datetimes=train_datetimes)
-        # Use the Optuna-tuned decay half-life for sample weights
-        tuned_hl = hp.pop('_decay_half_life', 365)
-        if train_datetimes is not None:
-            sample_weight = _compute_sample_weights(y_tr, train_datetimes, decay_half_life_days=tuned_hl)
-            # keep the half-weight of stacked long-lead rows after
-            # the tuned-half-life recompute
-            if 'lead_time' in X_tr.columns:
-                _lt_rb = pd.to_numeric(X_tr['lead_time'], errors='coerce').fillna(12).values
-                sample_weight = sample_weight * np.where(_lt_rb > 24, 0.5, 1.0)
-            print(f"    Using tuned decay half-life: {tuned_hl} days")
+    # Long-lead stacked rows count half (also inside the Optuna folds).
+    lead_row_weight = None
+    if 'lead_time' in X_tr.columns:
+        _lt_rb = pd.to_numeric(X_tr['lead_time'], errors='coerce').fillna(3).values
+        lead_row_weight = np.where(_lt_rb > 24, 0.5, 1.0)
 
-    # Monotonic constraints will be set after feature selection (below)
-
+    # --- Feature selection first (default hp), so Optuna tunes on the
+    # columns the final models use and each trial is cheaper ---
     X_train_a, y_train_a, X_val_a, y_val_a = _make_val_split(X_tr, y_tr)
-
-    # --- Feature selection: train initial model, prune low-importance features ---
-    init_model, _ = _train_xgb(X_train_a, y_train_a, X_val_a, y_val_a, hp, sample_weight=sample_weight)
-    selected_features = _select_features_by_importance(
-        init_model, list(X_tr.columns), X_train_a, y_train_a, X_val_a, y_val_a,
-        min_features=80
-    )
+    with _stage_timer(f'{param}.select'):
+        init_model, _ = _train_xgb(X_train_a, y_train_a, X_val_a, y_val_a, hp,
+                                   sample_weight=sample_weight)
+        selected_features = _select_features_by_importance(
+            init_model, list(X_tr.columns), X_train_a, y_train_a, X_val_a, y_val_a,
+            min_features=80
+        )
     n_orig = len(X_tr.columns)
     n_sel = len(selected_features)
     if n_sel < n_orig:
@@ -3035,6 +3154,22 @@ def _train_residual_blended(X_tr, y_tr, X_te, y_te, hp, param, ens_col, df_v_tr,
     else:
         X_tr_sel = X_tr
         X_te_sel = X_te
+
+    # --- Optuna hyperparameter tuning ---
+    tuned_hl = 365
+    if use_optuna:
+        with _stage_timer(f'{param}.optuna'):
+            hp = _optuna_tune_hp(X_tr_sel, y_tr, param, n_trials=N_TRIALS,
+                                 base_objective='reg:absoluteerror',
+                                 train_datetimes=train_datetimes,
+                                 row_weight=lead_row_weight)
+        # Use the Optuna-tuned decay half-life for sample weights
+        tuned_hl = hp.pop('_decay_half_life', 365)
+        if train_datetimes is not None:
+            sample_weight = _compute_sample_weights(y_tr, train_datetimes, decay_half_life_days=tuned_hl)
+            if lead_row_weight is not None:
+                sample_weight = sample_weight * lead_row_weight
+            print(f"    Using tuned decay half-life: {tuned_hl} days")
 
     # --- Monotonic constraints ---
     # Enforce: a higher baseline in the model's target space implies a higher
@@ -3239,10 +3374,12 @@ def _train_residual_blended(X_tr, y_tr, X_te, y_te, hp, param, ens_col, df_v_tr,
     best_stack_mae = float('inf')
     best_stack_weights = (1.0, 0.0, 0.0)
     best_stack_pred = direct_pred.copy()
-    for w_direct in np.arange(0.3, 1.01, 0.1):
-        for w_resid in np.arange(0.0, 1.01 - w_direct, 0.1):
-            w_mse = 1.0 - w_direct - w_resid
-            if w_mse < -0.01:
+    # Full simplex at 0.05 steps: the old 0.3 floor on w_direct was binding
+    # for 5 of 8 targets.
+    for w_direct in np.round(np.arange(0.0, 1.0001, 0.05), 2):
+        for w_resid in np.round(np.arange(0.0, 1.0001 - w_direct, 0.05), 2):
+            w_mse = round(1.0 - w_direct - w_resid, 2)
+            if w_mse < -0.001:
                 continue
             stacked = w_direct * direct_pred + w_resid * resid_pred + w_mse * mse_pred
             sm = mean_absolute_error(y_te, stacked)
@@ -3528,7 +3665,7 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val,
 
     study_cls = optuna.create_study(direction='minimize',
                                      sampler=optuna.samplers.TPESampler(seed=42))
-    study_cls.optimize(cls_objective, n_trials=max(15, N_TRIALS // 2), show_progress_bar=False)
+    study_cls.optimize(cls_objective, n_trials=PRECIP_TRIALS, show_progress_bar=False)
     best = study_cls.best_params
     focal_gamma = float(best.pop('focal_gamma'))
     focal_alpha = float(best.pop('focal_alpha'))
@@ -3800,7 +3937,7 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val,
 
     study_reg = optuna.create_study(direction='minimize',
                                      sampler=optuna.samplers.TPESampler(seed=42))
-    study_reg.optimize(reg_objective, n_trials=max(12, N_TRIALS // 3), show_progress_bar=False)
+    study_reg.optimize(reg_objective, n_trials=PRECIP_TRIALS, show_progress_bar=False)
     reg_hp = study_reg.best_params
     reg_hp['objective'] = 'reg:absoluteerror'
     reg_hp['random_state'] = 42
@@ -3907,7 +4044,7 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val,
 
     study_tw = optuna.create_study(direction='minimize',
                                    sampler=optuna.samplers.TPESampler(seed=42, multivariate=True, warn_independent_sampling=False))
-    study_tw.optimize(tweedie_objective, n_trials=max(20, N_TRIALS // 2), show_progress_bar=False)
+    study_tw.optimize(tweedie_objective, n_trials=PRECIP_TRIALS, show_progress_bar=False)
     tw_hp = study_tw.best_params
     tw_hp['objective'] = 'reg:tweedie'
     tw_hp['tree_method'] = 'hist'
@@ -4000,7 +4137,37 @@ def _train_precipitation_twostage(X_tr, y_tr, X_te, y_te, X_val, y_val,
 RAIN_OCC_CLF_PATH = os.path.join(MODEL_DIR, 'xgb_rain_occurrence.json')
 RAIN_OCC_AMOUNT_PATH = os.path.join(MODEL_DIR, 'xgb_rain_amount.json')
 RAIN_OCC_META_PATH = os.path.join(MODEL_DIR, 'rain_occurrence_meta.json')
-RAIN_OCC_FEATURE_VERSION = 2
+RAIN_OCC_FEATURE_VERSION = 3
+# Bundles of these versions load; version 2 bundles are the 'v2' feature set.
+RAIN_OCC_COMPATIBLE_VERSIONS = (2, 3)
+# Feature sets: 'v2' = surface multi-model features only; 'v3-gfs' adds the
+# GFS upper-air/convective block; 'v3-multi' adds cross-model convective
+# summaries (budva_{M}_stability.csv history, live HOURLY_VARS); 'v3-both'
+# adds both. analysis_output/rain_v3_backtest.py picks the shipped set.
+RAIN_OCC_FEATURE_SETS = ('v2', 'v3-gfs', 'v3-multi', 'v3-both')
+RAIN_OCC_DEFAULT_FEATURE_SET = 'v2'
+RAIN_OCC_BACKTEST_PATH = os.path.join(BASE_DIR, 'analysis_output', 'rain_v3_backtest.json')
+RAIN_OCC_GFS_MODEL = 'GFS_SEAMLESS'
+RAIN_OCC_GFS_VARS = (
+    'cape', 'convective_inhibition', 'lifted_index', 'showers', 'freezing_level_height',
+    'wind_speed_850hPa', 'wind_speed_700hPa', 'wind_speed_500hPa',
+    'relative_humidity_700hPa', 'relative_humidity_850hPa',
+    'temperature_850hPa', 'temperature_500hPa', 'geopotential_height_500hPa',
+    'vertical_velocity_700hPa',
+)
+RAIN_OCC_GFS_DIR_VARS = ('wind_direction_850hPa', 'wind_direction_700hPa')
+RAIN_OCC_MULTI_VARS = (
+    'cape', 'convective_inhibition', 'showers', 'lightning_potential',
+    'total_column_integrated_water_vapour', 'precipitation_probability',
+)
+RAIN_OCC_STAB_MODELS = (
+    'GFS_SEAMLESS', 'ICON_SEAMLESS', 'ECMWF_IFS025', 'ITALIAMETEO_ICON2I',
+    'KNMI_SEAMLESS', 'DMI_SEAMLESS', 'UKMO_SEAMLESS', 'METEOFRANCE',
+)
+# Every stability variable the history fetch (fetch_aux_history.py) and the
+# live fetch (HOURLY_VARS) must provide as {M}_{var}_model.
+STABILITY_VARS = tuple(dict.fromkeys(
+    RAIN_OCC_GFS_VARS + RAIN_OCC_GFS_DIR_VARS + RAIN_OCC_MULTI_VARS))
 RAIN_OCC_LAMS = ("ITALIAMETEO_ICON2I", "KNMI_SEAMLESS", "DMI_SEAMLESS")
 RAIN_OCC_CONTEXT_VARS = (
     ('cloud_cover', 'cc'), ('cloud_cover_low', 'ccl'), ('cloud_cover_mid', 'ccm'),
@@ -4041,6 +4208,15 @@ RAIN_OCC_LONG_LEAD_FACTOR = 0.6
 RAIN_OCC_DAY_AHEAD_PLATT = (0.657, 0.790)
 RAIN_OCC_MAX_LEAD_H = 72.0
 RAIN_OCC_MIN_MODELS = 3
+# Day-ahead calibration refit at every training run (meta['day_ahead']): the
+# twin classifier (v2 features, previous-runs members) is scored walk-forward
+# on the runs from 1 and 2 days earlier; a Platt map and a CSI threshold factor
+# per lag are interpolated over these lead knots (identity at the first). The
+# constants above are the fallback when fewer than RAIN_OCC_DA_MIN_ROWS rows.
+RAIN_OCC_DA_KNOTS_H = (6.0, 27.0, 51.0)
+RAIN_OCC_DA_MIN_ROWS = 3000
+RAIN_OCC_DA_BLOCK_MONTHS = 3
+RAIN_OCC_TWIN_MIN_MODELS = 5
 
 
 RAIN_OCC_WINDOWS_H = (1, 2, 3, 6)      # +/-k hour max windows
@@ -4076,7 +4252,7 @@ def _hours_to_wet(wet, cap):
     return pd.DataFrame(out, index=wet.index, columns=wet.columns)
 
 
-def rain_occurrence_features(frame, models=None):
+def rain_occurrence_features(frame, models=None, feature_set='v2'):
     """Timing-tolerant multi-model rain features, one row per input row.
 
     ``frame`` needs ``datetime`` plus ``{M}_{var}_model`` columns. Features are
@@ -4084,25 +4260,39 @@ def rain_occurrence_features(frame, models=None):
     then mapped back to the input rows. Timing tolerance comes from +/-1..6h
     max/sum windows, the hours to each member's nearest wet hour and a
     Gaussian-weighted wet agreement; the local-day totals carry the regime.
+    ``feature_set`` (RAIN_OCC_FEATURE_SETS) adds the GFS upper-air block
+    and/or the cross-model convective block.
     """
+    if feature_set not in RAIN_OCC_FEATURE_SETS:
+        raise ValueError(f'nepoznat rain feature_set: {feature_set}')
     models = list(models or MODELS)
     dt = pd.to_datetime(frame['datetime'])
     grid = pd.date_range(dt.min().floor('h'), dt.max().ceil('h'), freq='h')
     variables = (['precipitation', 'weather_code', 'wind_direction_10m']
                  + [var for var, _ in RAIN_OCC_CONTEXT_VARS])
+    use_gfs = feature_set in ('v3-gfs', 'v3-both')
+    use_multi = feature_set in ('v3-multi', 'v3-both')
+    stab_models = [m for m in RAIN_OCC_STAB_MODELS if m in models]
     needed = [f'{m}_{var}_model' for m in models for var in variables
               if f'{m}_{var}_model' in frame.columns]
+    if use_gfs:
+        needed += [f'{RAIN_OCC_GFS_MODEL}_{var}_model'
+                   for var in RAIN_OCC_GFS_VARS + RAIN_OCC_GFS_DIR_VARS]
+    if use_multi:
+        needed += [f'{m}_{var}_model' for m in stab_models for var in RAIN_OCC_MULTI_VARS]
+    needed = [c for c in dict.fromkeys(needed) if c in frame.columns]
     src = frame[needed].copy()
     src.index = dt.values
     src = src[~src.index.duplicated(keep='first')].reindex(grid)
 
-    def _block(var):
-        return pd.DataFrame({
-            m: (pd.to_numeric(src[f'{m}_{var}_model'], errors='coerce')
-                if f'{m}_{var}_model' in src.columns
-                else pd.Series(np.nan, index=grid))
-            for m in models
-        }, index=grid)
+    def _col(name):
+        if name in src.columns:
+            return pd.to_numeric(src[name], errors='coerce')
+        return pd.Series(np.nan, index=grid)
+
+    def _block(var, block_models=None):
+        return pd.DataFrame({m: _col(f'{m}_{var}_model')
+                             for m in (block_models or models)}, index=grid)
 
     P = _block('precipitation')
     have = P.notna()
@@ -4129,8 +4319,9 @@ def rain_occurrence_features(frame, models=None):
     out['ens_mean'] = P.mean(axis=1)
     out['ens_median'] = P.median(axis=1)
     out['ens_max'] = P.max(axis=1)
-    out['ens_p75'] = P.quantile(0.75, axis=1)
-    out['ens_p25'] = P.quantile(0.25, axis=1)
+    _pq = _row_nanquantiles(P.values, (0.25, 0.75))
+    out['ens_p75'] = _pq[:, 1]
+    out['ens_p25'] = _pq[:, 0]
     out['ens_mean_wet'] = P.where(P >= 0.1).mean(axis=1).fillna(0).where(avail > 0)
     out['dist_wet_mean'] = D.mean(axis=1)
     out['dist_wet_median'] = D.median(axis=1)
@@ -4214,10 +4405,75 @@ def rain_occurrence_features(frame, models=None):
         out[f'{m}_dist'] = D[m]
         out[f'{m}_wc'] = WC[m]
 
+    if use_gfs:
+        def _g(var):
+            return _col(f'{RAIN_OCC_GFS_MODEL}_{var}_model')
+        for var in RAIN_OCC_GFS_VARS:
+            v = _g(var)
+            out[f'gfs_{var}'] = v.abs() if var == 'convective_inhibition' else v
+        for lev in ('850hPa', '700hPa'):
+            d = np.radians(_g(f'wind_direction_{lev}'))
+            sp = _g(f'wind_speed_{lev}')
+            out[f'gfs_u{lev}'] = -sp * np.sin(d)
+            out[f'gfs_v{lev}'] = -sp * np.cos(d)
+        out['gfs_t850_t500'] = _g('temperature_850hPa') - _g('temperature_500hPa')
+        out['gfs_z500_tend6'] = _g('geopotential_height_500hPa').diff(6)
+        out['gfs_cape_w3max'] = _centered_window(_g('cape'), 3, 'max')
+        out['gfs_omega_w3min'] = _centered_window(_g('vertical_velocity_700hPa'), 3, 'min')
+
+    if use_multi and stab_models:
+        for var in RAIN_OCC_MULTI_VARS:
+            blk = _block(var, stab_models)
+            if var == 'convective_inhibition':
+                blk = blk.abs()
+            n_var = blk.notna().sum(axis=1).astype(float)
+            out[f'x_{var}_mean'] = blk.mean(axis=1)
+            out[f'x_{var}_max'] = blk.max(axis=1)
+            out[f'x_{var}_n'] = n_var
+            if var == 'showers':
+                out['x_showers_frac'] = (blk >= 0.1).sum(axis=1) / n_var.where(n_var > 0)
+            if var == 'precipitation_probability':
+                for m in stab_models:
+                    out[f'{m}_pp'] = blk[m]
+                out['x_pp_w3max'] = _centered_window(blk.mean(axis=1), 3, 'max')
+
     feats = pd.DataFrame(out, index=grid).replace([np.inf, -np.inf], np.nan)
     feats = feats.reindex(dt.values)
     feats.index = frame.index
     return feats
+
+
+def rain_occurrence_feature_set(df=None):
+    """Feature set for the next rain-classifier fit and where it came from.
+
+    FC_RAIN_FEATURE_SET overrides; otherwise the 'chosen' entry of
+    analysis_output/rain_v3_backtest.json; otherwise the default. A v3 set
+    whose stability columns are missing from ``df`` falls back to 'v2'."""
+    chosen, source = RAIN_OCC_DEFAULT_FEATURE_SET, 'default'
+    env = os.environ.get('FC_RAIN_FEATURE_SET', '').strip()
+    if env:
+        if env not in RAIN_OCC_FEATURE_SETS:
+            raise ValueError(f'FC_RAIN_FEATURE_SET mora biti jedan od {RAIN_OCC_FEATURE_SETS}')
+        chosen, source = env, 'FC_RAIN_FEATURE_SET'
+    else:
+        try:
+            with open(RAIN_OCC_BACKTEST_PATH, encoding='utf-8') as f:
+                picked = json.load(f).get('chosen')
+            if picked in RAIN_OCC_FEATURE_SETS:
+                chosen, source = picked, 'rain_v3_backtest.json'
+        except (OSError, ValueError):
+            pass
+    if df is not None and chosen != 'v2':
+        need = []
+        if chosen in ('v3-gfs', 'v3-both'):
+            need.append(f'{RAIN_OCC_GFS_MODEL}_cape_model')
+        if chosen in ('v3-multi', 'v3-both'):
+            need.append(f'{RAIN_OCC_GFS_MODEL}_precipitation_probability_model')
+        missing = [c for c in need if c not in df.columns or df[c].notna().mean() < 0.2]
+        if missing:
+            print(f"    [Rain] {chosen}: nema stability istorije ({missing}); koristim v2")
+            chosen, source = 'v2', f'{source}; fallback (no stability data)'
+    return chosen, source
 
 
 def _rain_occ_lead_ramp(lead_hours):
@@ -4227,22 +4483,53 @@ def _rain_occ_lead_ramp(lead_hours):
     return np.clip((np.nan_to_num(lead, nan=0.0) - lo) / (hi - lo), 0.0, 1.0)
 
 
-def rain_occurrence_threshold(lead_hours, tau):
-    """Lead-dependent decision threshold (see RAIN_OCC_LEAD_RAMP_H)."""
+def _rain_occ_day_ahead_usable(day_ahead):
+    return bool(day_ahead) and int(day_ahead.get('n_d1', 0)) >= RAIN_OCC_DA_MIN_ROWS
+
+
+def _rain_occ_day_ahead_params(lead_hours, day_ahead):
+    """Per-row Platt (a, b) and threshold factor for the lead: identity up to
+    RAIN_OCC_DA_KNOTS_H[0], the day-1 fit at the second knot, the day-2 fit
+    from the third knot on, linear in between."""
+    lead = np.nan_to_num(np.asarray(lead_hours, dtype=float), nan=0.0)
+    knots = list(day_ahead.get('knots_h', RAIN_OCC_DA_KNOTS_H))
+    a1, b1 = day_ahead['platt_d1']
+    a2, b2 = day_ahead['platt_d2']
+    a = np.interp(lead, knots, [0.0, a1, a2])
+    b = np.interp(lead, knots, [1.0, b1, b2])
+    f = np.interp(lead, knots, [1.0, day_ahead['factor_d1'], day_ahead['factor_d2']])
+    return a, b, f
+
+
+def rain_occurrence_threshold(lead_hours, tau, day_ahead=None):
+    """Lead-dependent decision threshold: the fitted day-ahead factors when
+    ``day_ahead`` holds enough rows, else RAIN_OCC_LEAD_RAMP_H x
+    RAIN_OCC_LONG_LEAD_FACTOR."""
+    if _rain_occ_day_ahead_usable(day_ahead):
+        _, _, factor = _rain_occ_day_ahead_params(lead_hours, day_ahead)
+        return tau * factor
     ramp = _rain_occ_lead_ramp(lead_hours)
     return tau * (1.0 - ramp * (1.0 - RAIN_OCC_LONG_LEAD_FACTOR))
 
 
-def rain_occurrence_pop(proba, lead_hours):
-    """Published PoP: the classifier probability recalibrated for lead time
-    (see RAIN_OCC_DAY_AHEAD_PLATT). Identity up to 6 h; NaN stays NaN."""
+def rain_occurrence_pop(proba, lead_hours, day_ahead=None):
+    """Published PoP: the classifier probability recalibrated for lead time.
+    Uses the fitted day-ahead Platt maps when ``day_ahead`` holds enough rows,
+    else RAIN_OCC_DAY_AHEAD_PLATT over RAIN_OCC_LEAD_RAMP_H. Identity at
+    short lead; NaN stays NaN."""
     p = np.asarray(proba, dtype=float)
+    clipped = np.clip(p, 1e-4, 1.0 - 1e-4)
+    logit = np.log(clipped / (1.0 - clipped))
+    if _rain_occ_day_ahead_usable(day_ahead):
+        a, b, _ = _rain_occ_day_ahead_params(lead_hours, day_ahead)
+        pop = 1.0 / (1.0 + np.exp(-(a + b * logit)))
+        lead = np.nan_to_num(np.asarray(lead_hours, dtype=float), nan=0.0)
+        return np.where(lead > day_ahead.get('knots_h', RAIN_OCC_DA_KNOTS_H)[0], pop, p)
     ramp = _rain_occ_lead_ramp(lead_hours)
     a_full, b_full = RAIN_OCC_DAY_AHEAD_PLATT
     a = ramp * a_full
     b = 1.0 + ramp * (b_full - 1.0)
-    clipped = np.clip(p, 1e-4, 1.0 - 1e-4)
-    pop = 1.0 / (1.0 + np.exp(-(a + b * np.log(clipped / (1.0 - clipped)))))
+    pop = 1.0 / (1.0 + np.exp(-(a + b * logit)))
     return np.where(ramp > 0.0, pop, p)
 
 
@@ -4321,22 +4608,150 @@ def rain_occurrence_walk_forward_oof(feats, y, times, labelled, data_end):
     return oof
 
 
+def _rain_member_frame(frame, lag, models, variables):
+    """``{M}_{var}_model`` frame from the archive (lag None) or from the
+    ``{M}_{var}_{lag}`` previous-runs columns."""
+    out = {'datetime': frame['datetime'].values}
+    for m in models:
+        for v in variables:
+            src = f'{m}_{v}_model' if lag is None else f'{m}_{v}_{lag}'
+            if src in frame.columns:
+                out[f'{m}_{v}_model'] = pd.to_numeric(frame[src], errors='coerce').values
+    return pd.DataFrame(out)
+
+
+def _logit(p):
+    p = np.clip(np.asarray(p, dtype=float), 1e-4, 1.0 - 1e-4)
+    return np.log(p / (1.0 - p))
+
+
+def fit_rain_day_ahead_calibration(frame, y, labelled, times):
+    """Walk-forward day-ahead calibration of the rain classifier.
+
+    A twin classifier on the v2 features the previous-runs members carry is
+    fit on same-day archive rows older than each 3-month block (3-day
+    embargo) and scored on the runs from one and two days earlier. Per lag:
+    a Platt map logit(p') = a + b*logit(p) and the ratio of the CSI-optimal
+    thresholds (lag vs same-day twin). Returns (day_ahead dict or None,
+    out-of-fold recalibrated day-1 PoP for the onset fit)."""
+    pr_models = [m for m in MODELS
+                 if f'{m}_precipitation_previous_day1' in frame.columns
+                 and frame[f'{m}_precipitation_previous_day1'].notna().any()]
+    if len(pr_models) < RAIN_OCC_TWIN_MIN_MODELS:
+        print(f"    [Rain] day-ahead: samo {len(pr_models)} previous-runs modela; konstante")
+        return None, None
+    variables = list(dict.fromkeys(['precipitation'] + list(PREV_RUNS_VARS)))
+    f_same = rain_occurrence_features(_rain_member_frame(frame, None, pr_models, variables),
+                                      models=pr_models)
+    f_lag = {lag: rain_occurrence_features(_rain_member_frame(frame, lag, pr_models, variables),
+                                           models=pr_models)
+             for lag in ('previous_day1', 'previous_day2')}
+    cols = [c for c in f_same.columns
+            if f_same[c].notna().mean() > 0.3 and f_lag['previous_day1'][c].notna().mean() > 0.3]
+    ok_lag = {lag: (f['n_avail'] >= RAIN_OCC_TWIN_MIN_MODELS).values for lag, f in f_lag.items()}
+    ok_same = (f_same['n_avail'] >= RAIN_OCC_TWIN_MIN_MODELS).values
+    have_d1 = labelled & ok_lag['previous_day1']
+    if have_d1.sum() < RAIN_OCC_DA_MIN_ROWS:
+        print(f"    [Rain] day-ahead: {int(have_d1.sum())} day-1 sati; konstante")
+        return None, None
+
+    times = pd.to_datetime(pd.Series(times)).reset_index(drop=True)
+    first = times[have_d1].min() + pd.DateOffset(months=6)
+    end = times[labelled].max()
+    edges = pd.date_range(first.normalize().replace(day=1), end + pd.DateOffset(
+        months=RAIN_OCC_DA_BLOCK_MONTHS), freq=f'{RAIN_OCC_DA_BLOCK_MONTHS}MS')
+    embargo = pd.Timedelta(days=RAIN_OCC_EMBARGO_DAYS)
+    n = len(frame)
+    p_same = np.full(n, np.nan)
+    p_lag = {lag: np.full(n, np.nan) for lag in f_lag}
+    for start, stop in zip(edges[:-1], edges[1:]):
+        if start >= end:
+            break
+        fit = labelled & ok_same & (times < start - embargo).values
+        block = (times >= start).values & (times < stop).values
+        if fit.sum() < 5000 or not block.any():
+            continue
+        twin = _new_xgb_classifier(**RAIN_OCC_CLF_PARAMS)
+        twin.fit(f_same.loc[fit, cols], y[fit], verbose=False)
+        te = block & ok_same
+        if te.any():
+            p_same[te] = twin.predict_proba(f_same.loc[te, cols])[:, 1]
+        for lag, f in f_lag.items():
+            te = block & ok_lag[lag]
+            if te.any():
+                p_lag[lag][te] = twin.predict_proba(f.loc[te, cols])[:, 1]
+
+    result = {'knots_h': list(RAIN_OCC_DA_KNOTS_H), 'models': pr_models,
+              'features': len(cols)}
+    pop_d1 = np.full(n, np.nan)
+    for lag, key in (('previous_day1', 'd1'), ('previous_day2', 'd2')):
+        m = labelled & np.isfinite(p_lag[lag])
+        both = m & np.isfinite(p_same)
+        result[f'n_{key}'] = int(m.sum())
+        if m.sum() < RAIN_OCC_DA_MIN_ROWS or y[m].sum() < 50:
+            continue
+        lr = LogisticRegression(C=1e3, max_iter=1000).fit(
+            _logit(p_lag[lag][m]).reshape(-1, 1), y[m])
+        a_, b_ = float(lr.intercept_[0]), float(lr.coef_[0][0])
+        if both.sum() >= 1000 and y[both].sum() >= 30:
+            tau_lag, csi_lag = _rain_occ_best_threshold(y[both], p_lag[lag][both])
+            tau_same, csi_same = _rain_occ_best_threshold(y[both], p_same[both])
+            factor = float(np.clip(tau_lag / max(tau_same, 1e-6), 0.3, 1.2))
+        else:
+            tau_lag = tau_same = csi_lag = csi_same = float('nan')
+            factor = RAIN_OCC_LONG_LEAD_FACTOR
+        cal = 1.0 / (1.0 + np.exp(-(a_ + b_ * _logit(p_lag[lag][m]))))
+        band = (cal >= 0.3) & (cal <= 0.6)
+        result[f'platt_{key}'] = [round(a_, 4), round(b_, 4)]
+        result[f'factor_{key}'] = round(factor, 4)
+        result[f'diag_{key}'] = {
+            'brier_raw': round(float(np.mean((p_lag[lag][m] - y[m]) ** 2)), 5),
+            'brier_cal': round(float(np.mean((cal - y[m]) ** 2)), 5),
+            'tau_lag': tau_lag, 'tau_same': tau_same,
+            'csi_lag': round(float(csi_lag), 4), 'csi_same': round(float(csi_same), 4),
+            'band_30_60_hours': int(band.sum()),
+            'band_30_60_hit_rate': round(float(y[m][band].mean()), 3) if band.any() else None,
+        }
+        if key == 'd1':
+            pop_d1[m] = cal
+    if 'platt_d1' not in result:
+        print("    [Rain] day-ahead: premalo day-1 OOF sati; konstante")
+        return None, None
+    if 'platt_d2' not in result:
+        result['platt_d2'] = result['platt_d1']
+        result['factor_d2'] = result['factor_d1']
+    for key in ('d1', 'd2'):
+        d = result.get(f'diag_{key}')
+        if d:
+            print(f"    [Rain] day-ahead {key}: Platt a,b={result[f'platt_{key}']}, "
+                  f"factor={result[f'factor_{key}']:.2f}, Brier {d['brier_raw']:.4f}"
+                  f"->{d['brier_cal']:.4f}, 30-60% PoP: {d['band_30_60_hours']} h "
+                  f"(kiša {d['band_30_60_hit_rate']})")
+    return result, pop_d1
+
+
 def train_rain_occurrence_model(df):
     """Fit and persist the rain classifier and the wet-hour amount model.
 
     Needs the raw ``{M}_{var}_model`` columns and ``_derived_precip_obs``
     (station rain aligned to the Open-Meteo interval, see load_historical_data).
     The threshold comes from walk-forward out-of-fold predictions over the last
-    RAIN_OCC_OOF_BLOCKS blocks, the same protocol as the backtest.
+    RAIN_OCC_OOF_BLOCKS blocks, the same protocol as the backtest. The
+    day-ahead PoP/threshold maps and the onset map are refit here too.
     """
     print("\n  [Rain] Multi-model klasifikator kiše...")
+    feature_set, feature_source = rain_occurrence_feature_set(df)
+    print(f"    Feature set: {feature_set} ({feature_source})")
+    prev_cols = [c for c in df.columns if '_previous_day' in c]
     cols = ['datetime', '_derived_precip_obs'] + [
-        c for c in df.columns if c.endswith('_model')]
-    frame = df[cols].sort_values('datetime').reset_index(drop=True)
-    feats = rain_occurrence_features(frame)
+        c for c in df.columns if c.endswith('_model')] + prev_cols
+    frame = (df[list(dict.fromkeys(cols))].sort_values('datetime')
+             .drop_duplicates('datetime').reset_index(drop=True))
+    feats = rain_occurrence_features(frame, feature_set=feature_set)
     obs = pd.to_numeric(frame['_derived_precip_obs'], errors='coerce')
     wet = obs >= CORRECTED_RAIN_THRESHOLD_MM
-    labelled = obs.notna().values
+    usable = (feats['n_avail'] >= RAIN_OCC_MIN_MODELS).values
+    labelled = obs.notna().values & usable
     times = pd.to_datetime(frame['datetime'])
     feature_cols = list(feats.columns)
     y = wet.astype(int).values
@@ -4357,17 +4772,30 @@ def train_rain_occurrence_model(df):
     card = _rain_occ_scorecard(
         y[oof_mask], {k: np.asarray(v)[oof_mask] for k, v in decisions.items()}
     )
-    print(f"    OOF prag tau={tau:.2f} (CSI={oof_csi:.3f}, "
-          f"{int(oof_mask.sum())} sati, {int(y[oof_mask].sum())} kišnih)")
+    oof_band = oof_mask & (oof >= 0.3) & (oof <= 0.6)
+    oof_brier = float(np.mean((oof[oof_mask] - y[oof_mask]) ** 2))
+    print(f"    OOF prag tau={tau:.2f} (CSI={oof_csi:.3f}, Brier={oof_brier:.5f}, "
+          f"{int(oof_mask.sum())} sati, {int(y[oof_mask].sum())} kišnih; "
+          f"30-60%: {int(oof_band.sum())} h, kiša {y[oof_band].mean() if oof_band.any() else float('nan'):.2f})")
     for name, row in sorted(card.items(), key=lambda kv: -kv[1]['csi']):
         print(f"      {name:20s} POD={row['pod']:.3f} FAR={row['far']:.3f} "
               f"CSI={row['csi']:.3f} (n={row['n']})")
 
+    # Day-ahead PoP/threshold maps for the 30-60% band at 24-48 h leads.
+    try:
+        day_ahead, pop_d1 = fit_rain_day_ahead_calibration(frame, y, labelled, times)
+    except Exception as exc:
+        if _DEVICE_REQUEST == 'cuda':
+            raise
+        print(f"    [Rain] day-ahead kalibracija preskočena ({exc}); konstante")
+        day_ahead, pop_d1 = None, None
+
     # The onset is read off these hourly decisions; score it and fit the
-    # P(rain starts by +k h) map on the same out-of-fold hours.
+    # P(rain starts by +k h) map: hours 1-24 from same-day OOF, 25-48 from
+    # the recalibrated day-1 PoP where it exists.
     oof_decision = np.where(oof_mask, (oof >= tau).astype(float), np.nan)
     onset_card = rain_onset_decision_scores(oof_decision, times, obs.values)
-    onset_fit = fit_onset_by_then(oof, times, obs.values)
+    onset_fit = fit_onset_by_then(oof, times, obs.values, proba_late=pop_d1)
     if onset_fit is None:
         raise RuntimeError("premalo out-of-fold slučajeva za onset kalibraciju")
     print(f"    Onset iz satne odluke: {onset_card['declared_onsets']} najavljenih / "
@@ -4384,16 +4812,23 @@ def train_rain_occurrence_model(df):
 
     meta = {
         'feature_version': RAIN_OCC_FEATURE_VERSION,
+        'feature_set': feature_set,
+        'feature_set_source': feature_source,
         'features': feature_cols,
         'models': list(MODELS),
         'tau': round(float(tau), 4),
         'oof_csi': round(float(oof_csi), 4),
+        'oof_brier': round(oof_brier, 5),
+        'oof_band_30_60_hours': int(oof_band.sum()),
+        'oof_band_30_60_hit_rate': (round(float(y[oof_band].mean()), 3)
+                                    if oof_band.any() else None),
         'lead_ramp_h': list(RAIN_OCC_LEAD_RAMP_H),
         'long_lead_factor': RAIN_OCC_LONG_LEAD_FACTOR,
+        'day_ahead': day_ahead,
         'max_lead_h': RAIN_OCC_MAX_LEAD_H,
         'min_models': RAIN_OCC_MIN_MODELS,
         'rain_threshold_mm': CORRECTED_RAIN_THRESHOLD_MM,
-        'label': 'station rate over [t-1, t) vs Open-Meteo row t',
+        'label': 'station gauge accumulation over [t-1, t) vs Open-Meteo row t',
         'train_rows': int(labelled.sum()),
         'train_wet_rows': int(amount_mask.sum()),
         'data_start': str(times[labelled].min()),
@@ -4421,9 +4856,9 @@ def load_rain_occurrence_bundle():
     try:
         with open(RAIN_OCC_META_PATH, encoding='utf-8') as f:
             meta = json.load(f)
-        if meta.get('feature_version') != RAIN_OCC_FEATURE_VERSION:
-            print(f"  [Rain] feature_version {meta.get('feature_version')} != "
-                  f"{RAIN_OCC_FEATURE_VERSION}; klasifikator se ne koristi")
+        if meta.get('feature_version') not in RAIN_OCC_COMPATIBLE_VERSIONS:
+            print(f"  [Rain] feature_version {meta.get('feature_version')} nije u "
+                  f"{RAIN_OCC_COMPATIBLE_VERSIONS}; klasifikator se ne koristi")
             return None
         clf = _new_xgb_classifier()
         clf.load_model(RAIN_OCC_CLF_PATH)
@@ -4446,11 +4881,13 @@ def predict_rain_occurrence(frame, bundle, lead_hours):
     precipitation members are unknown (NaN), never dry.
     """
     meta = bundle['meta']
-    feats = rain_occurrence_features(frame, models=meta.get('models'))
+    feats = rain_occurrence_features(frame, models=meta.get('models'),
+                                     feature_set=meta.get('feature_set', 'v2'))
     X = feats.reindex(columns=meta['features'])
     proba = bundle['clf'].predict_proba(X)[:, 1]
     lead = np.asarray(lead_hours, dtype=float)
-    tau = rain_occurrence_threshold(lead, float(meta['tau']))
+    day_ahead = meta.get('day_ahead')
+    tau = rain_occurrence_threshold(lead, float(meta['tau']), day_ahead)
     amount = np.square(np.clip(bundle['amount_model'].predict(X), 0.0, None))
     amount = np.clip(amount, CORRECTED_RAIN_THRESHOLD_MM, 50.0)
     usable = ((feats['n_avail'].values >= meta.get('min_models', RAIN_OCC_MIN_MODELS))
@@ -4459,7 +4896,7 @@ def predict_rain_occurrence(frame, bundle, lead_hours):
     precipitation = np.where(rain, amount, 0.0)
     precipitation[~usable] = np.nan
     proba = np.where(usable, proba, np.nan)
-    return {'proba': proba, 'pop': rain_occurrence_pop(proba, lead), 'rain': rain,
+    return {'proba': proba, 'pop': rain_occurrence_pop(proba, lead, day_ahead), 'rain': rain,
             'precipitation': precipitation, 'threshold': tau, 'usable': usable}
 
 
@@ -4550,13 +4987,28 @@ def onset_by_then_probability(pop, coef):
     return out
 
 
-def fit_onset_by_then(proba, times, obs, horizon=RAIN_ONSET_HORIZON_H):
-    """Fit the P(rain starts by +k h) map on out-of-fold hourly probabilities."""
+def fit_onset_by_then(proba, times, obs, horizon=RAIN_ONSET_HORIZON_H,
+                      proba_late=None, split_hour=24, holdout_frac=0.3):
+    """Fit the P(rain starts by +k h) map on out-of-fold hourly probabilities.
+
+    Windows use ``proba`` for hours 1..split_hour and, where finite,
+    ``proba_late`` (recalibrated day-1 PoP) after that, so the later hours see
+    day-ahead skill as live does. Diagnostics for k = 3, 6, 12, 24, 48 come
+    from a fit on the oldest (1 - holdout_frac) of the cases scored on the
+    newest; the stored coefficients are then refit on all cases."""
     proba = np.asarray(proba, dtype=float)
+    late = None if proba_late is None else np.asarray(proba_late, dtype=float)
     cases = rain_onset_issue_cases(times, obs, horizon)
     X, y = [], []
+    n_late = 0
     for i, lead in cases:
-        window = proba[i + 1:i + 1 + horizon]
+        window = proba[i + 1:i + 1 + horizon].copy()
+        if late is not None and horizon > split_hour:
+            lw = late[i + 1 + split_hour:i + 1 + horizon]
+            ok = np.isfinite(lw)
+            if ok.all():
+                window[split_hour:] = lw
+                n_late += 1
         if not np.isfinite(window).all():
             continue
         X.append(_onset_by_then_design(window))
@@ -4564,24 +5016,35 @@ def fit_onset_by_then(proba, times, obs, horizon=RAIN_ONSET_HORIZON_H):
         y.append(((lead > 0) & (k >= lead)).astype(int))
     if len(X) < 300:
         return None
-    X = np.vstack(X)
-    y = np.concatenate(y)
-    lr = LogisticRegression(C=1e3, max_iter=1000).fit(X, y)
+
+    def _diag(lr, Xs, ys):
+        fitted = lr.predict_proba(np.vstack(Xs))[:, 1]
+        yy = np.concatenate(ys)
+        k = np.tile(np.arange(1, horizon + 1), len(ys))
+        out = {}
+        for kk in (3, 6, 12, 24, 48):
+            m = k == kk
+            if m.any():
+                out[f'k{kk}'] = {
+                    'observed': round(float(yy[m].mean()), 4),
+                    'mean_prob': round(float(fitted[m].mean()), 4),
+                    'brier': round(float(np.mean((fitted[m] - yy[m]) ** 2)), 4),
+                    'brier_climatology': round(float(np.mean((yy[m].mean() - yy[m]) ** 2)), 4),
+                }
+        return out
+
+    cut = int(len(X) * (1.0 - holdout_frac))
+    oos = None
+    if cut >= 300 and len(X) - cut >= 100:
+        lr_old = LogisticRegression(C=1e3, max_iter=1000).fit(
+            np.vstack(X[:cut]), np.concatenate(y[:cut]))
+        oos = _diag(lr_old, X[cut:], y[cut:])
+    lr = LogisticRegression(C=1e3, max_iter=1000).fit(np.vstack(X), np.concatenate(y))
     coef = [float(lr.intercept_[0])] + [float(c) for c in lr.coef_[0]]
-    fitted = lr.predict_proba(X)[:, 1]
-    k = np.tile(np.arange(1, horizon + 1), len(y) // horizon)
-    diag = {}
-    for kk in (3, 6, 12, 24, 48):
-        m = k == kk
-        if m.any():
-            diag[f'k{kk}'] = {
-                'observed': round(float(y[m].mean()), 4),
-                'mean_prob': round(float(fitted[m].mean()), 4),
-                'brier': round(float(np.mean((fitted[m] - y[m]) ** 2)), 4),
-                'brier_climatology': round(float(np.mean((y[m].mean() - y[m]) ** 2)), 4),
-            }
-    return {'coef': [round(c, 5) for c in coef], 'cases': len(X) // horizon,
-            'horizon_h': horizon, 'in_sample': diag}
+    return {'coef': [round(c, 5) for c in coef], 'cases': len(X),
+            'cases_with_day_ahead_tail': n_late,
+            'horizon_h': horizon, 'in_sample': _diag(lr, X, y),
+            'out_of_sample': oos}
 
 
 def rain_onset_decision_scores(decision, times, obs, horizon=24):
@@ -4933,10 +5396,10 @@ def build_lead_stacked_frames(hist_raw, bias_tables):
     """(Mlakar et al. 2024): one model pooled across lead times beats
     per-lead models in small data — but our archive rows are all short-lead,
     while live inference at +24-48h runs on long-lead inputs (train/serve lead
-    mismatch). Fix: synthesize lead-36/60 rows where {M}_{v}_model holds the
+    mismatch). Fix: synthesize lead-27/51 rows where {M}_{v}_model holds the
     PREVIOUS run's value for the same valid hour (8 PREV_RUNS_VARS; everything
     else NaN — XGBoost sparsity handles it). Frames are bias-featured +
-    engineered exactly like the base frame and carry lead_time=36/60.
+    engineered exactly like the base frame and carry lead_time=27/51.
 
     Must be called on the RAW merged frame (before apply_bias_features /
     engineer_features) with the train-only bias tables."""
@@ -4948,7 +5411,7 @@ def build_lead_stacked_frames(hist_raw, bias_tables):
                  and '_previous_day' not in c
                  and '_nbr_p' not in c]
     frames = []
-    for lag, lead in (('previous_day1', 36.0), ('previous_day2', 60.0)):
+    for lag, lead in (('previous_day1', 27.0), ('previous_day2', 51.0)):
         swapped = {}
         for m in MODELS:
             for v in PREV_RUNS_VARS:
@@ -4960,7 +5423,7 @@ def build_lead_stacked_frames(hist_raw, bias_tables):
         slim = hist_raw[keep_base].copy()
         for k, v in swapped.items():
             slim[k] = v
-        # the "one day older" run is what a lead-36 row would see as its own
+        # the "one day older" run is what a lead-27 row would see as its own
         # previous_day1; lead-60 rows have no older archive at all
         if lag == 'previous_day1':
             for m in MODELS:
@@ -5147,11 +5610,15 @@ def _precip_clock_split(X, y, datetimes, *, embargo_hours=72):
 
 
 def _train_target_quantiles(param, X_tr, y_tr, X_te_rep, y_te_rep,
-                            train_datetimes=None):
+                            train_datetimes=None, X_cal_ext=None, y_cal_ext=None):
     """multi-quantile LightGBM wrapped in CQR.
 
     Uses distinct chronological fit, early-stop validation, and conformal
-    calibration folds, with 72h embargoes between them. Reported coverage/CRPS
+    calibration folds, with 72h embargoes between them. When ``X_cal_ext`` /
+    ``y_cal_ext`` are given (the test SELECTION half), the CQR offsets are
+    fitted there instead: those rows are out of sample for the fitted models
+    and closer to live conditions, so the intervals no longer under-cover.
+    The train tail then serves as the early-stop fold. Reported coverage/CRPS
     come from the untouched report half. Persists the bundle to MODEL_DIR for
     --skip-training reload. Returns the in-memory bundle dict or None."""
     n = len(X_tr)
@@ -5170,9 +5637,22 @@ def _train_target_quantiles(param, X_tr, y_tr, X_te_rep, y_te_rep,
     X_q_tr, y_q_tr = folds['X_fit'], folds['y_fit']
     X_q_val, y_q_val = folds['X_val'], folds['y_val']
     X_cal, y_cal = folds['X_cal'], folds['y_cal']
+    cal_source = 'train tail'
+    if X_cal_ext is not None and y_cal_ext is not None:
+        y_ext = pd.Series(np.asarray(y_cal_ext, dtype=float))
+        ok_ext = y_ext.notna().to_numpy()
+        if int(ok_ext.sum()) >= 500:
+            # fit = old fit + old val, early stop = old cal (train tail),
+            # conformal calibration = test selection half.
+            X_q_tr = pd.concat([folds['X_fit'], folds['X_val']], ignore_index=True)
+            y_q_tr = pd.concat([folds['y_fit'], folds['y_val']], ignore_index=True)
+            X_q_val, y_q_val = folds['X_cal'], folds['y_cal']
+            X_cal = X_cal_ext.iloc[np.flatnonzero(ok_ext)].reset_index(drop=True)
+            y_cal = y_ext[ok_ext].reset_index(drop=True)
+            cal_source = 'test selection half'
     print(
         f"    Quantile split ({param}): fit={len(X_q_tr)}, val={len(X_q_val)}, "
-        f"cal={len(X_cal)} | clock gaps="
+        f"cal={len(X_cal)} ({cal_source}) | clock gaps="
         f"{folds['fit_val_gap'] / pd.Timedelta(hours=1):.0f}h/"
         f"{folds['val_cal_gap'] / pd.Timedelta(hours=1):.0f}h"
     )
@@ -5233,7 +5713,7 @@ def train_all_models(df, lead_frames=None, only_targets=None, snapshot=True):
     """Unified training: all params use full 50K dataset. No splits.
     - Precipitation: two-stage (cls+reg) + optional blend
     - Everything else: residual+blended (direct/residual/blend)
-    lead_frames: optional engineered lead-36/60 frames pooled into
+    lead_frames: optional engineered lead-27/51 frames pooled into
     the TRAIN portion of LEAD_STACK_TARGETS; the test set stays day-0 only so
     reported MAEs remain comparable across runs.
     only_targets: if set, train ONLY these params and MERGE into existing
@@ -5289,9 +5769,11 @@ def train_all_models(df, lead_frames=None, only_targets=None, snapshot=True):
         _write_json_atomic(_fl_path, fl)
         _write_json_atomic(_res_path, results, indent=2, ensure_ascii=False)
 
-    for param, info in TARGET_PARAMS.items():
+    _n_targets = len(TARGET_PARAMS)
+    for _ti, (param, info) in enumerate(TARGET_PARAMS.items(), 1):
         if only_targets is not None and param not in only_targets:
             continue
+        progress('train', _ti, _n_targets, info['display'])
         obs_col = info['obs']
         if obs_col not in df.columns:
             print(f"  {info['display']:20s} --- SKIP (nema obs)")
@@ -5341,15 +5823,15 @@ def train_all_models(df, lead_frames=None, only_targets=None, snapshot=True):
 
         # NaN passthrough: let XGBoost's native sparsity-aware split-finding handle missing data
         # is the "single easiest win" — 5-15% MAE improvement)
-        X_tr, y_tr = df_v.loc[tr, vf], y_v[tr]
-        X_te, y_te = df_v.loc[te, vf], y_v[te]
+        X_tr, y_tr = df_v.loc[tr, vf].astype(np.float32), y_v[tr]
+        X_te, y_te = df_v.loc[te, vf].astype(np.float32), y_v[te]
 
         # df_tr_frame carries datetime/ens/regime columns for the TRAIN rows; it
         # is replaced by an augmented (and chronologically re-sorted) frame when
         # lead-stacking applies, so every downstream consumer stays aligned.
         df_tr_frame = df_v.loc[tr]
 
-        # --- pool synthetic lead-36/60 rows into TRAIN only ---
+        # --- pool synthetic lead-27/51 rows into TRAIN only ---
         if lead_frames and param in LEAD_STACK_TARGETS:
             _aug_X, _aug_y, _aug_f = [], [], []
             _meta_cols = ['datetime', f'{param}_ens_mean',
@@ -5366,7 +5848,7 @@ def train_all_models(df, lead_frames=None, only_targets=None, snapshot=True):
                     c: (pd.to_numeric(sub[c], errors='coerce') if c in sub.columns
                         else pd.Series(np.nan, index=sub.index))
                     for c in vf
-                })
+                }).astype(np.float32)
                 f_lf = pd.DataFrame({
                     c: (sub[c] if c in sub.columns else pd.Series(np.nan, index=sub.index))
                     for c in _meta_cols
@@ -5765,14 +6247,17 @@ def train_all_models(df, lead_frames=None, only_targets=None, snapshot=True):
                 'pop_far': round(float(report_cls_metrics['far']), 4),
             }
             # predictive distribution for precipitation amounts
-            qb = _train_target_quantiles(
-                param, X_tr, y_tr, X_te_rep, y_te_rep,
-                train_datetimes=df_tr_frame['datetime'],
-            )
+            with _stage_timer(f'{param}.quantiles'):
+                qb = _train_target_quantiles(
+                    param, X_tr, y_tr, X_te_rep, y_te_rep,
+                    train_datetimes=df_tr_frame['datetime'],
+                    X_cal_ext=X_te_sel, y_cal_ext=y_te_sel,
+                )
             if qb is not None:
                 trained[param]['quantiles'] = qb
                 results[param]['quantile_crps'] = qb['crps']
                 results[param]['quantile_cov90'] = qb['cov90']
+                results[param]['quantile_cov50'] = qb['cov50']
             _persist_artifacts()  # incremental save (crash-safe)
             continue
 
@@ -5808,18 +6293,19 @@ def train_all_models(df, lead_frames=None, only_targets=None, snapshot=True):
         sample_weight = _compute_sample_weights(y_tr, train_datetimes, decay_half_life_days=365)
         # stacked long-lead rows count half
         if 'lead_time' in X_tr.columns:
-            _lt = pd.to_numeric(X_tr['lead_time'], errors='coerce').fillna(12).values
+            _lt = pd.to_numeric(X_tr['lead_time'], errors='coerce').fillna(3).values
             sample_weight = sample_weight * np.where(_lt > 24, 0.5, 1.0)
 
         ens_col = model_ens_col
         # Method/blend/stack chosen on the SELECTION half (out-of-sample, not the
         # reported set). Reporting below uses the untouched REPORT half.
-        rb_result = _train_residual_blended(
-            X_tr, y_tr, X_te_sel, y_te_sel, hp, param, ens_col,
-            df_tr_frame, df_te_sel,
-            use_optuna=True, sample_weight=sample_weight,
-            train_datetimes=train_datetimes
-        )
+        with _stage_timer(f'{param}.fit'):
+            rb_result = _train_residual_blended(
+                X_tr, y_tr, X_te_sel, y_te_sel, hp, param, ens_col,
+                df_tr_frame, df_te_sel,
+                use_optuna=True, sample_weight=sample_weight,
+                train_datetimes=train_datetimes
+            )
         method_str = rb_result['method']
         _deploy_ridge_meta = method_str == 'ridge_meta'
 
@@ -5898,7 +6384,54 @@ def train_all_models(df, lead_frames=None, only_targets=None, snapshot=True):
               f"| ens: {ens_mae:.3f} "
               f"| +{impr:.1f}%")
 
+        # --- Lead-specific report MAE: the selection-phase bundle (trained
+        # before SPLIT_DATE only) on the lead-27/51 rows of the report period.
+        # The headline MAE above is short-lead (archive rows) only.
+        lead_report = {}
+        if (lead_frames and param in LEAD_STACK_TARGETS
+                and not (csi_mode or dew_deficit_mode)):
+            _rep_start = pd.to_datetime(df_te_rep['datetime']).min()
+            _cols = sel_feats or vf
+            for lf in lead_frames:
+                if obs_col not in lf.columns or 'lead_time' not in lf.columns:
+                    continue
+                _lt = pd.to_numeric(lf['lead_time'], errors='coerce').dropna()
+                if _lt.empty:
+                    continue
+                lead_h = int(round(float(_lt.iloc[0])))
+                y_lf = pd.to_numeric(lf[obs_col], errors='coerce')
+                m_lf = y_lf.notna() & (pd.to_datetime(lf['datetime']) >= _rep_start)
+                if int(m_lf.sum()) < 200:
+                    continue
+                sub = lf[m_lf]
+                X_lf = pd.DataFrame({
+                    c: (pd.to_numeric(sub[c], errors='coerce') if c in sub.columns
+                        else pd.Series(np.nan, index=sub.index))
+                    for c in _cols
+                }).astype(np.float32)
+                try:
+                    p_lf = np.asarray(_predict_nonprecip_bundle(rb_result, X_lf, sub, ens_col),
+                                      dtype=float)
+                except Exception as _e:
+                    print(f"    Lead-{lead_h} report preskočen ({_e})")
+                    continue
+                if param in ('wind_speed_10m', 'wind_gusts_10m'):
+                    p_lf = np.clip(p_lf, 0, None)
+                lead_report[f'mae_lead{lead_h}'] = round(float(
+                    mean_absolute_error(y_lf[m_lf], p_lf)), 3)
+                lead_report[f'n_lead{lead_h}'] = int(m_lf.sum())
+                if raw_ens_col in sub.columns:
+                    e_lf = pd.to_numeric(sub[raw_ens_col], errors='coerce')
+                    ok_e = e_lf.notna().values
+                    if ok_e.sum() > 50:
+                        lead_report[f'ensemble_mae_lead{lead_h}'] = round(float(
+                            mean_absolute_error(y_lf[m_lf][ok_e], e_lf[ok_e])), 3)
+            if lead_report:
+                print(f"    Lead report ({param}): " + ", ".join(
+                    f"{k}={v}" for k, v in lead_report.items() if k.startswith(('mae', 'ens'))))
+
         # --- Production retrain: retrain on ALL data (train+test) ---
+        _retrain_t0 = time.perf_counter()
         print(f"    Retraining {info['display']} na SVIM podacima za produkciju...")
         X_all = pd.concat([X_tr, X_te], axis=0)
         y_all = pd.concat([y_tr, y_te], axis=0)
@@ -5912,7 +6445,7 @@ def train_all_models(df, lead_frames=None, only_targets=None, snapshot=True):
             decay_half_life_days=rb_result.get('decay_half_life', 365),
         )
         if 'lead_time' in X_all.columns:
-            _lt_all = pd.to_numeric(X_all['lead_time'], errors='coerce').fillna(12).values
+            _lt_all = pd.to_numeric(X_all['lead_time'], errors='coerce').fillna(3).values
             sw_all = sw_all * np.where(_lt_all > 24, 0.5, 1.0)
 
         tuned_hp = rb_result['tuned_hp']
@@ -5969,6 +6502,8 @@ def train_all_models(df, lead_frames=None, only_targets=None, snapshot=True):
             lgb_prod.fit(X_all_sel, y_all, sample_weight=sw_all)
 
         print(f"    Production retrain: {len(X_all)} redova (train={len(X_tr)}, test={len(X_te)})")
+        print('##TIMING ' + json.dumps({'stage': f'{param}.retrain', 'seconds':
+              round(time.perf_counter() - _retrain_t0, 2)}), flush=True)
 
         # Save retrained production models
         direct_prod.save_model(os.path.join(MODEL_DIR, f"xgb_{param}.json"))
@@ -6053,22 +6588,29 @@ def train_all_models(df, lead_frames=None, only_targets=None, snapshot=True):
             'has_lightgbm': bool(_deploy_ridge_meta and rb_result.get('has_lightgbm', False)),
             'is_precip': False,
         }
+        results[param].update(lead_report)
 
         # predictive distribution (T2m / wind / gusts; raw-target only,
         # so CSI- and deficit-transformed params are skipped by the tuple).
         if param in QUANTILE_TARGETS:
-            qb = _train_target_quantiles(
-                param, X_tr, y_tr, X_te_rep, y_te_rep,
-                train_datetimes=df_tr_frame['datetime'],
-            )
+            q_feats = list(effective_features)
+            with _stage_timer(f'{param}.quantiles'):
+                qb = _train_target_quantiles(
+                    param, X_tr[q_feats], y_tr, X_te_rep[q_feats], y_te_rep,
+                    train_datetimes=df_tr_frame['datetime'],
+                    X_cal_ext=X_te_sel[q_feats], y_cal_ext=y_te_sel,
+                )
             if qb is not None:
                 trained[param]['quantiles'] = qb
                 results[param]['quantile_crps'] = qb['crps']
                 results[param]['quantile_cov90'] = qb['cov90']
+                results[param]['quantile_cov50'] = qb['cov50']
 
         _persist_artifacts()  # incremental save (crash-safe)
 
     _persist_artifacts()  # final write (also covers the no-target-trained case)
+
+    _write_json_atomic(DATA_UNITS_PATH, DATA_UNITS, indent=2)
 
     # Promotion gate + experiment registry
     gate_verdicts = _champion_gate(results, results_prev)
@@ -6574,7 +7116,7 @@ def fetch_live_forecasts():
             continue
         model_id = MODEL_IDS[model_name]
         update_h = MODEL_UPDATE_HOURS.get(model_id, DEFAULT_UPDATE_HOURS)
-        pr_cache_path = _cache_path('prev_runs', model_id, LAT, LON)
+        pr_cache_path = _cache_path('prev_runs_ms', model_id, LAT, LON)
 
         def _parse_prev(h, label):
             d = pd.DataFrame({'datetime': pd.to_datetime(h.get('time', []))})
@@ -6615,6 +7157,10 @@ def fetch_live_forecasts():
             "latitude": LAT, "longitude": LON,
             "hourly": prev_hourly_str,
             "timezone": FORECAST_TIMEZONE, "models": model_id, "forecast_days": 10,
+            # Without this the API returns km/h, while every _model column and
+            # the previous_runs_data history are m/s.
+            "wind_speed_unit": "ms", "precipitation_unit": "mm",
+            "temperature_unit": "celsius",
         }
         try:
             r = requests.get(PREV_RUNS_API, params=pr_params, timeout=30)
@@ -7786,8 +8332,12 @@ def _classifier_precip_decision(fc, bundle):
     pop = np.where(unknown, 0.0, occ['pop'])
     icon_vals, icon_nan = _icon2i_precip_values(fc)
     n_rain = int((occ['rain'] & (lead >= 0)).sum())
-    print(f"  Rain klasifikator (tau={float(bundle['meta']['tau']):.2f}, "
-          f"x{RAIN_OCC_LONG_LEAD_FACTOR:.1f} nakon {RAIN_OCC_LEAD_RAMP_H[1]:.0f}h): "
+    _da = bundle['meta'].get('day_ahead')
+    _da_txt = (f"day-ahead x{_da['factor_d1']:.2f}/x{_da['factor_d2']:.2f}"
+               if _rain_occ_day_ahead_usable(_da) else
+               f"x{RAIN_OCC_LONG_LEAD_FACTOR:.1f} nakon {RAIN_OCC_LEAD_RAMP_H[1]:.0f}h")
+    print(f"  Rain klasifikator ({bundle['meta'].get('feature_set', 'v2')}, "
+          f"tau={float(bundle['meta']['tau']):.2f}, {_da_txt}): "
           f"{n_rain} kišnih sati u horizontu, {int(unknown.sum())} bez odluke")
     return {
         'pred': pred, 'pop': pop, 'unknown': unknown,
@@ -7799,12 +8349,42 @@ def _classifier_precip_decision(fc, bundle):
     }
 
 
+DATA_UNITS_PATH = os.path.join(MODEL_DIR, 'data_units.json')
+DATA_UNITS = {'prev_runs_wind': 'm/s', 'rain_label': 'gauge_accumulation',
+              'lead_time_coding': '3/27/51'}
+
+
+def _legacy_prev_runs_wind_kmh():
+    """Models trained before data_units.json existed saw previous-run wind
+    in km/h (the history files and the live previous-runs request had no
+    wind_speed_unit)."""
+    try:
+        with open(DATA_UNITS_PATH, encoding='utf-8') as f:
+            return json.load(f).get('prev_runs_wind') != 'm/s'
+    except (OSError, ValueError):
+        return True
+
+
+def _match_prev_runs_wind_units(frame):
+    """Scale live previous-run wind (m/s) to what the loaded models saw."""
+    if not _legacy_prev_runs_wind_kmh():
+        return frame
+    cols = [c for c in frame.columns
+            if c.endswith(('_wind_speed_10m_previous_day1', '_wind_speed_10m_previous_day2',
+                           '_wind_gusts_10m_previous_day1', '_wind_gusts_10m_previous_day2'))]
+    if cols:
+        frame = frame.copy()
+        frame[cols] = frame[cols].apply(pd.to_numeric, errors='coerce') * 3.6
+        print(f"  Legacy modeli: previous-runs vjetar u km/h ({len(cols)} kolona)")
+    return frame
+
+
 def apply_correction(fc_df, trained, bias_tables, local_dry_nowcast=False):
     print("\n[5/6] Primjena korekcije...")
 
-    fc = apply_bias_features(fc_df.copy(), bias_tables)
+    fc = apply_bias_features(_match_prev_runs_wind_units(fc_df.copy()), bias_tables)
     # true lead time in hours (0 at the current hour); training rows
-    # carry 12 (day-0 archive) / 36 / 60 (previous-runs stack).
+    # carry 3 (day-0 archive) / 27 / 51 (previous-runs stack).
     _lead_now = local_now().floor('h')
     fc['lead_time'] = ((pd.to_datetime(fc['datetime']) - _lead_now)
                        .dt.total_seconds() / 3600.0).clip(lower=0.0, upper=72.0)
@@ -9211,16 +9791,22 @@ if __name__ == "__main__":
         print("\n  MODE: --skip-training (ucitavam sacuvane modele)")
         trained, results, bias_tables = load_trained_models()
     else:
-        hist = load_historical_data()
+        progress('pipeline', 1, 6, 'Ucitavanje podataka')
+        with _stage_timer('load'):
+            hist = load_historical_data()
 
+        progress('pipeline', 2, 6, 'Feature engineering')
         print("\n[2/6] Feature engineering + tabele biasa...")
-        bias_tables = compute_bias_tables(hist)
-        # lead-36/60 frames built from the RAW frame + train-only
+        with _stage_timer('bias'):
+            bias_tables = compute_bias_tables(hist)
+        # lead-27/51 frames built from the RAW frame + train-only
         # bias tables, BEFORE the base frame is engineered below.
-        lead_frames = build_lead_stacked_frames(hist, bias_tables)
-        hist = apply_bias_features(hist, bias_tables)
-        hist['lead_time'] = 12.0  # day-0 archive rows ~ short-lead splice
-        hist = engineer_features(hist)
+        with _stage_timer('lead_stack'):
+            lead_frames = build_lead_stacked_frames(hist, bias_tables)
+        with _stage_timer('engineer'):
+            hist = apply_bias_features(hist, bias_tables)
+            hist['lead_time'] = 3.0  # day-0 archive rows ~ 0-6 h splice
+            hist = engineer_features(hist)
         print(f"  Dimenzije: {hist.shape[0]} x {hist.shape[1]}")
 
         bias_path = os.path.join(MODEL_DIR, 'bias_tables.json')
@@ -9230,9 +9816,12 @@ if __name__ == "__main__":
         _write_json_atomic(bias_path, bt_serializable)
         print(f"  Bias tabele: {bias_path}")
 
-        trained, results = train_all_models(hist, lead_frames=lead_frames)
+        progress('pipeline', 3, 6, 'Treniranje modela')
+        with _stage_timer('train_all'):
+            trained, results = train_all_models(hist, lead_frames=lead_frames)
         try:
-            rain_bundle = train_rain_occurrence_model(hist)
+            with _stage_timer('rain_occurrence'):
+                rain_bundle = train_rain_occurrence_model(hist)
         except Exception as _e:
             if _DEVICE_REQUEST == 'cuda':
                 raise
@@ -9240,8 +9829,10 @@ if __name__ == "__main__":
             rain_bundle = load_rain_occurrence_bundle()
         if 'precipitation' in trained and 'precip_info' in trained['precipitation']:
             trained['precipitation']['precip_info']['rain_occurrence'] = rain_bundle
+        _write_json_atomic(os.path.join(MODEL_DIR, 'timings.json'), _TIMINGS, indent=2)
 
     try:
+        progress('pipeline', 4, 6, 'Live prognoze')
         fc_all = fetch_live_forecasts()
         station_obs = fetch_current_station_observation()
         station_dry_nowcast = station_says_dry_now(station_obs)
@@ -9259,6 +9850,7 @@ if __name__ == "__main__":
         elif not WU_API_KEY:
             print("\n  WU nowcast: WU_API_KEY nije postavljen, preskacem automatsku live-stanicu")
 
+        progress('pipeline', 5, 6, 'Korekcija')
         corrected = apply_correction(fc_all, trained, bias_tables, local_dry_nowcast=dry_nowcast_active)
 
         # Rain onset: the first hour the published hourly decision turns wet
@@ -9311,6 +9903,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"  Marine: greska, preskacem ({e})")
 
+    progress('pipeline', 6, 6, 'Izlaz')
     json_path, csv_path = generate_output(corrected, trained, results, fc_raw=fc_all,
                                           marine=marine_block, onset=onset_info)
 
