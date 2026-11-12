@@ -1,0 +1,138 @@
+[
+  {
+    "stage": "load",
+    "seconds": 3.22
+  },
+  {
+    "stage": "bias",
+    "seconds": 0.49
+  },
+  {
+    "stage": "lead_stack",
+    "seconds": 3.91
+  },
+  {
+    "stage": "engineer",
+    "seconds": 5.53
+  },
+  {
+    "stage": "temperature_2m.select",
+    "seconds": 46.32
+  },
+  {
+    "stage": "temperature_2m.optuna",
+    "seconds": 153.76
+  },
+  {
+    "stage": "temperature_2m.fit",
+    "seconds": 239.15
+  },
+  {
+    "stage": "temperature_2m.quantiles",
+    "seconds": 99.25
+  },
+  {
+    "stage": "dew_point_2m.select",
+    "seconds": 26.57
+  },
+  {
+    "stage": "dew_point_2m.optuna",
+    "seconds": 141.49
+  },
+  {
+    "stage": "dew_point_2m.fit",
+    "seconds": 216.69
+  },
+  {
+    "stage": "relative_humidity_2m.select",
+    "seconds": 17.11
+  },
+  {
+    "stage": "relative_humidity_2m.optuna",
+    "seconds": 152.84
+  },
+  {
+    "stage": "relative_humidity_2m.fit",
+    "seconds": 209.23
+  },
+  {
+    "stage": "wind_speed_10m.select",
+    "seconds": 20.77
+  },
+  {
+    "stage": "wind_speed_10m.optuna",
+    "seconds": 254.57
+  },
+  {
+    "stage": "wind_speed_10m.fit",
+    "seconds": 378.77
+  },
+  {
+    "stage": "wind_speed_10m.quantiles",
+    "seconds": 38.04
+  },
+  {
+    "stage": "wind_gusts_10m.select",
+    "seconds": 15.67
+  },
+  {
+    "stage": "wind_gusts_10m.optuna",
+    "seconds": 193.17
+  },
+  {
+    "stage": "wind_gusts_10m.fit",
+    "seconds": 308.17
+  },
+  {
+    "stage": "wind_gusts_10m.quantiles",
+    "seconds": 38.73
+  },
+  {
+    "stage": "pressure_msl.select",
+    "seconds": 31.5
+  },
+  {
+    "stage": "pressure_msl.optuna",
+    "seconds": 200.27
+  },
+  {
+    "stage": "pressure_msl.fit",
+    "seconds": 307.2
+  },
+  {
+    "stage": "cloud_cover.select",
+    "seconds": 8.04
+  },
+  {
+    "stage": "cloud_cover.optuna",
+    "seconds": 171.23
+  },
+  {
+    "stage": "cloud_cover.fit",
+    "seconds": 209.13
+  },
+  {
+    "stage": "precipitation.quantiles",
+    "seconds": 95.45
+  },
+  {
+    "stage": "shortwave_radiation.select",
+    "seconds": 74.33
+  },
+  {
+    "stage": "shortwave_radiation.optuna",
+    "seconds": 745.76
+  },
+  {
+    "stage": "shortwave_radiation.fit",
+    "seconds": 933.7
+  },
+  {
+    "stage": "train_all",
+    "seconds": 4055.6
+  },
+  {
+    "stage": "rain_occurrence",
+    "seconds": 115.36
+  }
+]

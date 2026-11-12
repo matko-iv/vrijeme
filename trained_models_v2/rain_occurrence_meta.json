@@ -1,5 +1,7 @@
 {
-  "feature_version": 2,
+  "feature_version": 3,
+  "feature_set": "v2",
+  "feature_set_source": "rain_v3_backtest.json",
   "features": [
     "n_avail",
     "frac_wet01",
@@ -164,169 +166,257 @@
     "KNMI_SEAMLESS",
     "DMI_SEAMLESS"
   ],
-  "tau": 0.28,
-  "oof_csi": 0.481,
+  "tau": 0.3,
+  "oof_csi": 0.4945,
+  "oof_brier": 0.03823,
+  "oof_band_30_60_hours": 746,
+  "oof_band_30_60_hit_rate": 0.488,
   "lead_ramp_h": [
     6.0,
     30.0
   ],
   "long_lead_factor": 0.6,
+  "day_ahead": {
+    "knots_h": [
+      6.0,
+      27.0,
+      51.0
+    ],
+    "models": [
+      "ARPEGE_EUROPE",
+      "GFS_SEAMLESS",
+      "ICON_SEAMLESS",
+      "METEOFRANCE",
+      "ECMWF_IFS025",
+      "ITALIAMETEO_ICON2I",
+      "UKMO_SEAMLESS",
+      "ECMWF_IFS",
+      "KNMI_SEAMLESS",
+      "DMI_SEAMLESS"
+    ],
+    "features": 125,
+    "n_d1": 18496,
+    "platt_d1": [
+      -0.0132,
+      0.8147
+    ],
+    "factor_d1": 1.2,
+    "diag_d1": {
+      "brier_raw": 0.04216,
+      "brier_cal": 0.04166,
+      "tau_lag": 0.26,
+      "tau_same": 0.19,
+      "csi_lag": 0.4202,
+      "csi_same": 0.4545,
+      "band_30_60_hours": 1149,
+      "band_30_60_hit_rate": 0.428
+    },
+    "n_d2": 18496,
+    "platt_d2": [
+      -0.1912,
+      0.7593
+    ],
+    "factor_d2": 1.1579,
+    "diag_d2": {
+      "brier_raw": 0.04599,
+      "brier_cal": 0.04507,
+      "tau_lag": 0.22,
+      "tau_same": 0.19,
+      "csi_lag": 0.3905,
+      "csi_same": 0.4545,
+      "band_30_60_hours": 1225,
+      "band_30_60_hit_rate": 0.422
+    }
+  },
   "max_lead_h": 72.0,
   "min_models": 3,
   "rain_threshold_mm": 0.2,
-  "label": "station rate over [t-1, t) vs Open-Meteo row t",
-  "train_rows": 53344,
-  "train_wet_rows": 4013,
+  "label": "station gauge accumulation over [t-1, t) vs Open-Meteo row t",
+  "train_rows": 55292,
+  "train_wet_rows": 4122,
   "data_start": "2020-04-01 01:00:00",
-  "data_end": "2026-08-18 15:00:00",
-  "oof_hours": 16131,
+  "data_end": "2026-11-11 23:00:00",
+  "oof_hours": 16032,
   "oof_scorecard": {
     "rain_classifier": {
-      "pod": 0.7292,
-      "far": 0.4204,
-      "csi": 0.4769,
-      "hss": 0.6174,
-      "n": 10628
+      "pod": 0.7088,
+      "far": 0.4115,
+      "csi": 0.4739,
+      "hss": 0.6161,
+      "n": 12576
     },
     "ARPEGE_EUROPE": {
-      "pod": 0.6925,
-      "far": 0.5491,
-      "csi": 0.3757,
-      "hss": 0.5063,
-      "n": 10628
+      "pod": 0.6976,
+      "far": 0.5471,
+      "csi": 0.3786,
+      "hss": 0.5112,
+      "n": 12576
     },
     "GFS_SEAMLESS": {
-      "pod": 0.7856,
-      "far": 0.6269,
-      "csi": 0.3386,
-      "hss": 0.4568,
-      "n": 10628
+      "pod": 0.7831,
+      "far": 0.6267,
+      "csi": 0.3383,
+      "hss": 0.4585,
+      "n": 12576
     },
     "ICON_SEAMLESS": {
-      "pod": 0.7645,
-      "far": 0.5824,
-      "csi": 0.37,
-      "hss": 0.4967,
-      "n": 10628
+      "pod": 0.7621,
+      "far": 0.5864,
+      "csi": 0.3663,
+      "hss": 0.4941,
+      "n": 12576
     },
     "METEOFRANCE": {
-      "pod": 0.6925,
-      "far": 0.5491,
-      "csi": 0.3757,
-      "hss": 0.5063,
-      "n": 10628
+      "pod": 0.6976,
+      "far": 0.5471,
+      "csi": 0.3786,
+      "hss": 0.5112,
+      "n": 12576
     },
     "ECMWF_IFS025": {
-      "pod": 0.89,
-      "far": 0.6559,
-      "csi": 0.33,
-      "hss": 0.4426,
-      "n": 10628
+      "pod": 0.886,
+      "far": 0.6569,
+      "csi": 0.3286,
+      "hss": 0.4431,
+      "n": 12576
     },
     "ITALIAMETEO_ICON2I": {
-      "pod": 0.5783,
-      "far": 0.4668,
-      "csi": 0.3839,
-      "hss": 0.5216,
-      "n": 10628
+      "pod": 0.5849,
+      "far": 0.4606,
+      "csi": 0.3901,
+      "hss": 0.5298,
+      "n": 12576
     },
     "UKMO_SEAMLESS": {
-      "pod": 0.7616,
-      "far": 0.5599,
-      "csi": 0.3868,
-      "hss": 0.517,
-      "n": 10628
+      "pod": 0.7571,
+      "far": 0.5667,
+      "csi": 0.3804,
+      "hss": 0.5113,
+      "n": 12576
     },
     "ECMWF_IFS": {
-      "pod": 0.7701,
-      "far": 0.6398,
-      "csi": 0.3252,
-      "hss": 0.4399,
-      "n": 10628
+      "pod": 0.7794,
+      "far": 0.6385,
+      "csi": 0.3279,
+      "hss": 0.4453,
+      "n": 12576
     },
     "KNMI_SEAMLESS": {
-      "pod": 0.5501,
-      "far": 0.4902,
-      "csi": 0.3598,
-      "hss": 0.4941,
-      "n": 10628
+      "pod": 0.5527,
+      "far": 0.5,
+      "csi": 0.3559,
+      "hss": 0.4907,
+      "n": 12576
     },
     "DMI_SEAMLESS": {
-      "pod": 0.5543,
-      "far": 0.4746,
-      "csi": 0.3694,
-      "hss": 0.5056,
-      "n": 10628
+      "pod": 0.5651,
+      "far": 0.4789,
+      "csi": 0.3719,
+      "hss": 0.5095,
+      "n": 12576
     },
     "ensemble_mean": {
-      "pod": 0.8561,
-      "far": 0.584,
-      "csi": 0.3889,
-      "hss": 0.5166,
-      "n": 10628
+      "pod": 0.8513,
+      "far": 0.5891,
+      "csi": 0.3834,
+      "hss": 0.512,
+      "n": 12576
     },
     "icon2i_gate": {
-      "pod": 0.653,
-      "far": 0.5167,
-      "csi": 0.3846,
-      "hss": 0.5186,
-      "n": 10628
+      "pod": 0.6592,
+      "far": 0.5097,
+      "csi": 0.3912,
+      "hss": 0.5276,
+      "n": 12576
     }
   },
   "onset_scorecard": {
-    "cases": 12673,
-    "observed_onsets": 3158,
-    "declared_onsets": 2437,
-    "event_pod": 0.6941,
-    "event_far": 0.1005,
-    "event_csi": 0.6441,
-    "median_abs_error_h": 2.0,
-    "hit_within_1h": 0.4918,
-    "hit_within_2h": 0.6747,
-    "hit_within_3h": 0.7664,
-    "timed_csi_3h": 0.4291
+    "cases": 12501,
+    "observed_onsets": 3049,
+    "declared_onsets": 2326,
+    "event_pod": 0.6992,
+    "event_far": 0.0834,
+    "event_csi": 0.6574,
+    "median_abs_error_h": 1.0,
+    "hit_within_1h": 0.5272,
+    "hit_within_2h": 0.6881,
+    "hit_within_3h": 0.7706,
+    "timed_csi_3h": 0.4402
   },
   "onset_by_then": {
     "coef": [
-      -0.94873,
-      0.23633,
-      0.44863,
-      0.27966
+      -0.18531,
+      0.48317,
+      0.35261,
+      0.12127
     ],
-    "cases": 11705,
+    "cases": 11470,
+    "cases_with_day_ahead_tail": 13600,
     "horizon_h": 48,
     "in_sample": {
       "k3": {
-        "observed": 0.0474,
-        "mean_prob": 0.0477,
-        "brier": 0.0289,
-        "brier_climatology": 0.0452
+        "observed": 0.0461,
+        "mean_prob": 0.0533,
+        "brier": 0.0274,
+        "brier_climatology": 0.044
       },
       "k6": {
-        "observed": 0.0851,
-        "mean_prob": 0.0843,
-        "brier": 0.0407,
-        "brier_climatology": 0.0779
+        "observed": 0.0833,
+        "mean_prob": 0.0847,
+        "brier": 0.0382,
+        "brier_climatology": 0.0763
       },
       "k12": {
-        "observed": 0.1475,
-        "mean_prob": 0.1472,
-        "brier": 0.0553,
-        "brier_climatology": 0.1258
+        "observed": 0.1437,
+        "mean_prob": 0.14,
+        "brier": 0.051,
+        "brier_climatology": 0.123
       },
       "k24": {
-        "observed": 0.2466,
-        "mean_prob": 0.2464,
-        "brier": 0.0737,
-        "brier_climatology": 0.1858
+        "observed": 0.2422,
+        "mean_prob": 0.2291,
+        "brier": 0.0671,
+        "brier_climatology": 0.1835
       },
       "k48": {
-        "observed": 0.3933,
-        "mean_prob": 0.3929,
-        "brier": 0.0921,
-        "brier_climatology": 0.2386
+        "observed": 0.3843,
+        "mean_prob": 0.3931,
+        "brier": 0.0886,
+        "brier_climatology": 0.2366
+      }
+    },
+    "out_of_sample": {
+      "k3": {
+        "observed": 0.0232,
+        "mean_prob": 0.0333,
+        "brier": 0.017,
+        "brier_climatology": 0.0227
+      },
+      "k6": {
+        "observed": 0.0447,
+        "mean_prob": 0.0532,
+        "brier": 0.0259,
+        "brier_climatology": 0.0427
+      },
+      "k12": {
+        "observed": 0.0811,
+        "mean_prob": 0.0888,
+        "brier": 0.0404,
+        "brier_climatology": 0.0745
+      },
+      "k24": {
+        "observed": 0.1534,
+        "mean_prob": 0.1549,
+        "brier": 0.065,
+        "brier_climatology": 0.1299
+      },
+      "k48": {
+        "observed": 0.2754,
+        "mean_prob": 0.3045,
+        "brier": 0.1003,
+        "brier_climatology": 0.1996
       }
     }
   },
-  "trained_at": "2026-10-28T18:11:20"
+  "trained_at": "2026-11-12T00:38:31"
 }
