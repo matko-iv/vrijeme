@@ -73,7 +73,7 @@ def fetch_range(model_id, start_date, end_date):
 
 
 def update_one(name, model_id, obs):
-    path = f"budva_{name}_detailed.csv"
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"budva_{name}_detailed.csv")
     if not os.path.exists(path):
         print(f"{name}: nema fajla, preskacem")
         return None

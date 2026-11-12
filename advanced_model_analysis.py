@@ -9,9 +9,10 @@ import numpy as np
 from datetime import datetime
 import time
 import json
+import os
 
-LAT, LON = 42.29, 18.84
-OBS_CSV = "wu_data\\merged_observations.csv"
+LAT, LON = 42.2864, 18.84  # same point as forecast_48h_v3
+OBS_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wu_data", "merged_observations.csv")
 
 START_DATE = "2020-04-01"
 END_DATE = datetime.now().strftime("%Y-%m-%d")

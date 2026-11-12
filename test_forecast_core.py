@@ -91,6 +91,8 @@ class ForecastCoreTests(unittest.TestCase):
             'monthly_clim_rain_freq': [0.1, 0.2],
             '_derived_precip_obs': [0.0, 0.2],
             '_canonical_precip_rate_mm': [0.0, 0.2],
+            '_canonical_precip_mm': [0.0, 0.2],
+            'precip_mm': [0.0, 0.2],
         })
         self.assertEqual(fc.get_feature_columns(frame), ['safe_model_feature'])
 
@@ -882,6 +884,126 @@ class RainOccurrenceTests(unittest.TestCase):
         decision = fc._classifier_precip_decision(no_icon, bundle)
         self.assertTrue(decision['trusted_nan'].all())
         self.assertAlmostEqual(decision['pred'][2], 1.44)
+
+
+class PipelineUpgradeTests(unittest.TestCase):
+    """Label, efficiency and calibration changes of the 2026-11 overhaul."""
+
+    def test_row_nanquantiles_match_pandas(self):
+        rng = np.random.default_rng(1)
+        a = rng.gamma(0.5, 1.0, (500, 9))
+        a[rng.random(a.shape) < 0.3] = np.nan
+        a[:3] = np.nan
+        df = pd.DataFrame(a)
+        got = fc._row_nanquantiles(a, (0.1, 0.25, 0.75, 0.9))
+        for j, q in enumerate((0.1, 0.25, 0.75, 0.9)):
+            np.testing.assert_allclose(got[:, j], df.quantile(q, axis=1).values,
+                                       equal_nan=True)
+
+    def test_trimmed_mean_drops_min_and_max_of_valid_members(self):
+        a = np.array([[1.0, 2.0, 3.0, 100.0, np.nan],      # 4 valid -> mean(2, 3)
+                      [1.0, 2.0, np.nan, np.nan, np.nan],  # 2 valid -> plain mean
+                      [np.nan] * 5])
+        np.testing.assert_allclose(fc._row_trimmed_mean(a), [2.5, 1.5, np.nan],
+                                   equal_nan=True)
+
+    def test_hourly_rain_comes_from_the_gauge_counter(self):
+        from wu_aggregation import hourly_precip_from_accum
+        idx = pd.to_datetime(['2026-03-01 22:00', '2026-03-01 23:00', '2026-03-02 00:00',
+                              '2026-03-02 01:00', '2026-03-02 03:00', '2026-03-02 04:00'])
+        acc = pd.Series([1.0, 1.5, 0.3, 0.3, 2.0, 0.5], index=idx)
+        rate = pd.Series([0.9, 0.7, 0.4, 0.0, 1.1, 0.2], index=idx)
+        got = hourly_precip_from_accum(acc, rate)
+        # 22:00 has no previous hour -> rate fallback; midnight resets the
+        # counter; 03:00 follows a gap -> fallback; 04:00 dropped -> fallback.
+        np.testing.assert_allclose(got.values, [0.9, 0.5, 0.3, 0.0, 1.1, 0.2])
+        no_fb = hourly_precip_from_accum(acc)
+        self.assertTrue(np.isnan(no_fb.iloc[0]) and np.isnan(no_fb.iloc[4]))
+
+    def test_engineer_features_returns_original_rows_across_gaps(self):
+        dt = pd.to_datetime(['2026-01-01 00:00', '2026-01-01 01:00', '2026-01-01 05:00',
+                             '2026-01-01 06:00'])
+        frame = pd.DataFrame({'datetime': dt})
+        for m in fc.MODELS[:4]:
+            frame[f'{m}_pressure_msl_model'] = [1000.0, 1001.0, 1010.0, 1011.0]
+            frame[f'{m}_temperature_2m_model'] = [5.0, 6.0, 7.0, 8.0]
+        frame.index = [10, 11, 12, 13]
+        out = fc.engineer_features(frame)
+        self.assertEqual(list(out.index), [10, 11, 12, 13])
+        self.assertTrue((out['datetime'].values == frame['datetime'].values).all())
+        # 3 h tendency at 05:00 spans 02:00 (missing), never the 01:00 row.
+        self.assertTrue(np.isnan(out['pres_tend_3h'].iloc[2]))
+
+    def test_day_ahead_maps_interpolate_over_lead(self):
+        da = {'n_d1': 5000, 'n_d2': 5000, 'knots_h': [6.0, 27.0, 51.0],
+              'platt_d1': [0.4, 0.8], 'platt_d2': [0.6, 0.7],
+              'factor_d1': 0.7, 'factor_d2': 0.6}
+        thr = fc.rain_occurrence_threshold([0, 6, 16.5, 27, 39, 51, 70], 0.4, da)
+        np.testing.assert_allclose(thr, 0.4 * np.array([1, 1, 0.85, 0.7, 0.65, 0.6, 0.6]))
+        p = np.array([0.2, 0.2, 0.2, np.nan])
+        pop = fc.rain_occurrence_pop(p, [3, 27, 51, 27], da)
+        self.assertAlmostEqual(pop[0], 0.2)
+        lg = np.log(0.2 / 0.8)
+        self.assertAlmostEqual(pop[1], 1 / (1 + np.exp(-(0.4 + 0.8 * lg))))
+        self.assertAlmostEqual(pop[2], 1 / (1 + np.exp(-(0.6 + 0.7 * lg))))
+        self.assertTrue(np.isnan(pop[3]))
+        # Too few rows -> the constant fallback.
+        small = dict(da, n_d1=10)
+        np.testing.assert_allclose(fc.rain_occurrence_threshold([30], 0.34, small),
+                                   [0.34 * fc.RAIN_OCC_LONG_LEAD_FACTOR])
+
+    def test_v3_rain_feature_blocks(self):
+        n = 30
+        frame = pd.DataFrame({'datetime': pd.date_range('2026-07-01', periods=n, freq='h')})
+        for m in ('GFS_SEAMLESS', 'ICON_SEAMLESS', 'ECMWF_IFS025'):
+            frame[f'{m}_precipitation_model'] = 0.0
+            frame[f'{m}_cape_model'] = np.linspace(0, 900, n)
+            frame[f'{m}_convective_inhibition_model'] = -50.0
+            frame[f'{m}_precipitation_probability_model'] = 40.0
+            frame[f'{m}_showers_model'] = 0.2
+        models = ['GFS_SEAMLESS', 'ICON_SEAMLESS', 'ECMWF_IFS025']
+        v2 = fc.rain_occurrence_features(frame, models=models)
+        both = fc.rain_occurrence_features(frame, models=models, feature_set='v3-both')
+        self.assertTrue(set(v2.columns) < set(both.columns))
+        self.assertAlmostEqual(both['gfs_convective_inhibition'].iloc[0], 50.0)
+        self.assertAlmostEqual(both['x_convective_inhibition_mean'].iloc[0], 50.0)
+        self.assertEqual(both['x_cape_n'].iloc[5], 3.0)
+        self.assertAlmostEqual(both['x_showers_frac'].iloc[5], 1.0)
+        self.assertAlmostEqual(both['gfs_cape_w3max'].iloc[0], 900 / 29 * 3)
+        with self.assertRaises(ValueError):
+            fc.rain_occurrence_features(frame, models=models, feature_set='v9')
+
+    def test_fetch_scripts_match_pipeline_variables(self):
+        import fetch_aux_history
+        import fetch_previous_runs
+        self.assertEqual(set(fetch_aux_history.STABILITY_VARS), set(fc.STABILITY_VARS))
+        self.assertEqual(list(fetch_previous_runs.PREV_RUNS_VARS), list(fc.PREV_RUNS_VARS))
+        self.assertTrue(set(fc.STABILITY_VARS) <= set(fc.HOURLY_VARS))
+        self.assertTrue(set(fetch_aux_history.STAB_MODELS) == set(fc.RAIN_OCC_STAB_MODELS))
+
+    def test_merge_new_wins_drops_stale_tail(self):
+        from openmeteo_client import merge_new_wins
+        t = pd.date_range('2026-02-10', periods=5, freq='D')
+        old = pd.DataFrame({'datetime': t, 'x': [1.0, 2.0, 3.0, 4.0, 5.0]})
+        new = pd.DataFrame({'datetime': t[2:4], 'x': [30.0, np.nan]})
+        got = merge_new_wins(old, new, replace_from=t[2], replace_cols=['x'])
+        np.testing.assert_allclose(got['x'], [1.0, 2.0, 30.0, np.nan, np.nan], equal_nan=True)
+
+    def test_wu_api_rows_match_the_old_table_columns(self):
+        import wu_scraper
+        obs = [{'obsTimeLocal': '2026-08-17 00:04:53', 'winddirAvg': 355,
+                'humidityAvg': 80.2, 'uvHigh': 0.0, 'solarRadiationHigh': 0.0,
+                'imperial': {'tempAvg': 75.4, 'dewptAvg': 68.9, 'windspeedAvg': 2.3,
+                             'windgustAvg': 2.9, 'pressureMax': 29.93,
+                             'precipRate': 0.0, 'precipTotal': 0.01}},
+               {'obsTimeLocal': '2026-08-17 13:09:10', 'winddirAvg': None,
+                'imperial': {'tempAvg': 80.0}}]
+        df = wu_scraper.observations_to_frame(obs, '2026-08-17')
+        self.assertEqual(list(df['time']), ['12:04 AM', '1:09 PM'])
+        self.assertEqual(df['wind_dir'].iloc[0], 'North')
+        self.assertTrue(pd.isna(df['wind_dir'].iloc[1]))
+        self.assertAlmostEqual(df['precip_accum_mm'].iloc[0], 0.25)
+        self.assertEqual(df['datetime'].iloc[0], '2026-08-17 00:04:00')
 
 
 if __name__ == '__main__':
