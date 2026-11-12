@@ -373,6 +373,28 @@
 	<p>Veća promjena je početak kiše. Računao ga je poseban model sa 1396 ulaza i pragom od 0,03, odvojen od satne prognoze. Na istim slučajevima (od jula 2025. do avgusta 2026, iz svakog sata kada je stanica bila suva bar tri sata, za narednih 24 sata) najavio je 2230 početaka za 1482 stvarna. Lažnih je bilo 45%, a od pogođenih početaka samo 48% je bilo unutar tri sata od stvarnog. Znao je i da najavi početak kiše za sat u kom sama satna prognoza nije imala kišu. Sada je početak kiše prvi sat u kom satna prognoza kaže kiša, poslije najmanje tri suva sata, pa se početak i satna prognoza više ne mogu razići. Na istim slučajevima lažnih najava je 9–12%, a 81–85% pogođenih početaka je unutar tri sata. Uz početak objavljujem i šansu da kiša počne do svakog sata, kalibrisanu na podacima koje model nije vidio tokom treninga.</p>
 	<h3>Gdje je granica</h3>
 	<p>Jedna stvar se nije promijenila. Na kišnim danima (sep 2024 – feb 2026) oko 750 sati za sutra dobije šansu od 30 do 60%, i kiša padne u otprilike polovini njih. To nije greška kalibracije, niti greška stanice: suvi sati među njima su stvarno bili suvi. Deset modela se jednostavno ne slaže u kom satu kiša stiže. Probao sam i trening direktno na prognozama starim dan-dva, drugi model koji gleda susjedne sate, LightGBM i različitu dubinu stabala. Ništa nije bilo bolje od druge verzije, a trening na starim prognozama je za sutra izgubio 6% Brier skill-a. Oštriji odgovor na pitanje „pada li kiša u ovom satu” traži novu informaciju: članove ansambla (ECMWF ENS, ICON-EPS), živu stanicu u svakom pokretanju, ili radar, koji već koristim za prva dva sata.</p>
+	<h3 id="model-v7">Dopuna 12. novembra: model v7</h3>
+	<p>Korekcija je ponovo trenirana, sa podacima do 11. novembra, skoro tri mjeseca više nego za v6. Test i dalje počinje 1. jula 2025, ali se za v7 završava 11. novembra 2026, a za v6 18. avgusta, pa poređenje nije sasvim isto. Zato uz grešku stoji i koliko je korekcija bolja od najboljeg pojedinačnog modela na istom periodu.</p>
+	<div class="table-wrap">
+	<table>
+		<thead>
+			<tr><th>Veličina</th><th>Greška (MAE)</th><th>Bolje od najboljeg modela</th></tr>
+		</thead>
+		<tbody>
+			<tr><td>Temperatura</td><td class="change">0,93 → 0,84 °C</td><td class="change">36% → 39%</td></tr>
+			<tr><td>Tačka rose</td><td class="change">1,25 → 1,19 °C</td><td class="change">32% → 37%</td></tr>
+			<tr><td>Vlažnost</td><td class="change">6,2 → 5,7%</td><td class="change">32% → 42%</td></tr>
+			<tr><td>Vjetar</td><td class="change">0,32 → 0,28 m/s</td><td class="change">50% → 54%</td></tr>
+			<tr><td>Udari vjetra</td><td class="change">0,61 → 0,54 m/s</td><td class="change">56% → 60%</td></tr>
+			<tr><td>Pritisak</td><td class="change">0,34 → 0,23 hPa</td><td class="change">48% → 64%</td></tr>
+			<tr><td>Sunčevo zračenje</td><td class="change">37 → 33 W/m²</td><td class="change">42% → 45%</td></tr>
+			<tr><td>Oblačnost</td><td class="change">11,9 → 12,1%</td><td class="change">41% → 39%</td></tr>
+		</tbody>
+	</table>
+	</div>
+	<p>Oblačnost jedina nije napredovala. Vjetar i udari su bolji u odnosu na najbolji pojedinačni model, ali u odnosu na prosjek modela dobitak je isti kao u v6.</p>
+	<p>Kiša se sada računa drugačije. Satna kiša je porast dnevnog brojača kišomjera, a ne prosjek petominutne jačine, koji je ukupnu kišu precjenjivao za oko 27%. Satna odluka o kiši je otprilike ista kao ranije, sa indeksom uspjeha oko 0,48. Pomak je kod početka kiše: tipična greška je sat umjesto dva, unutar sata pogodi 53% početaka umjesto 49%, a lažnih najava je 8% umjesto 10%. Šansa za kišu za sutra i prekosutra kalibriše se iznova pri svakom treningu.</p>
+	<p>Probao sam i da klasifikatoru dam podatke iz viših slojeva atmosfere: CAPE, CIN, pljuskove, vjetar, vlagu i temperaturu na 850, 700 i 500 hPa, iz GFS-a i iz više modela. Brier je bio malo bolji, ali je najava početka kiše bila lošija, pa ostaje stari skup ulaza.</p>
 	<h3>O otvaranju koda</h3>
 	<p>Repozitorijum je već neko vrijeme javan, što sam tretirao kao isto što i otvoreni kod. Nije. Nema licence, a pod podrazumijevanim autorskim pravom to znači da niko ne smije legalno koristiti, mijenjati ni redistribuirati ništa od toga. Svi mogu da čitaju, a niko ne može da gradi, što je blizu najgoreg od oba aranžmana.</p>
 	<p>Namjeravam to da ispravim, i razlog je direktno vezan za sve gore. Ova evaluacija je bila moguća zato što su izlazi arhivirani i uporedivi. Jedna stanica u Budvi je uzorak od jedan. Zanimljivo pitanje nije da li ovaj pipeline radi ovdje, nego da li obrazac važi šire: da li korekcija grubog globalnog modela donosi velik dobitak na sistematskim veličinama i gubi na konvektivnim padavinama i na drugim priobalnim lokacijama slične geografije. Na to ne mogu odgovoriti sam, niti moram.</p>
