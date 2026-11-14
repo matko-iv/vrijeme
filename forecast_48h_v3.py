@@ -9627,8 +9627,18 @@ def generate_output(corrected, trained, results, fc_raw=None, marine=None, onset
             },
         }}
 
+    # Name of the shipped model (bump trained_models_v2/model_version.json with
+    # every model release) so verify_published.py can score each version.
+    model_version = None
+    try:
+        with open(os.path.join(MODEL_DIR, 'model_version.json'), encoding='utf-8') as f:
+            model_version = json.load(f).get('version')
+    except (OSError, ValueError) as e:
+        print(f"  model_version.json nije procitan ({e})")
+
     output = {
         "generated": now_str,
+        "model_version": model_version,
         "location": {"name": "Budva, Crna Gora", "lat": LAT, "lon": LON,
                       "timezone": FORECAST_TIMEZONE,
                       "station": "ibudva5 (Weather Underground)"},

@@ -1,0 +1,185 @@
+{
+ "model": "v6",
+ "issued_from": "2026-08-19 12:38:56",
+ "issued_to": "2026-11-12 19:23:41",
+ "forecasts": 383,
+ "station_data_end": "2026-11-10 22:00:00",
+ "scores": {
+  "0-23h": {
+   "temperature_2m": {
+    "hours": 1906,
+    "mae": 0.78,
+    "bias": -0.095,
+    "raw_mae": 1.265,
+    "gain_pct": 38.3
+   },
+   "dew_point_2m": {
+    "hours": 1906,
+    "mae": 1.261,
+    "bias": 0.115,
+    "raw_mae": 1.987,
+    "gain_pct": 36.6
+   },
+   "relative_humidity_2m": {
+    "hours": 1906,
+    "mae": 6.143,
+    "bias": 0.971,
+    "raw_mae": 9.165,
+    "gain_pct": 33.0
+   },
+   "wind_speed_10m": {
+    "hours": 1906,
+    "mae": 0.308,
+    "bias": -0.023,
+    "raw_mae": 1.211,
+    "gain_pct": 74.6
+   },
+   "wind_gusts_10m": {
+    "hours": 1906,
+    "mae": 0.6,
+    "bias": 0.015,
+    "raw_mae": 2.781,
+    "gain_pct": 78.4
+   },
+   "pressure_msl": {
+    "hours": 1989,
+    "mae": 0.745,
+    "bias": 0.119,
+    "raw_mae": 0.942,
+    "gain_pct": 21.0
+   },
+   "shortwave_radiation": {
+    "hours": 1906,
+    "mae": 29.218,
+    "bias": -18.738,
+    "raw_mae": 57.555,
+    "gain_pct": 49.2
+   },
+   "rain": {
+    "hours": 1906,
+    "rain_hours": 90,
+    "csi": 0.418,
+    "pod": 0.717,
+    "far": 0.499,
+    "raw": {
+     "csi": 0.362,
+     "pod": 0.896,
+     "far": 0.622
+    },
+    "pop_brier": 0.0266
+   }
+  },
+  "24-47h": {
+   "temperature_2m": {
+    "hours": 1882,
+    "mae": 0.824,
+    "bias": -0.057,
+    "raw_mae": 1.279,
+    "gain_pct": 35.6
+   },
+   "dew_point_2m": {
+    "hours": 1882,
+    "mae": 1.338,
+    "bias": 0.257,
+    "raw_mae": 1.995,
+    "gain_pct": 32.9
+   },
+   "relative_humidity_2m": {
+    "hours": 1882,
+    "mae": 6.508,
+    "bias": 1.321,
+    "raw_mae": 9.26,
+    "gain_pct": 29.7
+   },
+   "wind_speed_10m": {
+    "hours": 1882,
+    "mae": 0.322,
+    "bias": -0.03,
+    "raw_mae": 1.202,
+    "gain_pct": 73.2
+   },
+   "wind_gusts_10m": {
+    "hours": 1882,
+    "mae": 0.623,
+    "bias": 0.013,
+    "raw_mae": 2.753,
+    "gain_pct": 77.4
+   },
+   "pressure_msl": {
+    "hours": 1965,
+    "mae": 1.094,
+    "bias": 0.397,
+    "raw_mae": 0.919,
+    "gain_pct": -19.1
+   },
+   "shortwave_radiation": {
+    "hours": 1882,
+    "mae": 20.37,
+    "bias": -4.368,
+    "raw_mae": 58.305,
+    "gain_pct": 65.1
+   },
+   "rain": {
+    "hours": 1882,
+    "rain_hours": 90,
+    "csi": 0.423,
+    "pod": 0.817,
+    "far": 0.533,
+    "raw": {
+     "csi": 0.381,
+     "pod": 0.923,
+     "far": 0.607
+    },
+    "pop_brier": 0.0307
+   }
+  }
+ },
+ "mae_by_month_0_23h": {
+  "2026-08": {
+   "temperature_2m": 0.654,
+   "dew_point_2m": 1.293,
+   "relative_humidity_2m": 5.694,
+   "wind_speed_10m": 0.239,
+   "wind_gusts_10m": 0.472,
+   "pressure_msl": 1.935,
+   "shortwave_radiation": 32.491
+  },
+  "2026-09": {
+   "temperature_2m": 0.78,
+   "dew_point_2m": 1.386,
+   "relative_humidity_2m": 6.214,
+   "wind_speed_10m": 0.31,
+   "wind_gusts_10m": 0.612,
+   "pressure_msl": 0.489,
+   "shortwave_radiation": 30.854
+  },
+  "2026-10": {
+   "temperature_2m": 0.824,
+   "dew_point_2m": 1.18,
+   "relative_humidity_2m": 6.115,
+   "wind_speed_10m": 0.316,
+   "wind_gusts_10m": 0.626,
+   "pressure_msl": 0.658,
+   "shortwave_radiation": 27.255
+  },
+  "2026-11": {
+   "temperature_2m": 0.797,
+   "dew_point_2m": 1.077,
+   "relative_humidity_2m": 6.509,
+   "wind_speed_10m": 0.356,
+   "wind_gusts_10m": 0.634,
+   "pressure_msl": 0.332,
+   "shortwave_radiation": 26.243
+  }
+ },
+ "test_mae": {
+  "temperature_2m": 0.929,
+  "dew_point_2m": 1.252,
+  "relative_humidity_2m": 6.236,
+  "wind_speed_10m": 0.323,
+  "wind_gusts_10m": 0.609,
+  "pressure_msl": 0.335,
+  "shortwave_radiation": 37.386,
+  "precipitation": 0.264
+ }
+}
