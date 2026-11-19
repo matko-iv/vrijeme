@@ -31,17 +31,48 @@ echo tops.
 | Rain | Paints lift and moisture. The rain area drifts with the steering wind and fades once its forcing decays (~3 h). |
 | Storm | **Paint** (default): brush thunderstorms exactly like rain. Heavy rain with convective cores (up to ~60 dBZ) and lightning appears where you brush, with downburst/outflow gusts (typically 60–100 km/h) blowing outward from the cores, then drifts and evolves with Auto weather like painted rain. **Supercell**: a click drops one supercell (hook echo, holds position ~25 min, then moves off). |
 | Squall | A line of storms that propagates forward and rebuilds itself. |
-| Low / High | Press at the centre, drag outward for size. Strength sets the depth. |
-| Cold / warm front | Temperature step plus a lift band. A cold front fires a squall line when there is CAPE. |
-| Moisture / Heat | Paint humid or dry, warm or cold air. |
+| Low / High | Press at the centre, drag outward for size. Strength sets the depth. **Life cycle**: *Auto* lows deepen over the sea and fill over land, highs build and then weaken; *Deepen*, *Steady* and *Fill* force one phase. Systems are slightly oval and move with the flow around them. |
+| Cold / warm front | Temperature step plus a lift band. The air mass behind it persists and moves in. A cold front fires a squall line when there is CAPE; a warm front spreads a cirrus shield ahead of it. |
+| Moisture | Paint humid or dry air. |
+| Heat | **Warmer** / **Colder** add or remove heat; **Set** pulls the air under the brush toward a target temperature (−25 to 45 °C). Painted heat is an air mass: it drifts with the wind and fades over the *Air-mass memory* time, and it makes its own small heat low or cold high. |
+| Formations | Ready-made rain and cloud structures (below). |
 | Erase | Wipes everything under the brush. |
 | Radar site | Puts a radar anywhere, with its ring, beam overshoot, terrain blocking, clutter and C-band attenuation. |
 
-Atmosphere controls: the steering wind (drag the compass arrow), 0–6 km
-shear, T850, T500, humidity, sea temperature, sun heating, storm trigger and
-sea breeze. Six scenarios start you off: Adriatic autumn showers, summer
-heat storms, a Genoa low with jugo, bura, a supercell day and a blank
-canvas.
+**Formations** (Formations tool, strength 1–10):
+
+| Formation | How | What you get |
+|---|---|---|
+| Rain band | drag a line | A narrow, wavy frontal or convergence band that drifts with the steering wind for 5–9 h. |
+| Shower streets | click | Rows of elongated showers along the wind (cold air over a warm sea); thundery from strength 7. |
+| Spiral bands | click (brush = radius) | Bands spiralling into a centre. Near a low they lock onto it and travel with it. |
+| Bow echo | drag a line | A line of strong storms that bows out downwind, with damaging straight-line gusts at the apex. |
+| Orographic rain | click on mountains | Rain on the slopes the steering wind climbs, heaviest windward, drier in the lee. |
+| Drizzle | paint | A low stratus deck with drizzle (weak 4–17 dBZ echoes; low, so a distant radar overshoots it). |
+| Fog / low stratus | paint | Lasts in calm, humid air, burns off in sunshine, mixes out in wind. |
+| Cumulus field | paint | Fair-weather cumulus. |
+| Cirrus | paint | Thin, fibrous high cloud that streams with the upper wind. |
+
+Clouds also form on their own: fog on clear, calm, humid nights (first in
+valleys), cumulus over sunny land (in streets over a warm sea in cold air),
+and cirrus from lows, warm fronts and storm anvils.
+
+Atmosphere controls: the steering wind (drag the compass arrow), then three
+groups of sliders.
+
+- **Temperature:** T850 (the air mass), **Surface offset** (shifts all
+  2 m temperatures without touching the air aloft), T500, sea temperature,
+  **Day–night range** (0 = no diurnal cycle, 2.5× = desert-like),
+  **N–S contrast** (the north–south temperature gradient across the map),
+  **Valley inversions** (cold air pooling in valleys on clear, calm nights)
+  and **Air-mass memory** (how long painted heat and front air masses last,
+  1–72 h).
+- **Moisture & storms:** humidity, 0–6 km shear, sun heating, storm trigger
+  and natural rain.
+- **Flow:** sea breeze and flow variety.
+
+Six scenarios start you off: Adriatic autumn showers, summer heat storms, a
+Genoa low with jugo, bura, a supercell day and a blank canvas.
 
 **Auto weather** (on by default) does two gentle things while you play:
 
@@ -83,10 +114,19 @@ Keys: `Space` play/pause, `→` step, `←` back. The timeline keeps the last
 The engine runs on a ~200-cell grid over the visible map.
 
 - **Pressure and wind.** A background gradient comes from the steering wind,
-  plus Gaussian lows and highs with a gradient-wind correction. Surface
-  wind is turned toward low pressure by friction (more over land), blocked
-  by slopes, accelerated downslope (bura) and modulated by a diurnal sea
-  breeze.
+  plus oval Gaussian lows and highs. The wind of the systems comes from
+  the pressure field itself: the geostrophic wind of the combined
+  pressure, corrected by the curvature of the actual isobars (gradient
+  wind). So overlapping, stretched and evolving systems get the winds
+  their isobars imply, with strong gradients between a low and a high
+  and lighter winds in the centre of a high, instead of a fixed wind
+  pattern stamped around each centre. Lows and highs move with the flow
+  around them (at most 15 and 8 m/s), turn their long axis with it, and
+  run a life cycle (deepen, mature, fill and widen). Warm and cold air
+  masses add their own shallow heat lows and cold highs, with air
+  flowing down their gradient like a sea breeze. Surface wind is turned
+  toward low pressure by friction (more over land), blocked by slopes,
+  accelerated downslope (bura) and modulated by a diurnal sea breeze.
 - **Free atmosphere.** Even with no lows or highs placed, one broad, slowly
   morphing long-wave trough/ridge pattern (~1200 km) bends the wind gently
   across the map. It adds matching pressure and ascent in its troughs.
@@ -95,8 +135,16 @@ The engine runs on a ~200-cell grid over the visible map.
   nothing.
 - **Temperature and moisture.** Both are advected semi-Lagrangian and
   relaxed toward an equilibrium. That equilibrium comes from the air mass
-  (T850), the lapse rate over the terrain, sea temperature and the sun:
-  solar zenith angle for the real date and place, damped by cloud.
+  (T850 plus the surface offset and the N–S contrast), the lapse rate over
+  the terrain, sea temperature and the sun: solar zenith angle for the
+  real date and place, scaled by the day–night range and damped by low
+  cloud (cirrus barely). Clear, calm nights pool cold air in valleys.
+  An air-mass anomaly field holds painted heat and front air masses. It
+  moves with the deep low-level flow and fades over the air-mass memory.
+- **Cloud layers.** Besides the rain cloud there are four layers: fog and
+  low stratus (with drizzle), cumulus, and cirrus. Each moves with its
+  own level's wind, forms and dissipates by its own rules, and is drawn
+  at its own height, so the IR image shows cirrus cold and fog warm.
 - **Stratiform rain.** Lift from convergence, upslope flow, warm advection
   and lows condenses moisture into a cloud-water reservoir. It rains out
   over ~25 min and drifts with the steering wind. It needs a deep moist
@@ -113,7 +161,9 @@ The engine runs on a ~200-cell grid over the visible map.
 - **Radar** (`js/radar.js`) renders at ~1 km. Stratiform texture rides on
   two flow-following coordinate layers, so it moves and deforms with the
   local wind. The layers are advected and reset alternately every 3 h. The
-  texture adds bands, holes and embedded heavier cores. Storm cells have irregular shapes, internal cores and hooks.
+  texture adds bands, holes and embedded heavier cores. Drawn formations
+  keep their own shape and read as continuous bands. Storm cells have
+  irregular shapes, internal cores and hooks.
   In single-site mode the beam follows 4/3-earth geometry with a terrain
   horizon per azimuth, a range-dependent detection threshold and C-band
   path-integrated attenuation.
