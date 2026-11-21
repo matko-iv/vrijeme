@@ -68,17 +68,18 @@
             text-decoration: underline;
         }
 
+        /* Rounded header bar; the current page is a blue pill. */
         .site-header {
             display: flex;
             justify-content: space-between;
-            align-items: baseline;
+            align-items: center;
             flex-wrap: wrap;
-            gap: 12px 24px;
+            gap: 6px 12px;
             margin-bottom: 36px;
-            padding: 12px 22px;
+            padding: 8px 8px 8px 22px;
             background: #ffffff;
             border-radius: 999px;
-            box-shadow: 0 1px 3px rgba(31,35,40,0.06);
+            box-shadow: 0 1px 4px rgba(31,35,40,0.06);
             font-size: 13px;
         }
 
@@ -87,17 +88,34 @@
             text-decoration: none;
         }
 
-        .site-header a:hover {
-            color: #24292e;
-        }
-
         .site-header .site-name {
             font-weight: 600;
             color: #24292e;
         }
 
+        .site-header nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2px;
+        }
+
         .site-header nav a {
             margin: 0;
+            padding: 6px 12px;
+            border-radius: 999px;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .site-header nav a:hover {
+            background: #f3f5f8;
+            color: #24292e;
+            text-decoration: none;
+        }
+
+        .site-header nav a.active {
+            background: #0366d6;
+            color: #ffffff;
+            font-weight: 600;
         }
 
         .generated-time {
@@ -876,7 +894,6 @@
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        .site-header nav { display: flex; flex-wrap: wrap; gap: 8px 16px; }
         a:focus-visible, button:focus-visible, [tabindex]:focus-visible {
             outline: 2px solid #0366d6;
             outline-offset: 4px;
@@ -902,6 +919,7 @@
             .metrics-bar { grid-template-columns: repeat(2, 1fr); }
             .daily-grid { grid-template-columns: 1fr; }
             .current-weather .cw-icon { padding: 8px; }
+            .site-header { border-radius: 28px; padding: 10px 10px 10px 18px; }
             .warning-row { padding: 10px 14px; }
             .day-card { padding: 20px 18px; }
             .day-card .day-header { margin-bottom: 0; }
@@ -929,10 +947,11 @@
     <div class="site-header">
         <a href="/" class="site-name">Matija Ivanović</a>
         <nav>
+            <a href="forecast.html" class="active" aria-current="page">Live Prognoza</a>
             <a href="index.html">Analiza</a>
             <a href="dugorocne-najave.html">Dugoročne najave</a>
             <a href="https://matko-iv.github.io/blog/">Blog</a>
-            <a href="https://github.com/matko-iv/vrijeme" target="_blank">GitHub</a>
+            <a href="https://github.com/matko-iv/vrijeme" target="_blank" rel="noreferrer">GitHub</a>
             <a href="mailto:ivanovicmatija2007@gmail.com">Kontakt</a>
         </nav>
     </div>

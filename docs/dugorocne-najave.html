@@ -8,64 +8,201 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
         body {
-            font-family: inter;
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
             font-weight: 400;
             font-size: 18px;
             line-height: 1.6;
             color: #24292e;
-            background: #ffffff;
-            max-width: 680px;
+            background: #f3f5f8;
+            max-width: 720px;
             margin: 0 auto;
-            padding: 60px 20px;
+            padding: 48px 20px;
         }
 
-        h1 { font-size: 40px; font-weight: 600; margin-bottom: 12px; line-height: 1.25; }
-        h2 { font-size: 30px; font-weight: 600; margin-top: 50px; margin-bottom: 18px; line-height: 1.25; }
-        h3 { font-size: 22px; font-weight: 600; margin-top: 35px; margin-bottom: 14px; }
-        p { margin-bottom: 18px; }
+        h1 { font-size: 40px; font-weight: 600; margin-bottom: 12px; line-height: 1.25; color: #24292e; }
+        h2 { font-size: 30px; font-weight: 600; margin-top: 50px; margin-bottom: 18px; line-height: 1.25; color: #24292e; }
+        h3 { font-size: 22px; font-weight: 600; margin-top: 35px; margin-bottom: 14px; color: #24292e; }
+        p { margin-bottom: 18px; color: #24292e; }
         a { color: #0366d6; text-decoration: none; }
         a:hover { text-decoration: underline; }
         ul, ol { margin-left: 28px; margin-bottom: 18px; }
         li { margin-bottom: 6px; }
 
-        table { width: 100%; margin: 28px 0; border-collapse: collapse; font-size: 16px; }
-        th { text-align: left; padding: 10px; border-bottom: 2px solid #e1e4e8; font-weight: 600; }
-        td { padding: 10px; border-bottom: 1px solid #e1e4e8; vertical-align: top; }
-        tr:last-child td { border-bottom: none; }
+        code {
+            background: #eef1f5;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.9em;
+        }
 
+        pre {
+            background: #f6f8fa;
+            border-radius: 18px;
+            padding: 18px 20px;
+            overflow-x: auto;
+            margin: 24px 0;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        pre code { background: none; padding: 0; border-radius: 0; }
+
+        img {
+            max-width: 100%;
+            height: auto;
+            margin: 24px 0;
+            display: block;
+            border-radius: 18px;
+        }
+
+        /* Section break: a row of round dots instead of a rule. */
+        hr {
+            border: none;
+            width: 72px;
+            height: 8px;
+            margin: 48px auto;
+            background: radial-gradient(circle, #c9d1d9 3px, transparent 3.5px) center / 24px 8px repeat-x;
+        }
+
+        blockquote {
+            padding: 14px 22px;
+            margin: 24px 0;
+            color: #586069;
+            font-style: italic;
+            background: #f1f6fd;
+            border-radius: 20px;
+        }
+
+        blockquote p { margin-bottom: 0; color: #586069; }
+
+        .note {
+            background: #ffffff;
+            border-radius: 20px;
+            padding: 16px 20px;
+            margin: 28px 0;
+            font-size: 16px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
+        }
+
+        .footer {
+            text-align: center;
+            color: #586069;
+            font-size: 13px;
+            padding: 24px 0;
+            margin-top: 48px;
+        }
+
+        .footer p { margin-bottom: 0; color: #586069; }
+        .footer a { color: #0366d6; }
+
+        /* Rounded header bar; the current page is a blue pill. */
         .site-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 60px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #e1e4e8;
-            font-size: 15px;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            margin-bottom: 48px;
+            padding: 8px 8px 8px 22px;
+            background: #ffffff;
+            border-radius: 999px;
+            box-shadow: 0 1px 4px rgba(31,35,40,0.06);
+            font-size: 13px;
         }
-        .site-header a { color: #586069; text-decoration: none; }
-        .site-header a:hover { color: #24292e; }
-        .site-header .site-name { font-weight: 600; color: #24292e; }
-        .site-header nav a { margin-left: 20px; }
+
+        .site-header a {
+            color: #586069;
+            text-decoration: none;
+        }
+
+        .site-header .site-name {
+            font-weight: 600;
+            color: #24292e;
+        }
+
+        .site-header nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2px;
+        }
+
+        .site-header nav a {
+            margin: 0;
+            padding: 6px 12px;
+            border-radius: 999px;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .site-header nav a:hover {
+            background: #f3f5f8;
+            color: #24292e;
+            text-decoration: none;
+        }
+
+        .site-header nav a.active {
+            background: #0366d6;
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        table {
+            width: 100%;
+            margin: 28px 0;
+            border-collapse: separate;
+            border-spacing: 0 3px;
+            font-size: 16px;
+            background: #ffffff;
+            border-radius: 22px;
+            padding: 8px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
+        }
+
+        th {
+            text-align: left;
+            padding: 10px 12px;
+            font-weight: 600;
+        }
+
+        td { padding: 10px 12px; vertical-align: top; }
+        tr:nth-child(even) td { background: #f6f8fa; }
+        td:first-child { border-radius: 14px 0 0 14px; }
+        td:last-child { border-radius: 0 14px 14px 0; }
+        td:only-child { border-radius: 14px; }
+
+        details {
+            margin: 18px 0;
+            background: #ffffff;
+            border-radius: 20px;
+            padding: 14px 20px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
+        }
+
+        summary { cursor: pointer; color: #24292e; }
+
+        td { vertical-align: top; }
 
         .date { color: #586069; font-size: 16px; margin-bottom: 40px; }
 
-        .note {
-            background: #f6f8fa;
-            border: 1px solid #e1e4e8;
-            border-left: 3px solid #586069;
-            padding: 15px 20px;
-            margin: 28px 0;
-            font-size: 16px;
-        }
-        .note.blue { background: #e8f4fd; border-left-color: #0366d6; }
+        .note.blue { background: #e8f4fd; box-shadow: none; }
 
-        .article {
-            border-top: 1px solid #e1e4e8;
-            padding-top: 10px;
-            margin-top: 60px;
+        /* Articles are separated by a row of dots, not a rule. */
+        .article { margin-top: 64px; }
+        .article::before {
+            content: '';
+            display: block;
+            width: 72px;
+            height: 8px;
+            margin: 0 auto 40px;
+            background: radial-gradient(circle, #c9d1d9 3px, transparent 3.5px) center / 24px 8px repeat-x;
         }
 
         .meta {
@@ -80,9 +217,10 @@
 
         .fig {
             margin: 34px 0 6px;
-            padding: 18px 18px 12px;
-            border: 1px solid #e1e4e8;
-            background: #fbfcfd;
+            padding: 22px 22px 16px;
+            background: #ffffff;
+            border-radius: 26px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
         }
 
         .fig-title {
@@ -93,26 +231,24 @@
             margin-bottom: 6px;
         }
 
-        .fig-sub {
-            font-size: 14px;
-            color: #586069;
-            margin-bottom: 14px;
-        }
+        .fig-sub { font-size: 14px; color: #586069; margin-bottom: 14px; }
 
         .fig-plot { position: relative; }
         .fig-plot svg { display: block; overflow: visible; }
-
-        .fig-src {
-            font-size: 12px;
-            color: #6a737d;
-            margin: 10px 0 0;
+        /* No straight grid lines in the figures; rounder marks. */
+        .fig-plot svg > line:not(.fig-cross) { display: none; }
+        .fig-plot svg polyline, .fig-plot svg polygon, .fig-plot svg path {
+            stroke-linejoin: round;
+            stroke-linecap: round;
         }
+        .fig-plot svg rect:not([fill="transparent"]) { rx: 8px; ry: 8px; }
 
-        .fig-data { margin: 12px 0 0; font-size: 14px; }
+        .fig-src { font-size: 12px; color: #6a737d; margin: 10px 0 0; }
+
+        .fig-data { margin: 12px 0 0; font-size: 14px; box-shadow: none; background: #f6f8fa; }
         .fig-data summary { cursor: pointer; color: #586069; }
-        .fig-data table { font-size: 13px; margin: 12px 0 4px; }
+        .fig-data table { font-size: 13px; margin: 12px 0 4px; box-shadow: none; }
         .fig-data th, .fig-data td { padding: 4px 8px; }
-        .fig-data td { border-bottom: 1px solid #eaecef; }
 
         .fig-legend {
             list-style: none;
@@ -130,7 +266,7 @@
         .fig-legend .sw {
             width: 14px;
             height: 14px;
-            border-radius: 3px;
+            border-radius: 50%;
             margin-right: 7px;
             opacity: 0.62;
         }
@@ -142,8 +278,8 @@
             color: #ffffff;
             font-size: 12px;
             line-height: 1.45;
-            padding: 7px 10px;
-            border-radius: 4px;
+            padding: 8px 12px;
+            border-radius: 14px;
             white-space: nowrap;
             transform: translate(-50%, -100%);
             z-index: 5;
@@ -152,23 +288,22 @@
         .fig-tip b { font-weight: 600; }
 
         @media (max-width: 720px) {
-            body { font-size: 17px; padding: 40px 18px; }
+            body { font-size: 17px; padding: 32px 14px; }
             h1 { font-size: 32px; }
             h2 { font-size: 26px; }
             h3 { font-size: 20px; }
-            .site-header { display: block; }
-            .site-header nav { margin-top: 14px; }
-            .site-header nav a { margin-left: 0; margin-right: 14px; display: inline-block; }
-            .fig { padding: 14px 12px 10px; margin-left: -6px; margin-right: -6px; }
+            .fig { padding: 16px 14px 12px; border-radius: 22px; }
+            .site-header { border-radius: 28px; padding: 10px 10px 10px 18px; }
         }
     </style>
 </head>
 <body>
     <div class="site-header">
         <a href="/" class="site-name">Matija Ivanović</a>
-        <nav>
+                <nav>
             <a href="forecast.html">Live Prognoza</a>
             <a href="index.html">Analiza</a>
+            <a href="dugorocne-najave.html" class="active" aria-current="page">Dugoročne najave</a>
             <a href="https://matko-iv.github.io/blog/">Blog</a>
             <a href="https://github.com/matko-iv/vrijeme" target="_blank" rel="noreferrer">GitHub</a>
             <a href="mailto:ivanovicmatija2007@gmail.com">Kontakt</a>

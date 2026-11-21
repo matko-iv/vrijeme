@@ -25,131 +25,110 @@
             padding: 0;
             box-sizing: border-box;
         }
-		
 
         body {
-            font-family: inter;
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
             font-weight: 400;
             font-size: 18px;
             line-height: 1.6;
             color: #24292e;
-            background: #ffffff;
-            max-width: 680px;
+            background: #f3f5f8;
+            max-width: 720px;
             margin: 0 auto;
-            padding: 60px 20px;
+            padding: 48px 20px;
         }
 
-        h1 {
-            font-size: 40px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            line-height: 1.25;
-            color: #24292e;
-        }
-
-        h2 {
-            font-size: 30px;
-            font-weight: 600;
-            margin-top: 50px;
-            margin-bottom: 18px;
-            line-height: 1.25;
-            color: #24292e;
-        }
-
-        h3 {
-            font-size: 22px;
-            font-weight: 600;
-            margin-top: 35px;
-            margin-bottom: 14px;
-            color: #24292e;
-        }
-
-        p {
-            margin-bottom: 18px;
-            color: #24292e;
-        }
-
-        a {
-            color: #0366d6;
-            text-decoration: none;
-        }
-
-        a:hover {
-            text-decoration: underline;
-        }
-
-        img {
-            max-width: 100%;
-            height: auto;
-            margin: 30px 0;
-            display: block;
-            border-radius: 3px;
-        }
+        h1 { font-size: 40px; font-weight: 600; margin-bottom: 12px; line-height: 1.25; color: #24292e; }
+        h2 { font-size: 30px; font-weight: 600; margin-top: 50px; margin-bottom: 18px; line-height: 1.25; color: #24292e; }
+        h3 { font-size: 22px; font-weight: 600; margin-top: 35px; margin-bottom: 14px; color: #24292e; }
+        p { margin-bottom: 18px; color: #24292e; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        ul, ol { margin-left: 28px; margin-bottom: 18px; }
+        li { margin-bottom: 6px; }
 
         code {
-            background: #f6f8fa;
-            padding: 3px 6px;
-            border-radius: 3px;
+            background: #eef1f5;
+            padding: 3px 8px;
+            border-radius: 999px;
             font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
             font-size: 0.9em;
         }
 
-        ul, ol {
-            margin-left: 28px;
-            margin-bottom: 18px;
+        pre {
+            background: #f6f8fa;
+            border-radius: 18px;
+            padding: 18px 20px;
+            overflow-x: auto;
+            margin: 24px 0;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 14px;
+            line-height: 1.5;
         }
 
-        li {
-            margin-bottom: 6px;
+        pre code { background: none; padding: 0; border-radius: 0; }
+
+        img {
+            max-width: 100%;
+            height: auto;
+            margin: 24px 0;
+            display: block;
+            border-radius: 18px;
         }
 
-        table {
-            width: 100%;
-            margin: 28px 0;
-            border-collapse: collapse;
-            font-size: 16px;
+        /* Section break: a row of round dots instead of a rule. */
+        hr {
+            border: none;
+            width: 72px;
+            height: 8px;
+            margin: 48px auto;
+            background: radial-gradient(circle, #c9d1d9 3px, transparent 3.5px) center / 24px 8px repeat-x;
         }
 
-        th {
-            text-align: left;
-            padding: 10px;
-            border-bottom: 2px solid #e1e4e8;
-            font-weight: 600;
+        blockquote {
+            padding: 14px 22px;
+            margin: 24px 0;
+            color: #586069;
+            font-style: italic;
+            background: #f1f6fd;
+            border-radius: 20px;
         }
 
-        td {
-            padding: 10px;
-            border-bottom: 1px solid #e1e4e8;
-        }
+        blockquote p { margin-bottom: 0; color: #586069; }
 
-        tr:last-child td {
-            border-bottom: none;
-        }
-
-        td.change {
-            white-space: nowrap;
-        }
-
-        details {
-            margin: 18px 0;
-            border: 1px solid #e1e4e8;
+        .note {
             background: #ffffff;
-            padding: 14px 16px;
+            border-radius: 20px;
+            padding: 16px 20px;
+            margin: 28px 0;
+            font-size: 16px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
         }
 
-        summary {
-            cursor: pointer;
-            color: #24292e;
+        .footer {
+            text-align: center;
+            color: #586069;
+            font-size: 13px;
+            padding: 24px 0;
+            margin-top: 48px;
         }
 
+        .footer p { margin-bottom: 0; color: #586069; }
+        .footer a { color: #0366d6; }
+
+        /* Rounded header bar; the current page is a blue pill. */
         .site-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 60px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #e1e4e8;
-            font-size: 15px;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            margin-bottom: 48px;
+            padding: 8px 8px 8px 22px;
+            background: #ffffff;
+            border-radius: 999px;
+            box-shadow: 0 1px 4px rgba(31,35,40,0.06);
+            font-size: 13px;
         }
 
         .site-header a {
@@ -157,43 +136,76 @@
             text-decoration: none;
         }
 
-        .site-header a:hover {
-            color: #24292e;
-        }
-
         .site-header .site-name {
             font-weight: 600;
             color: #24292e;
         }
 
+        .site-header nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2px;
+        }
+
         .site-header nav a {
-            margin-left: 20px;
+            margin: 0;
+            padding: 6px 12px;
+            border-radius: 999px;
+            transition: background 0.15s, color 0.15s;
         }
 
-        .date {
-            color: #586069;
-            font-size: 16px;
-            margin-bottom: 40px;
+        .site-header nav a:hover {
+            background: #f3f5f8;
+            color: #24292e;
+            text-decoration: none;
         }
 
-        .note {
-            background: #f6f8fa;
-            border: 1px solid #e1e4e8;
-            border-left: 3px solid #586069;
-            padding: 15px 20px;
+        .site-header nav a.active {
+            background: #0366d6;
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        table {
+            width: 100%;
             margin: 28px 0;
+            border-collapse: separate;
+            border-spacing: 0 3px;
             font-size: 16px;
+            background: #ffffff;
+            border-radius: 22px;
+            padding: 8px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
         }
 
-        .note.blue {
-            background: #e8f4fd;
-            border-left-color: #0366d6;
+        th {
+            text-align: left;
+            padding: 10px 12px;
+            font-weight: 600;
         }
 
-        .note.green {
-            background: #f0fff4;
-            border-left-color: #28a745;
+        td { padding: 10px 12px; vertical-align: top; }
+        tr:nth-child(even) td { background: #f6f8fa; }
+        td:first-child { border-radius: 14px 0 0 14px; }
+        td:last-child { border-radius: 0 14px 14px 0; }
+        td:only-child { border-radius: 14px; }
+
+        details {
+            margin: 18px 0;
+            background: #ffffff;
+            border-radius: 20px;
+            padding: 14px 20px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
         }
+
+        summary { cursor: pointer; color: #24292e; }
+
+        td.change { white-space: nowrap; }
+
+        .date { color: #586069; font-size: 16px; margin-bottom: 40px; }
+
+        .note.blue { background: #e8f4fd; box-shadow: none; }
+        .note.green { background: #ecfbf0; box-shadow: none; }
 
         .table-wrap {
             width: calc(100% + 80px);
@@ -201,39 +213,31 @@
             overflow-x: auto;
         }
 
-        .results-note {
-            color: #586069;
-            font-size: 14px;
-            margin-top: -10px;
-        }
-
-        .metric-good {
-            color: #28a745;
-            font-weight: 600;
-        }
-
-        .metric-bad {
-            color: #d73a49;
-            font-weight: 600;
-        }
+        .results-note { color: #586069; font-size: 14px; margin-top: -10px; }
+        .metric-good { color: #28a745; font-weight: 600; }
+        .metric-bad { color: #d73a49; font-weight: 600; }
 
         .run-box {
             background: #ffffff;
-            border: 1px solid #d0d7de;
-            padding: 18px;
+            border-radius: 26px;
+            padding: 22px 24px;
             margin: 26px 0;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
         }
 
-        .run-box h3 {
-            margin-top: 0;
-            font-size: 18px;
-        }
+        .run-box h3 { margin-top: 0; font-size: 18px; }
 
         .run-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 10px;
+            gap: 8px;
             font-size: 15px;
+        }
+
+        .run-grid > div {
+            background: #f6f8fa;
+            border-radius: 16px;
+            padding: 10px 14px;
         }
 
         .run-grid span {
@@ -244,80 +248,39 @@
             letter-spacing: 0.4px;
         }
 
-        .run-grid strong {
-            color: #24292e;
-        }
+        .run-grid strong { color: #24292e; }
 
-        .model-list {
-            columns: 2;
-            margin-top: 8px;
-        }
+        .model-list { columns: 2; margin-top: 8px; }
 
-        .trusted {
-            color: #6f42c1;
-            font-weight: 600;
-        }
+        .trusted { color: #6f42c1; font-weight: 600; }
 
         .math-block {
             overflow-x: auto;
             margin: 18px 0 26px;
-            padding: 14px 12px;
+            padding: 16px 18px;
             background: #ffffff;
-            border: 1px solid #e1e4e8;
+            border-radius: 20px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
         }
 
         @media (max-width: 680px) {
-            body {
-                font-size: 16px;
-                padding: 40px 16px;
-            }
-
-            h1 {
-                font-size: 32px;
-            }
-
-            h2 {
-                font-size: 26px;
-            }
-
-            h3 {
-                font-size: 20px;
-            }
-
-            .site-header {
-                display: block;
-            }
-
-            .site-header nav {
-                margin-top: 14px;
-            }
-
-            .site-header nav a {
-                margin-left: 0;
-                margin-right: 14px;
-                display: inline-block;
-            }
-
-            .run-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .table-wrap {
-                width: 100%;
-                margin-left: 0;
-            }
-
-            .model-list {
-                columns: 1;
-            }
+            body { font-size: 16px; padding: 32px 14px; }
+            h1 { font-size: 32px; }
+            h2 { font-size: 26px; }
+            h3 { font-size: 20px; }
+            .run-grid { grid-template-columns: 1fr; }
+            .table-wrap { width: 100%; margin-left: 0; }
+            .model-list { columns: 1; }
+            .site-header { border-radius: 28px; padding: 10px 10px 10px 18px; }
         }
     </style>
 </head>
 <body>
     <div class="site-header">
         <a href="/" class="site-name">Matija Ivanović</a>
-        <nav>
-            <a href="forecast.html" style="color:#0366d6;font-weight:600;">Live Prognoza</a>
+                <nav>
+            <a href="forecast.html">Live Prognoza</a>
+            <a href="index.html" class="active" aria-current="page">Analiza</a>
             <a href="dugorocne-najave.html">Dugoročne najave</a>
             <a href="https://matko-iv.github.io/blog/">Blog</a>
             <a href="https://github.com/matko-iv/vrijeme" target="_blank" rel="noreferrer">GitHub</a>
