@@ -23,7 +23,7 @@
             font-size: 16px;
             line-height: 1.6;
             color: #24292e;
-            background: #fbfcfd;
+            background: #f3f5f8;
             max-width: 800px;
             margin: 0 auto;
             padding: 48px 24px;
@@ -44,8 +44,6 @@
             margin-bottom: 16px;
             line-height: 1.25;
             color: #24292e;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #d0d7de;
         }
 
         h3 {
@@ -77,8 +75,10 @@
             flex-wrap: wrap;
             gap: 12px 24px;
             margin-bottom: 36px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid #d8dee4;
+            padding: 12px 22px;
+            background: #ffffff;
+            border-radius: 999px;
+            box-shadow: 0 1px 3px rgba(31,35,40,0.06);
             font-size: 13px;
         }
 
@@ -110,17 +110,18 @@
             display: inline-block;
             margin-top: 8px;
             padding: 4px 12px;
-            border-radius: 3px;
-            background: #f6f8fa;
-            border: 1px solid #d0d7de;
+            border-radius: 999px;
+            background: #ffffff;
+            border: none;
             color: #24292e;
             font-size: 13px;
             font-weight: 500;
         }
 
         .note {
-            border-left: 2px solid #d0d7de;
-            padding: 4px 0 4px 16px;
+            background: #ffffff;
+            border-radius: 18px;
+            padding: 14px 18px;
             margin: 24px 0;
             font-size: 14px;
         }
@@ -128,28 +129,28 @@
         .daily-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 0;
+            gap: 14px;
             width: 100%;
             margin: 24px 0 36px;
-            border-top: 1px solid #d0d7de;
-            border-bottom: 1px solid #d0d7de;
         }
 
         .current-weather {
-            padding: 24px 0;
+            padding: 24px 28px;
             margin: 0 0 32px;
             display: flex;
             align-items: center;
             gap: 24px;
-            border-top: 1px solid #d0d7de;
-            border-bottom: 1px solid #d0d7de;
+            background: #ffffff;
+            border-radius: 28px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
         }
 
-        /* Hairline behind the icon: structure instead of a colored edge. */
+        /* Soft round halo behind the icon. */
         .current-weather .cw-icon {
             flex-shrink: 0;
-            padding-right: 24px;
-            border-right: 1px solid #eaeef2;
+            padding: 12px;
+            background: #f1f6fd;
+            border-radius: 50%;
         }
 
         .current-weather .cw-main {
@@ -209,8 +210,9 @@
         /* Severity lives in the solid icon tile, not in a tinted card. */
         .warning-row {
             background: #fff;
-            border: 1px solid #d0d7de;
-            border-radius: 0;
+            border: none;
+            border-radius: 20px;
+            box-shadow: 0 1px 4px rgba(31,35,40,0.06);
             padding: 12px 16px;
             display: flex;
             gap: 14px;
@@ -221,7 +223,7 @@
             flex-shrink: 0;
             width: 36px;
             height: 36px;
-            border-radius: 0;
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -246,8 +248,8 @@
             font-size: 10px;
             font-weight: 700;
             color: #fff;
-            padding: 2px 7px;
-            border-radius: 3px;
+            padding: 2px 9px;
+            border-radius: 999px;
             letter-spacing: 0.5px;
         }
         .warning-row.sev-moderate .w-now-badge { background: #d97706; }
@@ -268,18 +270,19 @@
 
         /* When the current hour falls inside an active warning, the card's
            outline and the live dot take the severity color — no tint wash. */
-        .current-weather.has-warning-moderate { border-color: #d97706; }
-        .current-weather.has-warning-severe   { border-color: #ea580c; }
-        .current-weather.has-warning-extreme  { border-color: #dc2626; }
+        .current-weather.has-warning-moderate { box-shadow: 0 0 0 2px #d97706; }
+        .current-weather.has-warning-severe   { box-shadow: 0 0 0 2px #ea580c; }
+        .current-weather.has-warning-extreme  { box-shadow: 0 0 0 2px #dc2626; }
 
         .day-card {
             min-width: 0;
             display: flex;
             flex-direction: column;
-            padding: 20px 18px;
-            border-left: 1px solid #d0d7de;
+            padding: 22px 20px;
+            background: #ffffff;
+            border-radius: 26px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
         }
-        .day-card:first-child { border-left: none; }
 
         .day-card .day-header {
             display: flex;
@@ -310,8 +313,8 @@
             line-height: 1.4;
         }
 
-        /* The day narrative IS the "dnevni izvještaj" — a quiet note panel,
-           hairline all around, no colored edge. */
+        /* The day narrative IS the "dnevni izvještaj": a few sentences on
+           what weather comes and how it changes through the day. */
         .day-card .day-narrative {
             flex: 1;
             font-size: 14px;
@@ -335,9 +338,10 @@
         .day-details {
             display: grid;
             gap: 5px;
-            margin-top: 12px;
-            padding-top: 12px;
-            border-top: 1px solid #e1e4e8;
+            margin-top: 14px;
+            padding: 12px 14px;
+            background: #f6f8fa;
+            border-radius: 16px;
         }
 
         .detail-item {
@@ -355,8 +359,9 @@
 
 
         .hourly-strip {
-            border-top: 1px solid #d0d7de;
-            border-bottom: 1px solid #d0d7de;
+            background: #ffffff;
+            border-radius: 26px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
             margin: 0 0 36px;
             overflow-x: auto;
         }
@@ -365,17 +370,15 @@
             font-size: 14px;
             font-weight: 600;
             margin: 0;
-            padding: 12px 16px;
+            padding: 16px 20px 4px;
             color: #24292e;
-            background: #f6f8fa;
-            border-bottom: 1px solid #e1e4e8;
         }
 
         .hourly-row {
             display: flex;
-            gap: 2px;
+            gap: 4px;
             min-width: max-content;
-            padding: 6px;
+            padding: 8px 12px 12px;
         }
 
         .hourly-cell {
@@ -385,21 +388,19 @@
             min-width: 80px;
             padding: 14px 8px;
             font-size: 13px;
-            border-radius: 0;
+            border-radius: 18px;
             transition: background 0.12s ease;
         }
         /* Night hours get a faint slate tint so the strip reads day/night at
-           a glance; a new calendar day starts with a rule + weekday label. */
+           a glance; a new calendar day starts with a gap + weekday label. */
         .hourly-cell.is-night { background: #f7f9fb; }
         .hourly-cell.is-now {
             background: #f1f8ff;
-            box-shadow: inset 0 2px 0 #0366d6;
+            box-shadow: inset 0 0 0 2px #0366d6;
         }
         .hourly-cell.is-now .h-time { color: #0366d6; }
         .hourly-cell.day-break {
-            border-left: 1px solid #d0d7de;
-            border-radius: 0;
-            margin-left: 8px;
+            margin-left: 12px;
         }
         .hourly-cell .h-day {
             font-size: 10px;
@@ -423,7 +424,7 @@
         }
         .hourly-cell .h-rain {
             color: #0550ae;
-            border-radius: 3px;
+            border-radius: 999px;
             font-size: 11.5px;
             margin-top: 6px;
             font-weight: 600;
@@ -465,27 +466,30 @@
         }
         .marine-tabs {
             display: flex;
-            gap: 4px;
+            gap: 6px;
             margin-bottom: 14px;
-            border-bottom: 1px solid #d0d7de;
+            padding: 5px;
+            background: #ffffff;
+            border-radius: 999px;
+            width: fit-content;
+            max-width: 100%;
         }
         .marine-tab {
             background: none;
             border: none;
-            border-bottom: 2px solid transparent;
+            border-radius: 999px;
             padding: 8px 16px;
             font-size: 14px;
             font-weight: 500;
             color: #57606a;
             cursor: pointer;
             font-family: inherit;
-            margin-bottom: -1px;
-            transition: color 0.15s, border-color 0.15s;
+            transition: color 0.15s, background 0.15s;
         }
-        .marine-tab:hover { color: #24292e; }
+        .marine-tab:hover { color: #24292e; background: #f3f5f8; }
         .marine-tab.active {
-            color: #0969da;
-            border-bottom-color: #0969da;
+            color: #ffffff;
+            background: #0969da;
             font-weight: 600;
         }
         .marine-panel { display: none; }
@@ -499,26 +503,27 @@
         .marine-daily-grid {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
-            gap: 0;
-            border: 1px solid #d0d7de;
-            border-radius: 0;
+            gap: 6px;
+            padding: 8px;
+            border-radius: 26px;
             overflow: hidden;
             background: #fff;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
             margin-bottom: 18px;
         }
         .m-day {
             padding: 14px 8px;
             text-align: center;
-            border-right: 1px solid #e1e4e8;
+            background: #f6f8fa;
+            border-radius: 18px;
             font-size: 12.5px;
         }
-        .m-day:last-child { border-right: none; }
         .m-day-name { font-weight: 600; color: #24292e; }
         .m-day-date { color: #6a737d; font-size: 11px; margin-bottom: 6px; }
         .m-score-pill {
             display: inline-block;
-            padding: 2px 8px;
-            border-radius: 3px;
+            padding: 2px 10px;
+            border-radius: 999px;
             font-weight: 600;
             font-size: 11px;
             margin: 4px 0;
@@ -549,39 +554,35 @@
             color: #6a737d;
         }
         .marine-hourly-wrap {
-            border: 1px solid #d0d7de;
-            border-radius: 0;
+            border-radius: 26px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
             background: #fff;
             overflow-x: auto;
         }
         .marine-hourly-wrap h4 {
             margin: 0;
-            padding: 12px 16px;
+            padding: 16px 20px 4px;
             font-size: 14px;
             font-weight: 600;
             color: #24292e;
-            background: #f6f8fa;
-            border-bottom: 1px solid #e1e4e8;
         }
         .marine-hourly {
             display: flex;
-            gap: 2px;
+            gap: 4px;
             min-width: max-content;
-            padding: 6px;
+            padding: 8px 12px 12px;
         }
         .mh-cell {
             min-width: 64px;
             text-align: center;
             font-size: 11.5px;
             padding: 8px 4px;
-            border-radius: 0;
+            border-radius: 14px;
             color: #424a53;
             transition: background 0.12s ease;
         }
         .mh-cell.day-break {
-            border-left: 1px solid #d0d7de;
-            border-radius: 0;
-            margin-left: 8px;
+            margin-left: 12px;
         }
         .mh-day {
             font-size: 9px;
@@ -622,23 +623,24 @@
             line-height: 1.5;
         }
         .douglas-table-wrap {
-            border: 1px solid #d0d7de;
-            border-radius: 0;
+            border-radius: 24px;
             overflow-x: auto;
             background: #fff;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
+            padding: 8px;
         }
         .douglas-table {
             width: 100%;
-            border-collapse: collapse;
+            border-collapse: separate;
+            border-spacing: 0 3px;
             font-size: 13.5px;
         }
         .douglas-table th {
             text-align: left;
-            background: #f6f8fa;
+            background: transparent;
             color: #24292e;
             font-weight: 600;
             padding: 10px 12px;
-            border-bottom: 1px solid #d0d7de;
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.3px;
@@ -646,18 +648,19 @@
         }
         .douglas-table td {
             padding: 10px 12px;
-            border-bottom: 1px solid #eaeef2;
             color: #24292e;
             vertical-align: middle;
         }
-        .douglas-table tbody tr:last-child td { border-bottom: none; }
-        .douglas-table tbody tr:hover { background: #f6f8fa; }
+        .douglas-table tbody tr:nth-child(odd) td { background: #f6f8fa; }
+        .douglas-table tbody tr:hover td { background: #eef3f9; }
+        .douglas-table td:first-child { border-radius: 14px 0 0 14px; }
+        .douglas-table td:last-child { border-radius: 0 14px 14px 0; }
         .d-deg {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             width: 26px; height: 26px;
-            border-radius: 3px;
+            border-radius: 50%;
             color: #fff;
             font-weight: 700;
             font-size: 12px;
@@ -687,9 +690,10 @@
         }
 
         .long-range-grid {
-            display: block;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
             margin: 0 0 36px;
-            border-top: 1px solid #d0d7de;
         }
 
         .lr-card {
@@ -698,8 +702,10 @@
             grid-template-areas: 'date icon condition temp' '. . details details';
             gap: 0 16px;
             align-items: center;
-            padding: 18px 0;
-            border-bottom: 1px solid #d0d7de;
+            padding: 16px 20px;
+            background: #ffffff;
+            border-radius: 22px;
+            box-shadow: 0 1px 6px rgba(31,35,40,0.05);
         }
 
         .lr-day {
@@ -758,15 +764,18 @@
 
         .chart-tabs {
             display: flex;
-            gap: 0;
+            gap: 6px;
             flex-wrap: wrap;
-            border-bottom: 1px solid #d0d7de;
+            padding: 5px;
+            background: #ffffff;
+            border-radius: 26px;
+            margin-bottom: 12px;
         }
 
         .chart-tab {
-            padding: 10px 12px;
+            padding: 9px 12px;
             border: none;
-            border-bottom: 2px solid transparent;
+            border-radius: 999px;
             background: transparent;
             color: #586069;
             cursor: pointer;
@@ -775,49 +784,45 @@
             font-weight: 500;
             flex: 1;
             min-width: 0;
-            margin-bottom: -1px;
         }
         .chart-tab:hover {
-            background: #f6f8fa;
+            background: #f3f5f8;
             color: #24292e;
         }
-        .chart-tab:last-child { border-right: none; }
 
         .chart-tab.active {
-            border-bottom-color: #0366d6;
-            color: #0366d6;
+            background: #0366d6;
+            color: #ffffff;
             font-weight: 600;
         }
 
         .chart-container {
-            padding: 20px 0;
+            padding: 20px;
             position: relative;
             height: 340px;
+            background: #ffffff;
+            border-radius: 26px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
         }
 
         .metrics-bar {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 0;
+            gap: 10px;
             margin-bottom: 36px;
-            border: 1px solid #d0d7de;
-            border-radius: 0;
-            overflow: hidden;
-            background: #ffffff;
         }
 
         .metric-card {
             background: #ffffff;
             border: none;
-            border-right: 1px solid #e1e4e8;
-            border-radius: 0;
-            padding: 16px;
+            border-radius: 22px;
+            box-shadow: 0 1px 6px rgba(31,35,40,0.05);
+            padding: 16px 18px;
             text-align: left;
         }
         .metric-card:hover {
             background: #fbfcfd;
         }
-        .metric-card:last-child { border-right: none; }
 
         .metric-card .metric-label {
             font-size: 11px;
@@ -846,7 +851,6 @@
             font-size: 13px;
             padding: 22px 0 4px;
             margin-top: 32px;
-            border-top: 1px solid #d0d7de;
         }
 
         .footer a { color: #0366d6; }
@@ -856,8 +860,7 @@
             padding: 60px 20px;
             color: #586069;
             font-size: 14px;
-            border: 1px solid #e1e4e8;
-            border-radius: 0;
+            border-radius: 26px;
             background: #ffffff;
         }
 
@@ -881,11 +884,11 @@
         .page-intro { color: #586069; margin-bottom: 12px; }
         .release-note { font-size: 12px; color: #6a737d; margin-bottom: 6px; }
         .forecast-note { font-size: 14px; color: #586069; }
-        .update-note { font-size: 13px; color: #586069; border-left: 3px solid #d0d7de; padding-left: 10px; margin: 8px 0 12px; }
+        .update-note { font-size: 13px; color: #586069; background: #ffffff; border-radius: 16px; padding: 10px 14px; margin: 8px 0 12px; }
         .day-condition { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
         .day-condition img { flex-shrink: 0; }
         .detail-label { color: #586069; }
-        .reference-map { display: block; width: 100%; max-width: 600px; margin-top: 20px; }
+        .reference-map { display: block; width: 100%; max-width: 600px; margin-top: 20px; border-radius: 24px; }
         .lr-date-group { grid-area: date; }
         .lr-icon { grid-area: icon; }
         .lr-condition { grid-area: condition; min-width: 0; }
@@ -897,16 +900,13 @@
             h2 { font-size: 18px; }
             .chart-container { height: 280px; }
             .metrics-bar { grid-template-columns: repeat(2, 1fr); }
-            .metric-card:nth-child(2n) { border-right: none; }
-            .metric-card { border-bottom: 1px solid #e1e4e8; }
             .daily-grid { grid-template-columns: 1fr; }
-            .current-weather .cw-icon { padding-right: 0; border-right: none; }
+            .current-weather .cw-icon { padding: 8px; }
             .warning-row { padding: 10px 14px; }
-            .day-card { border-left: none; border-bottom: 1px solid #d0d7de; padding: 20px 0; }
-            .day-card:last-child { border-bottom: none; }
+            .day-card { padding: 20px 18px; }
             .day-card .day-header { margin-bottom: 0; }
             .day-card .temp-range { font-size: 28px; }
-            .current-weather { flex-direction: row; align-items: flex-start; gap: 12px; padding: 20px 0; }
+            .current-weather { flex-direction: row; align-items: flex-start; gap: 12px; padding: 20px 18px; border-radius: 24px; }
             .current-weather .cw-icon img { width: 64px; height: 64px; }
             .current-weather .cw-temp { font-size: 40px; }
             .current-weather .cw-details { gap: 8px 16px; }
@@ -919,8 +919,8 @@
             .lr-date-group { display: flex; align-items: baseline; gap: 8px; }
             .lr-narrative { font-size: 13px; }
             .chart-tab { flex: 1 0 30%; }
-            .chart-container { padding: 12px 0; }
-            .marine-tabs { overflow-x: auto; }
+            .chart-container { padding: 12px; }
+            .marine-tabs { overflow-x: auto; border-radius: 22px; }
             .marine-tab { flex-shrink: 0; padding: 10px 12px; }
         }
     </style>
@@ -2784,7 +2784,7 @@ function render(data) {
                     })()}
                     <div class="cw-detail" id="cwUvDetail" style="display:none"></div>
                 </div>
-                <div id="radarStatusLine" class="cw-radar-line" style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.08);font-size:14px;color:#555">Radar: ucitavam...</div>
+                <div id="radarStatusLine" class="cw-radar-line" style="margin-top:12px;padding:8px 14px;background:#f6f8fa;border-radius:999px;font-size:14px;color:#555">Radar: ucitavam...</div>
             </div>
         </div>`;
     }
@@ -3288,8 +3288,18 @@ function drawChart(type) {
         if (chartType === 'line' && ds.pointRadius == null) {
             ds.pointRadius = 2;
             ds.pointHoverRadius = 5;
-            ds.tension = 0.3;
+            ds.tension = 0.4;
             ds.borderWidth = 2;
+        }
+        if ((ds.type || chartType) === 'line') {
+            ds.cubicInterpolationMode = 'monotone';
+            ds.borderCapStyle = 'round';
+            ds.borderJoinStyle = 'round';
+        }
+        if ((ds.type || chartType) === 'bar') {
+            ds.borderRadius = 8;
+            ds.borderSkipped = false;
+            ds.borderWidth = 0;
         }
     });
 
@@ -3311,15 +3321,16 @@ function drawChart(type) {
             },
             plugins: {
                 legend: {
-                    labels: { color: '#586069', font: { size: 12 }, usePointStyle: true, pointStyle: 'line',
+                    labels: { color: '#586069', font: { size: 12 }, usePointStyle: true, pointStyle: 'circle',
                               filter: (item) => !item.text.startsWith('_') }
                 },
                 tooltip: {
                     backgroundColor: '#24292e',
                     titleColor: '#ffffff',
                     bodyColor: '#e1e4e8',
-                    borderColor: '#444d56',
-                    borderWidth: 1,
+                    borderWidth: 0,
+                    cornerRadius: 14,
+                    padding: 10,
                     filter: (item) => !(item.dataset.label || '').startsWith('_'),
                     callbacks: {
                         title: (items) => {
@@ -3341,17 +3352,20 @@ function drawChart(type) {
                 x: {
                     type: 'time',
                     time: { unit: 'hour', displayFormats: { hour: 'd.M HH:mm' }, tooltipFormat: 'PPpp' },
-                    grid: { color: 'rgba(0,0,0,0.06)' },
+                    grid: { display: false },
+                    border: { display: false },
                     ticks: { color: '#586069', font: { size: 11 }, maxRotation: 35, autoSkip: true, maxTicksLimit: 24 }
                 },
                 y: {
                     title: { display: true, text: cfg.yTitle, color: '#586069' },
-                    grid: { color: 'rgba(0,0,0,0.06)' },
+                    grid: { display: false },
+                    border: { display: false },
                     ticks: { color: '#586069' }
                 },
                 ...(cfg.y1 ? { y1: {
                     position: 'right', min: 0, max: 100,
-                    grid: { drawOnChartArea: false },
+                    grid: { display: false },
+                    border: { display: false },
                     title: { display: true, text: 'PoP (%)', color: '#28a745' },
                     ticks: { color: '#28a745' }
                 } } : {})

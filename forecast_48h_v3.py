@@ -8794,6 +8794,7 @@ WMO_CODES = {
 
 
 import narrative_variants as nv
+import day_story
 
 
 def _daily_narrative(grp):
@@ -9172,6 +9173,16 @@ def _build_daily_summary(date_str, day_name, grp_df, fc_raw=None):
         'weather_emoji': narr['weather_emoji'],
         'day_narrative': narr['narrative'],
     })
+    # Longer, time-anchored summary for the three hourly day cards; applied
+    # (or dropped for long-range days) after the 48h/long-range split.
+    try:
+        ds['day_story'] = day_story.build(
+            narr_df['hour'], narr_df['cloud_cover'], narr_df['precipitation'],
+            narr_df['wind_speed_10m'], narr_df['wind_gusts_10m'],
+            narr_df['temperature_2m'], narr_df['weather_code'],
+            narr_df['wind_direction_10m'])
+    except Exception as _e:
+        print(f"  Dnevni opis {date_str}: preskočeno ({_e})")
 
     if fc_raw is not None:
         raw_mask = fc_raw['datetime'].isin(grp_df['datetime'])
@@ -9354,6 +9365,10 @@ def _enrich_narratives_with_ai(daily_list, hourly_data):
     api_calls = 0
     for ds in daily_list:
         date_str = ds.get('date', '')
+        # The detailed rule-based day story is authoritative for the 48h cards.
+        if ds.pop('_story_applied', False):
+            count += 1
+            continue
         rows = hourly_by_date.get(date_str, [])
         rows.sort(key=lambda r: r.get('hour', 0))
         has_hourly = len(rows) >= 8
@@ -9569,6 +9584,13 @@ def generate_output(corrected, trained, results, fc_raw=None, marine=None, onset
     for ds in daily + long_range:
         ds.pop('wind_max_models', None)
         ds.pop('gust_max_models', None)
+    for ds in daily:
+        story = ds.pop('day_story', None)
+        if story:
+            ds['day_narrative'] = story
+            ds['_story_applied'] = True
+    for ds in long_range:
+        ds.pop('day_story', None)
 
     if long_range:
         print(f"  Long range: {len(long_range)} dana")
@@ -9609,6 +9631,8 @@ def generate_output(corrected, trained, results, fc_raw=None, marine=None, onset
     all_days_for_ai = daily + long_range
     all_hourly = all_data.to_dict('records')
     _enrich_narratives_with_ai(all_days_for_ai, all_hourly)
+    for ds in all_days_for_ai:
+        ds.pop('_story_applied', None)
 
     training_metrics = results
     rain_bundle = ((trained.get('precipitation') or {}).get('precip_info') or {}).get(
