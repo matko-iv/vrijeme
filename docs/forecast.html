@@ -899,9 +899,43 @@
             outline-offset: 4px;
         }
         .page-intro { color: #586069; margin-bottom: 12px; }
-        .release-note { font-size: 12px; color: #6a737d; margin-bottom: 6px; }
         .forecast-note { font-size: 14px; color: #586069; }
-        .update-note { font-size: 13px; color: #586069; background: #ffffff; border-radius: 16px; padding: 10px 14px; margin: 8px 0 12px; }
+
+        /* Status update: live accuracy of the current model. */
+        .status-card {
+            background: #ffffff;
+            border-radius: 26px;
+            padding: 20px 22px 6px;
+            margin: 18px 0 20px;
+            box-shadow: 0 2px 10px rgba(31,35,40,0.06);
+        }
+        .status-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .status-head h2 { margin: 0; font-size: 18px; }
+        .status-pill {
+            background: #0366d6;
+            color: #ffffff;
+            border-radius: 999px;
+            padding: 3px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+        .status-sub { font-size: 13px; color: #586069; margin: 8px 0 14px; }
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .status-tile {
+            background: #f6f8fa;
+            border-radius: 18px;
+            padding: 10px 14px;
+        }
+        .status-tile span { display: block; font-size: 12px; color: #586069; }
+        .status-tile b { display: block; font-size: 20px; font-weight: 700; color: #24292e; line-height: 1.3; }
+        .status-tile small { display: block; font-size: 12px; color: #6a737d; }
+        .status-text { font-size: 13px; color: #586069; margin-bottom: 12px; }
         .day-condition { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
         .day-condition img { flex-shrink: 0; }
         .detail-label { color: #586069; }
@@ -917,6 +951,7 @@
             h2 { font-size: 18px; }
             .chart-container { height: 280px; }
             .metrics-bar { grid-template-columns: repeat(2, 1fr); }
+            .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .daily-grid { grid-template-columns: 1fr; }
             .current-weather .cw-icon { padding: 8px; }
             .site-header { border-radius: 28px; padding: 10px 10px 10px 18px; }
@@ -958,10 +993,23 @@
 
     <h1>Matkov model v7</h1>
     <p class="page-intro">Vremenska prognoza za Budvu · <a href="index.html">Poruka autora</a> · <a href="index.html#evaluacija-ljeto-2026">Evaluacija: ljeto 2026</a></p>
-    <p class="release-note">Verzija 7 · 12. novembar 2026.</p>
-    <p class="update-note"><strong>Model v7 (12. novembar 2026):</strong> Korekcija je ponovo trenirana, sa podacima do 11. novembra. Greška je manja za osam od devet veličina: temperatura 0,93 → 0,84 °C, vjetar 0,32 → 0,28 m/s, udari 0,61 → 0,54 m/s, pritisak 0,34 → 0,23 hPa. Oblačnost je ostala ista. Kiša se sada broji iz brojača kišomjera, a ne iz prosjeka trenutne jačine, koji je ukupnu kišu precjenjivao za oko 27%. Početak kiše je tačniji: tipična greška je sat umjesto dva. <a href="index.html#model-v7">Detalji</a></p>
-    <p class="update-note"><strong>Kiša, druga verzija (29. oktobar 2026):</strong> klasifikator podnosi veće greške modela u vremenu, a početak kiše je prvi kišni sat poslije bar tri suva. <a href="index.html#kisa-v2">Detalji</a></p>
-    <p class="update-note"><strong>Nova prognoza kiše (27. septembar 2026):</strong> o kiši više ne odlučuje samo model ICON-2I, nego klasifikator koji gleda svih deset modela. <a href="index.html#evaluacija-ljeto-2026">Evaluacija</a></p>
+    <section class="status-card" aria-labelledby="statusTitle">
+        <div class="status-head">
+            <span class="status-pill">Status Update</span>
+            <h2 id="statusTitle">Model v7 u prvih devet dana</h2>
+        </div>
+        <p class="status-sub">12–21. novembar 2026 · 31 objavljena prognoza poređena sa stanicom IBUDVA5 · prosječna greška u prvih 24 sata</p>
+        <div class="status-grid">
+            <div class="status-tile"><span>Temperatura</span><b>0,75 °C</b><small>modeli 0,80 °C</small></div>
+            <div class="status-tile"><span>Vjetar</span><b>0,45 m/s</b><small>modeli 1,82 m/s</small></div>
+            <div class="status-tile"><span>Udari</span><b>0,92 m/s</b><small>modeli 4,76 m/s</small></div>
+            <div class="status-tile"><span>Pritisak</span><b>0,44 hPa</b><small>modeli 1,01 hPa</small></div>
+            <div class="status-tile"><span>Vlažnost</span><b>3,6 %</b><small>modeli 6,2 %</small></div>
+            <div class="status-tile"><span>Kiša</span><b>CSI 0,38</b><small>modeli 0,23</small></div>
+        </div>
+        <p class="status-text">„Modeli" je prosjek deset modela prije korekcije. Od 34 kišna sata, 63 % je bilo najavljeno, a polovina najavljenih kišnih sati ostala je suva. Drugi dan (24–47 h) ima nešto veće greške; temperatura je tada na nivou modela (0,89 prema 0,87 °C).</p>
+        <p class="status-text">Vjetar, udari i pritisak imaju veću grešku nego na testu pri treniranju (0,28 m/s, 0,54 m/s i 0,23 hPa). Devet dana je kratak period, pa je to zasad samo signal. <a href="index.html#model-v7">O modelu v7</a></p>
+    </section>
     <div class="generated-time" id="genTime"></div>
     <p class="forecast-note">Prognoza važi isključivo za Budvu. Sezonske najave za ljeto, zimu i El Niño: <a href="dugorocne-najave.html">Dugoročne najave</a>.</p>
 

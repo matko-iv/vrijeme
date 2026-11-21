@@ -6,6 +6,30 @@ design (its own CSS, inline SVG figures, four articles: summer 2026, winter 2026
 El Niño, Balkan do 2030). JavaScript is only used for the sea-temperature tooltip;
 every figure has its numbers in the text, an `aria-label` or a data table.
 
+## Revision: 21 November 2026
+
+Sources checked on 2026-11-21. Summer 2026 is unchanged (closed review).
+
+| Source edition | Values used |
+| --- | --- |
+| NOAA CPC discussion, 12 November 2026 | El Niño still strengthening, weakening from early 2027; ~60% chance of RONI ≥ +2.5 °C in OND and NDJ (75% in September); next discussion 10 December |
+| NOAA CPC strengths, November 2026 | Very strong (RONI ≥ +2.0): OND 100, NDJ 96, DJF 79, JFM 35, FMA 3, MAM 0, AMJ 0%; neutral FMA 2, MAM 20, AMJ 61%; La Niña AMJ 1% |
+| NOAA CPC RONI | ASO 2026 +2.0 (JJA +1.4, JAS +1.7); historic peaks unchanged |
+| NOAA CPC weekly Niño 3.4 | Traditional peak +3.4 °C (28 Oct), +3.2 °C (11 Nov); relative +2.5 °C (21–28 Oct), +2.2 °C (11 Nov) |
+| C3S, 10 November 2026 (highlights) | DJF warmer than average over most of Europe, most confident in the southwest, less in the northeast; wetter except the extreme north and south; MSLP high over the pole, low in mid-latitudes, like a negative AO |
+
+Computed for this revision:
+
+- Pacific map: `karta_pacifika.py 2026-11-18`, Niño 3.4 box +3.55 °C.
+- Indian Ocean Dipole (same OISST boxes as before): +1.36 (8 Oct), +0.95, +0.72,
+  +1.18 (29 Oct), +0.91, +0.51, +0.37 °C (18 Nov).
+- Autumn so far, ERA5 (`models=era5`, 42.25 N 19.00 E, 1991–2020 base): October
+  −0.08 °C, 1–15 November −0.01 °C. Station IBUDVA5 (`wu_data/` updated 21 Nov):
+  176 mm in October, 187 mm on 1–20 November, 363 mm from 1 October to 20 November;
+  same window 2020–2024: 263, 239, 194, 313, 184 mm (2025 incomplete).
+- Hot days 2026 (Open-Meteo archive, same points as `klimatologija.py`, to 20 Nov):
+  Budva 80, Podgorica 100; none after 1 October, so the counts are final.
+
 ## Revision: 2 October 2026
 
 Sources checked on 2026-10-02. The NOAA and C3S URLs are rolling and will later
