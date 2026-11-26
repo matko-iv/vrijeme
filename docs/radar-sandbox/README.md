@@ -19,9 +19,19 @@ over between regions.
 ## Map modes
 
 Radar (composite reflectivity), rain rate, accumulation, 2 m temperature,
-dew point, humidity, wind and gusts (with flow particles), pressure
-(isobars, L/H), satellite (visible by day, IR or enhanced IR), CAPE and
-echo tops.
+dew point, humidity, wind and gusts (with flow lines), pressure, satellite
+(visible always daylit, IR or enhanced IR), CAPE and echo tops.
+
+- **Pressure** looks like a synoptic chart: isobars every 4 hPa on
+  continental maps (2 or 1 hPa when zoomed in). The L and H labels sit on
+  the field's real minima and maxima. Lows carry blue cold fronts with
+  triangles and red warm fronts with semicircles.
+- **Temperature, dew point, humidity and wind** are drawn at terrain
+  resolution. Values are brought down to the real ground height, so valleys
+  are warmer by day, peaks colder and windier. On calm nights cold air pools
+  in valleys. City labels use the town's real height.
+- **Flow lines** are drawn in four speed classes: calm air is faint and thin,
+  strong wind bright and bold.
 
 ## Tools
 
@@ -73,7 +83,8 @@ Lifetime rises with size (√area, 30 min to 6 h). This dynamic scaling of
 precipitation lifetime is the one known from radar nowcasting research
 (Germann & Zawadzki). Pockets only add lift and moisture, so the rain
 itself grows and fades through the normal rain physics.
-**Flow variety** scales the free atmosphere described below.
+The **Pressure systems** slider scales the background lows and highs
+described below (0 turns them off).
 
 Keys: `Space` play/pause, `→` step, `←` back. The timeline keeps the last
 72 frames. Editing an earlier frame rewrites the future.
@@ -82,14 +93,35 @@ Keys: `Space` play/pause, `→` step, `←` back. The timeline keeps the last
 
 The engine runs on a ~200-cell grid over the visible map.
 
-- **Pressure and wind.** A background gradient comes from the steering wind,
-  plus Gaussian lows and highs with a gradient-wind correction. Surface
-  wind is turned toward low pressure by friction (more over land), blocked
-  by slopes, accelerated downslope (bura) and modulated by a diurnal sea
-  breeze.
-- **Free atmosphere.** Even with no lows or highs placed, one broad, slowly
-  morphing long-wave trough/ridge pattern (~1200 km) bends the wind gently
-  across the map. It adds matching pressure and ascent in its troughs.
+- **Pressure systems.** Background lows and highs live in a region well
+  beyond the map, so the pressure field always has realistic, slowly
+  changing centres (lows ~450–1100 km and 6–18 hPa deep, highs wider and
+  flatter).
+  - **Life cycle:** each one forms from nothing, deepens over about a day,
+    matures, then fills over 2–5 days. New ones start at zero strength, so
+    nothing jumps.
+  - **Shape and motion:** they are elliptical and slowly rotate. They move
+    with the local steering flow, so neighbours interact, and lows fill
+    faster over land.
+  - **Fronts:** deeper lows carry a cold front trailing behind them and a
+    warm front ahead. Each front adds a pressure trough (V-shaped
+    isobars), a wind shift across the front, and a cloud and rain belt
+    that slowly builds along it.
+  - **Your systems:** a low or high you place pushes nearby background
+    systems out of the way, so they don't merge into something deeper.
+- **Wind.** Gradient wind from all systems is turned toward low pressure
+  by friction, more over land.
+  - **Day and night:** by day, mixing brings faster, less-turned wind to the
+    surface and raises gusts. At night, air over land decouples: it is
+    calmer and turns more across the isobars, most of all in valleys.
+  - **Terrain:** ridges are exposed and valleys sheltered. Slopes block flow
+    trying to climb them, and wind accelerates downslope (bura).
+  - **Local winds:** cold air drains down slopes on calm nights (katabatic
+    wind), and a diurnal sea breeze blows onshore by day.
+  - A light smoothing pass removes grid noise.
+- **Free atmosphere.** A broad, slowly morphing long-wave trough/ridge
+  pattern (~1200 km) bends the steering wind gently across the map. It
+  adds matching pressure and ascent in its troughs.
   Mesoscale organisation (~60 km) scales condensation inside areas that are
   already rising. It gives bands and gaps without creating rain out of
   nothing.

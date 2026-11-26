@@ -6,7 +6,7 @@ import { Sim, DEFAULT_PARAMS, dewpoint, qsat, windFrom, dirFrom } from './sim.js
 import { Raster, ATLAS } from './radar.js';
 import {
   SCALES, RADAR_PALETTES, makeLUT, lutColor, computeShade, renderBasemap, gridImage,
-  drawBorders, drawCities, drawIsobars, drawSystems, drawBarbs, drawStrikes,
+  drawBorders, drawCities, drawIsobars, drawFronts, drawSystems, drawBarbs, drawStrikes,
 } from './render.js';
 import { CITIES } from './cities.js';
 
@@ -54,7 +54,7 @@ const SLIDERS = [
   { key: 'trigger', label: 'Storm trigger', min: 0, max: 3, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
   { key: 'breeze', label: 'Sea breeze', min: 0, max: 2, step: 0.1, fmt: v => `${(+v).toFixed(1)}×` },
   { key: 'natural', label: 'Natural rain', min: 0, max: 1, step: 0.05, fmt: v => (+v === 0 ? 'only mine' : `${Math.round(v * 100)}%`) },
-  { key: 'variability', label: 'Flow variety', min: 0, max: 2.5, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
+  { key: 'variability', label: 'Pressure systems', min: 0, max: 2.5, step: 0.05, fmt: v => `${(+v).toFixed(2)}×` },
 ];
 
 // Local wall time in Europe/Podgorica -> UTC ms.
@@ -442,6 +442,13 @@ function render() {
     }
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(rasterCanvas, view.ox, view.oy, view.w, view.h);
+  } else if (mode === 'temp' || mode === 'dew' || mode === 'rh' || mode === 'wind') {
+    raster.fineField(sim, mode, SCALES[mode].lut, rasterImg.data);
+    rasterCanvas.getContext('2d').putImageData(rasterImg, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = 0.85;
+    ctx.drawImage(rasterCanvas, view.ox, view.oy, view.w, view.h);
+    ctx.globalAlpha = 1;
   } else {
     const img = fieldImage(mode);
     ctx.imageSmoothingEnabled = true;
@@ -457,15 +464,15 @@ function render() {
     const col = style === 'radar' ? 'rgba(30,24,20,.85)' : style === 'sat' ? 'rgba(255,236,120,.6)' : dark ? 'rgba(210,220,235,.5)' : style === 'terrain' ? 'rgba(255,255,255,.75)' : 'rgba(55,55,65,.6)';
     drawBorders(ctx, view, borders, col, (style === 'radar' ? 1 : 1.1) * dpr);
   }
-  if (state.layers.isobars || mode === 'mslp') drawIsobars(ctx, view, sim, dpr, dark);
+  if (state.layers.isobars || mode === 'mslp') { drawIsobars(ctx, view, sim, dpr, dark); drawFronts(ctx, view, sim, dpr); }
   if (state.layers.barbs) drawBarbs(ctx, view, sim, sim.u, sim.v, dpr, dark ? 'rgba(255,255,255,.85)' : 'rgba(20,25,35,.8)');
   if (state.layers.cities) {
-    const values = mode === 'temp' ? c => fmtAt(c, sim.T, v => `${Math.round(v)}°`) : mode === 'wind' ? c => fmtAt(c, sim.gust, v => `${Math.round(v * 3.6)}`) :
+    const values = mode === 'temp' ? c => cityTemp(c) : mode === 'wind' ? c => cityGust(c) :
       mode === 'acc' ? c => fmtAt(c, sim.acc, v => (v >= 0.5 ? `${v.toFixed(v < 10 ? 1 : 0)}` : null)) : null;
     drawCities(ctx, view, CITIES, { maxRank: cityRank(), style: style === 'sat' ? 'satellite' : style === 'radar' && mode === 'radar' ? 'radar' : style, dpr, values });
   }
   if (state.layers.lightning) drawStrikes(ctx, view, sim.strikes, sim.time, Math.max(30, state.stepMin * 2), dpr, cityRank() <= 2 ? 2.2 : 3.2);
-  if (state.layers.systems) drawSystems(ctx, view, sim, dpr);
+  if (state.layers.systems) drawSystems(ctx, view, sim, dpr, mode === 'mslp' || state.layers.isobars);
   const site = siteFor();
   if (site && !layout.frame && (mode === 'radar' || mode === 'top')) drawSiteRing(site);
   ctx.restore();
@@ -480,6 +487,28 @@ function sunAtCentre() { return sim.cosz[(sim.NY >> 1) * sim.NX + (sim.NX >> 1)]
 function fmtAt(c, field, fmt) {
   if (!sim.inside(c[3], c[2])) return null;
   return fmt(sim.sampleLL(field, c[3], c[2]));
+}
+
+// Ground height under a lon/lat point from the fine terrain (0 over water).
+function demElevLL(lon, lat) {
+  const x = view.px(lon) | 0, y = view.py(lat) | 0;
+  if (x < 0 || y < 0 || x >= dem.w || y >= dem.h) return null;
+  const i = y * dem.w + x;
+  return dem.water[i] ? 0 : Math.max(0, dem.elev[i]);
+}
+// City values brought down to the town's real height, like the map.
+function cityTemp(c) {
+  if (!sim.inside(c[3], c[2])) return null;
+  const h = demElevLL(c[3], c[2]);
+  const t = sim.sampleLL(sim.T, c[3], c[2]) - (h == null ? 0 : 0.0065 * (h - sim.sampleLL(sim.elev, c[3], c[2])));
+  return `${Math.round(t)}°`;
+}
+function cityGust(c) {
+  if (!sim.inside(c[3], c[2])) return null;
+  const h = demElevLL(c[3], c[2]);
+  let g = sim.sampleLL(sim.gust, c[3], c[2]) * 3.6;
+  if (h) g *= clamp(1 + (h - sim.sampleLL(sim.elev, c[3], c[2])) / 600, 0.6, 1.5);
+  return `${Math.round(g)}`;
 }
 
 function cityRank() {
@@ -671,7 +700,8 @@ function readout(vx, vy) {
   const S = f => sim.sample(f, gx, gy);
   const di = Math.min(dem.h - 1, vy | 0) * dem.w + Math.min(dem.w - 1, vx | 0);
   const elev = dem.water[di] ? 0 : Math.max(0, Math.round(dem.elev[di]));
-  const T = S(sim.T), q = S(sim.q), ps = S(sim.p) * Math.exp(-elev / 8000);
+  const de = elev - S(sim.elev);
+  const T = S(sim.T) - 0.0065 * de, q = S(sim.q) * Math.exp(-de / 2500), ps = S(sim.p) * Math.exp(-elev / 8000);
   const rh = clamp(100 * q / qsat(T, ps), 0, 100), td = dewpoint(q, ps);
   const u = S(sim.u), v = S(sim.v), spd = Math.hypot(u, v);
   const rp = Math.min(raster.W * raster.H - 1, Math.floor(vy / raster.k) * raster.W + Math.floor(vx / raster.k));
@@ -1045,33 +1075,46 @@ function resetParticles() {
   fxc.clearRect(0, 0, fx.width, fx.height);
   parts = [];
   if (!state.layers.particles || !view) return;
-  const n = Math.round(view.w * view.h / (1400 * dpr * dpr));
-  for (let i = 0; i < n; i++) parts.push(newPart());
+  const n = Math.round(view.w * view.h / (850 * dpr * dpr));
+  for (let i = 0; i < n; i++) parts.push(newPart(true));
 }
-function newPart() { return { x: Math.random() * view.w, y: Math.random() * view.h, age: Math.floor(Math.random() * 90) }; }
+function newPart(randomAge) {
+  const life = 70 + Math.floor(Math.random() * 90);
+  return { x: Math.random() * view.w, y: Math.random() * view.h, age: randomAge ? Math.floor(Math.random() * life) : 0, life };
+}
+// Flow lines: particles ride the surface wind and leave fading trails,
+// drawn in four speed classes (calm air faint and thin, strong wind bright
+// and bold), like the animated wind maps of weather services.
+const PART_CLASSES = [[3, 0.32, 0.8], [7, 0.55, 1.0], [12, 0.78, 1.25], [Infinity, 0.95, 1.6]];
 function particleTick() {
   requestAnimationFrame(particleTick);
   if (!state.layers.particles || !sim || !parts.length) return;
   const g = fxc;
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.globalCompositeOperation = 'destination-in';
-  g.fillStyle = 'rgba(0,0,0,0.9)';
+  g.fillStyle = 'rgba(0,0,0,0.93)';
   g.fillRect(0, 0, fx.width, fx.height);
   g.globalCompositeOperation = 'source-over';
   const dark = state.mode === 'sat' || baseStyle() === 'dark';
-  g.strokeStyle = dark ? 'rgba(255,255,255,.75)' : 'rgba(25,35,55,.7)';
-  g.lineWidth = 1.1 * dpr;
-  g.beginPath();
+  const rgb = dark ? '255,255,255' : '20,30,50';
+  const paths = PART_CLASSES.map(() => new Path2D());
   const k = 0.16 * dpr;
   for (const q of parts) {
     const gx = q.x / sim.cpx - 0.5, gy = q.y / sim.cpy - 0.5;
     const u = sim.sample(sim.u, gx, gy), v = sim.sample(sim.v, gx, gy);
+    const spd = Math.hypot(u, v);
     const nx = q.x + u * k, ny = q.y - v * k;
-    g.moveTo(view.ox + q.x, view.oy + q.y); g.lineTo(view.ox + nx, view.oy + ny);
+    let c = 0;
+    while (spd >= PART_CLASSES[c][0]) c++;
+    paths[c].moveTo(view.ox + q.x, view.oy + q.y); paths[c].lineTo(view.ox + nx, view.oy + ny);
     q.x = nx; q.y = ny; q.age++;
-    if (q.age > 100 || nx < 0 || ny < 0 || nx > view.w || ny > view.h) Object.assign(q, newPart(), { age: 0 });
+    if (q.age > q.life || nx < 0 || ny < 0 || nx > view.w || ny > view.h) Object.assign(q, newPart(false));
   }
-  g.stroke();
+  g.lineCap = 'round';
+  PART_CLASSES.forEach(([, a, w], c) => {
+    g.strokeStyle = `rgba(${rgb},${a})`; g.lineWidth = w * dpr;
+    g.stroke(paths[c]);
+  });
 }
 
 // ---------- loading overlay ----------

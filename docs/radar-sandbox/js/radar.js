@@ -4,6 +4,7 @@
 
 import { makeSimplex, fbm, hash2, mulberry32 } from './noise.js';
 import { offsetLL } from './geo.js';
+import { dewpoint, qsat } from './sim.js';
 
 const D2R = Math.PI / 180, KE = 4 / 3 * 6371;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -394,6 +395,41 @@ export class Raster {
         if (dz > pt[zi * W + x]) pt[zi * W + x] = dz;
         if (dz > ps[zi * H + y]) ps[zi * H + y] = dz;
       }
+    }
+  }
+
+  // Surface fields at raster resolution: the simulation grid's values are
+  // brought down to the real terrain (lapse rate, moisture decreasing with
+  // height, wind exposure on ridges / shelter in valleys), so maps show the
+  // mountains instead of grid-sized blurs. L = colour LUT, out = RGBA.
+  fineField(sim, mode, L, out) {
+    const { W, H } = this, NX = sim.NX, NY = sim.NY;
+    const T = sim.T, E = sim.elev, Q = sim.q, Pp = sim.p, G = sim.gust, U = sim.u, V = sim.v, night = sim._night;
+    for (let p = 0; p < W * H; p++) {
+      let gx = this.gx[p], gy = this.gy[p];
+      gx = gx < 0 ? 0 : gx > NX - 1.001 ? NX - 1.001 : gx;
+      gy = gy < 0 ? 0 : gy > NY - 1.001 ? NY - 1.001 : gy;
+      const i = gx | 0, j = gy | 0, fx = gx - i, fy = gy - j, k = j * NX + i;
+      const bil = f => (f[k] * (1 - fx) + f[k + 1] * fx) * (1 - fy) + (f[k + NX] * (1 - fx) + f[k + NX + 1] * fx) * fy;
+      const ef = this.elev[p], de = ef - bil(E);
+      let val;
+      // Calm clear nights: cold air pools in valleys and hollows
+      // (an inversion), so low ground ends up colder, not warmer.
+      const inv = de < 0 && !this.water[p] ? night ? bil(night) * clamp(1 - Math.hypot(bil(U), bil(V)) / 5, 0, 1) : 0 : 0;
+      const Tf = bil(T) - 0.0065 * de + inv * 0.011 * de;
+      if (mode === 'temp') val = Tf;
+      else if (mode === 'wind') {
+        val = bil(G) * 3.6;
+        if (!this.water[p]) val *= clamp(1 + de / 800, 0.65, 1.4);
+      } else {
+        const qf = bil(Q) * Math.exp(-de / 2500), pf = bil(Pp) * Math.exp(-ef / 8000);
+        val = mode === 'dew' ? Math.min(Tf, dewpoint(qf, pf)) : clamp(100 * qf / qsat(Tf, pf), 0, 100);
+      }
+      const x = L.log ? (val > 0 ? Math.log10(val) : -9) : val;
+      let n = Math.round((x - L.min) / (L.max - L.min) * 1023);
+      n = n < 0 ? 0 : n > 1023 ? 1023 : n;
+      const o = p * 4;
+      out[o] = L.lut[n * 4]; out[o + 1] = L.lut[n * 4 + 1]; out[o + 2] = L.lut[n * 4 + 2]; out[o + 3] = L.lut[n * 4 + 3];
     }
   }
 

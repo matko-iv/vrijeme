@@ -75,6 +75,15 @@ const TEX_PERIOD = 4 * 3600 * 1000; // texture coordinate layers reset every 4 h
 
 let nextId = 1;
 
+// Geometry of a low's fronts (shared with the chart renderer):
+// fi 0 = cold front, 1 = warm front. Lengths in metres.
+export function frontGeom(S, fi) {
+  const R = S.R * 1000, cold = fi === 0;
+  const dir = S.fdir + (cold ? -2.1 : -0.55);
+  const L = cold ? 1.6 * R : 0.9 * R;
+  return { R, L, dir, cd: Math.cos(dir), sd: Math.sin(dir), w: (cold ? 0.34 : 0.4) * R, amp: cold ? 0.16 : 0.08, kap: (cold ? 0.18 : -0.12) / L, cold };
+}
+
 export class Sim {
   constructor(view, dem, params, timeMs, seed = 7) {
     this.view = view;
@@ -132,10 +141,12 @@ export class Sim {
     this.texOff = { A: [0, 0], B: [5000, 3000] };
     this._resetTex('A'); this._resetTex('B');
     this._phase = (timeMs % TEX_PERIOD) / TEX_PERIOD;
+    this.FB = F(); // frontal band strength 0..1 (cloud/rain belts along fronts)
     this.M = F(); this.syn = F(); // mid-level humidity (0..1) and synoptic lift factor (lows +, highs -)
     this._tmp = F();
 
     this._initTerrain(dem);
+    this._synoptic(0);
     this.diagnose();
     this._initState();
     this.diagnose();
@@ -173,7 +184,7 @@ export class Sim {
     const { NX, NY } = this, V = this.P.variability ?? 1;
     // One broad, slowly morphing long-wave trough/ridge pattern (real flow
     // meanders on ~1000+ km scales; small eddies made the map chaotic).
-    const L = 1200, A = V * 4.5 * L * 1000 / 1.6, tt = (this.time / 3.6e6) % 100000;
+    const L = 1200, A = V * 2.4 * L * 1000 / 1.6, tt = (this.time / 3.6e6) % 100000;
     for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
       const x = this.Xk[i] - this.pox, y = this.Yk[j] - this.poy, k = j * NX + i;
       // Low gain: small eddies are weak, so the flow meanders instead of swirling.
@@ -326,6 +337,13 @@ export class Sim {
     const lonC = this.lon[NX >> 1];
     const sys = this.systems;
     this._pattern();
+    // Elliptical Gaussian systems: precompute orientation and semi-axes.
+    for (const S of sys) {
+      const ax = S.ax || 1, th = S.th || 0;
+      S._c = Math.cos(th); S._s = Math.sin(th);
+      S._Ra = S.R * 1000 * Math.sqrt(ax); S._Rb = S.R * 1000 / Math.sqrt(ax);
+    }
+    const night = this._nightFactor();
 
     for (let j = 0; j < NY; j++) {
       const la = this.lat[j], f = this.f[j], cl = Math.cos(la * D2R);
@@ -336,18 +354,24 @@ export class Sim {
         // Background gradient, tapered beyond ~700 km so continent-wide maps
         // keep realistic pressures (the wind itself stays uniform).
         let p = 1013 + RHO * fC * (vbg * 7e5 * Math.tanh(xm / 7e5) - ubg * 7e5 * Math.tanh(ym / 7e5)) / 100;
-        let ug = 0, vg = 0, t5 = 0, syn = -0.3 * this.psi[k] / this._pA;
+        let ug = 0, vg = 0, t5 = 0, syn = -0.3 * this.psi[k] / this._pA, fband = 0;
         p += RHO * f * this.psi[k] / 100;
         t5 += 2.5 * this.psi[k] / this._pA; // troughs a little colder aloft
         for (let s = 0; s < sys.length; s++) {
           const S = sys[s];
+          if (!S.dp) continue;
           const dxm = (lo - S.lon) * 111320 * cl, dym = (la - S.lat) * 111320;
-          const R = S.R * 1000, r2 = dxm * dxm + dym * dym, e = Math.exp(-r2 / (R * R));
+          const Ra = S._Ra, Rb = S._Rb, c = S._c, sn = S._s;
+          const aa = dxm * c + dym * sn, bb = -dxm * sn + dym * c;
+          const q2 = aa * aa / (Ra * Ra) + bb * bb / (Rb * Rb);
+          if (q2 > 16) continue;
+          const e = Math.exp(-q2), W = S.synW ?? 1;
           p += S.dp * e;
-          // Pressure gradient (Pa/m) of the Gaussian, then geostrophic wind.
-          const gx = S.dp * 100 * e * (-2 * dxm / (R * R)), gy = S.dp * 100 * e * (-2 * dym / (R * R));
+          // Pressure gradient (Pa/m) of the elliptical Gaussian, then geostrophic wind.
+          const pa = S.dp * 100 * e * (-2 * aa / (Ra * Ra)), pb = S.dp * 100 * e * (-2 * bb / (Rb * Rb));
+          const gx = pa * c - pb * sn, gy = pa * sn + pb * c;
           let gu = -gy / (RHO * f), gv = gx / (RHO * f);
-          const vgs = Math.hypot(gu, gv), r = Math.sqrt(r2) + 1;
+          const vgs = Math.hypot(gu, gv), r = Math.sqrt(q2) * S.R * 1000 + 1;
           if (vgs > 0.01) {
             const ro = 4 * vgs / (f * r);
             let vgr;
@@ -357,11 +381,36 @@ export class Sim {
             gu *= ratio; gv *= ratio;
           }
           ug += gu; vg += gv;
+          // Frontal troughs trailing from a low: a cold front to the
+          // right-rear of its motion and a weaker warm front ahead, giving
+          // V-shaped isobars and a wind shift across the front.
+          if (S.dp < -3 && S.fdir != null) {
+            for (let fi = 0; fi < 2; fi++) {
+              const fr = frontGeom(S, fi);
+              const fa = dxm * fr.cd + dym * fr.sd, fb = -dxm * fr.sd + dym * fr.cd;
+              if (fa < -0.6 * fr.R || fa > 2.2 * fr.L) continue;
+              const bp = fb - fr.kap * fa * fa;
+              if (Math.abs(bp) > 4 * fr.w) continue;
+              const c0 = fa < 0 ? 0.35 * fr.R : fr.L;
+              const g = Math.exp(-((fa / c0) ** 2)), gp = -2 * fa / (c0 * c0) * g;
+              const eb = Math.exp(-((bp / fr.w) ** 2)), A = fr.amp * S.dp;
+              p += A * eb * g;
+              const dTb = A * g * eb * (-2 * bp / (fr.w * fr.w)), dTa = A * eb * gp + dTb * (-2 * fr.kap * fa);
+              const fgx = (dTa * fr.cd - dTb * fr.sd) * 100, fgy = (dTa * fr.sd + dTb * fr.cd) * 100;
+              ug += -fgy / (RHO * f); vg += fgx / (RHO * f);
+              if (fi === 0) syn += -W * A / 20 * 0.6 * eb * g;
+              // Cloud and rain belt: along the cold front, and a broad shield
+              // on the cold (leading) side of the warm front.
+              const band = fr.cold ? Math.exp(-((bp / (0.45 * fr.w)) ** 2)) : Math.exp(-(((bp - 0.5 * fr.w) / fr.w) ** 2));
+              fband = Math.max(fband, band * (fa < 0 ? Math.exp(-((fa / (0.35 * fr.R)) ** 2)) : Math.exp(-((fa / (fr.L * 1.1)) ** 4))) * clamp((-S.dp - 3) / 8, 0, 1));
+            }
+          }
           // Lows are cold aloft, highs warm.
-          t5 += (S.dp < 0 ? 0.3 : 0.15) * S.dp * Math.exp(-r2 / (1.4 * R * 1.4 * R));
-          syn += -S.dp / 20 * Math.exp(-r2 / (1.2 * R * 1.2 * R));
+          t5 += (S.bg ? 0.4 : 1) * W * (S.dp < 0 ? 0.3 : 0.15) * S.dp * Math.exp(-q2 / 1.96);
+          syn += -W * S.dp / 20 * Math.exp(-q2 / 1.44);
         }
         this.syn[k] = clamp(syn, -1, 1);
+        this.FB[k] = fband;
         this.p[k] = p;
         this.t500[k] = P.t500 + 0.75 * (43 - la) + t5;
         // Steering: background plus most of the systems' circulation aloft.
@@ -371,8 +420,16 @@ export class Sim {
         const spdg = Math.hypot(u, v);
         if (spdg > 55) { u *= 55 / spdg; v *= 55 / spdg; }
         const lf = this.land[k];
-        const a = (14 + 22 * lf) * D2R, ca = Math.cos(a), sa = Math.sin(a);
-        const red = (0.72 - 0.25 * lf) / (1 + this.rough[k] / 350);
+        // Boundary layer: daytime mixing over land brings faster, less
+        // turned wind down to the surface; at night the air near the ground
+        // decouples (calmer, more cross-isobar flow), most of all in valleys.
+        const mix = lf * clamp(this.cosz[k] * 2.2 - 0.1, 0, 1) * Math.min(1.3, P.sun);
+        const nt = lf * night[k];
+        const relief = this.elev[k] - this.elevS[k];
+        const valley = clamp(-relief / 250, 0, 1), ridge = clamp(relief / 500, 0, 0.6);
+        const a = (14 + 22 * lf - 9 * mix + 14 * nt) * D2R, ca = Math.cos(a), sa = Math.sin(a);
+        const red = (0.72 - 0.25 * lf) / (1 + this.rough[k] / 350) * (1 + 0.12 * mix - 0.3 * nt)
+          * (1 - valley * (0.2 + 0.35 * nt)) * (1 + ridge);
         let us = (u * ca - v * sa) * red, vs = (u * sa + v * ca) * red;
         // Terrain: slopes block flow that tries to climb them and speed up
         // flow that descends them.
@@ -388,9 +445,18 @@ export class Sim {
             us *= boost; vs *= boost;
           }
         }
+        // Katabatic drainage: on calm nights cold air slides down slopes.
+        if (nt > 0.05) {
+          const sl = Math.sqrt(s2);
+          if (sl > 1e-4) {
+            const kat = 2.4 * nt * clamp(sl * 25, 0, 1) * clamp(1 - Math.hypot(us, vs) / 8, 0, 1);
+            us -= kat * hx / sl; vs -= kat * hy / sl;
+          }
+        }
         this.u[k] = us; this.v[k] = vs;
       }
     }
+    this._smoothWind();
     this._seaBreeze();
     this._outflow();
 
@@ -409,7 +475,7 @@ export class Sim {
         const dTdy = (this.T[jm * NX + i] - this.T[jp * NX + i]) / (this.dy[j] * (jp - jm));
         const wa = clamp(-150 * (this.us[k] * dTdx + this.vs[k] * dTdy) * 0.7, -0.12, 0.12);
         // Synoptic ascent near lows (and subsidence under highs).
-        this._tmp[k] = clamp(conv, -0.4, 0.4) + oro + wa + (this.syn[k] > 0 ? 0.2 : 0.12) * this.syn[k] + this.Fz[k] + this.pk[k];
+        this._tmp[k] = clamp(conv, -0.4, 0.4) + oro + wa + (this.syn[k] > 0 ? 0.2 : 0.12) * this.syn[k] + 0.07 * this.FB[k] + this.Fz[k] + this.pk[k];
       }
     }
     // Light smoothing removes grid-scale noise in the lift.
@@ -436,7 +502,31 @@ export class Sim {
       const rhe = 0.45 * rh + 0.55 * this.M[k];
       this.cf[k] = clamp(clamp((rhe - 0.55) / 0.35, 0, 1) * 0.85 + 3 * this.C[k] + this.anvil[k] + this.CB[k], 0, 1);
       const spd = Math.hypot(this.u[k], this.v[k]);
-      this.gust[k] = spd * (1.25 + 0.2 * this.land[k] + 0.25 * clamp(this.rough[k] / 300, 0, 1)) + this.out[k];
+      const mixG = this.land[k] * clamp(this.cosz[k] * 2.2 - 0.1, 0, 1);
+      this.gust[k] = spd * (1.25 + 0.2 * this.land[k] + 0.25 * clamp(this.rough[k] / 300, 0, 1) + 0.15 * mixG) + this.out[k];
+    }
+  }
+
+  // 0 by day .. 1 at night (smooth through twilight), per cell.
+  _nightFactor() {
+    const n = this._night || (this._night = new Float32Array(this.N));
+    for (let k = 0; k < this.N; k++) n[k] = clamp(0.3 - this.cosz[k] * 3, 0, 1);
+    return n;
+  }
+
+  // One light 1-2-1 pass: removes grid-scale noise from terrain blocking
+  // while keeping valley channelling and downslope jets.
+  _smoothWind() {
+    const { NX, NY } = this, t = this._tmp;
+    for (const f of [this.u, this.v]) {
+      for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+        const k = j * NX + i, im = i > 0 ? k - 1 : k, ip = i < NX - 1 ? k + 1 : k;
+        t[k] = 0.25 * f[im] + 0.5 * f[k] + 0.25 * f[ip];
+      }
+      for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+        const k = j * NX + i, jm = j > 0 ? k - NX : k, jp = j < NY - 1 ? k + NX : k;
+        f[k] = 0.25 * t[jm] + 0.5 * t[k] + 0.25 * t[jp];
+      }
     }
   }
 
@@ -542,8 +632,8 @@ export class Sim {
         // Large-scale ascent in lows moistens the column within a few hours
         // (and subsidence under highs dries it).
         const sy = this.syn[k];
-        const mt = clamp(this.P.rh / 100 + (sy > 0 ? 0.45 : 0.2) * sy, 0.05, 0.97);
-        this.M[k] += (mt - this.M[k]) * Math.min(1, dt / (8 * 3600 / (1 + 4 * Math.max(0, sy))));
+        const mt = clamp(this.P.rh / 100 + (sy > 0 ? 0.45 : 0.2) * sy + 0.4 * this.FB[k], 0.05, 0.97);
+        this.M[k] += (mt - this.M[k]) * Math.min(1, dt / (8 * 3600 / (1 + 4 * Math.max(0, sy) + 6 * this.FB[k])));
         if (edge || i < 2 || i >= NX - 2) {
           this.M[k] += (mt - this.M[k]) * Math.min(1, dt / 1800);
           this.T[k] += (teq - this.T[k]) * Math.min(1, dt / 1800);
@@ -707,18 +797,74 @@ export class Sim {
   }
 
   // ---------- pressure systems ----------
+  // Systems drift with the local steering flow (so neighbouring systems
+  // interact), slowly rotate and, for background ones, follow a life cycle.
   _systems(dt) {
     const [su, sv] = windFrom(this.P.steerDir, this.P.steerSpd);
     for (const S of this.systems) {
-      const k = S.dp < 0 ? 0.75 : 0.45;
-      S.lat += sv * k * dt / 111320;
-      S.lon += su * k * dt / (111320 * Math.cos(S.lat * D2R));
+      let ux = su, vy = sv;
+      if (this.inside(S.lon, S.lat, -1)) { ux = this.sampleLL(this.us, S.lon, S.lat); vy = this.sampleLL(this.vs, S.lon, S.lat); }
+      const k = S.dp < 0 ? 0.7 : 0.45;
+      S.lat += vy * k * dt / 111320;
+      S.lon += ux * k * dt / (111320 * Math.cos(S.lat * D2R));
+      S.mvx = ux; S.mvy = vy;
+      const md = Math.atan2(vy, ux);
+      S.fdir = S.fdir == null ? md : S.fdir + Math.atan2(Math.sin(md - S.fdir), Math.cos(md - S.fdir)) * Math.min(1, dt / 21600);
+      if (S.spin) S.th = (S.th || 0) + S.spin * dt / 86400;
+      if (S.bg) continue;
       if (S.trend) S.dp += S.trend * dt / 3600;
       if (this.inside(S.lon, S.lat) && this.sampleLL(this.land, S.lon, S.lat) > 0.6 && S.dp < 0) S.dp += 0.08 * dt / 3600;
     }
+    this._synoptic(dt);
     const kmCell = this.dx[this.NY >> 1] / 1000;
-    this.systems = this.systems.filter(S => Math.abs(S.dp) >= 1 && Math.abs(S.lat) < 80 &&
+    this.systems = this.systems.filter(S => (S.bg || Math.abs(S.dp) >= 1) && Math.abs(S.lat) < 80 &&
       !(S.auto && !this.inside(S.lon, S.lat, 2.5 * S.R / kmCell)));
+  }
+
+  // Background weather systems: lows and highs that form, mature and decay
+  // over 2-5 days somewhere in a domain well beyond the map, so the pressure
+  // field always has realistic, slowly evolving centres. New ones start at
+  // zero strength (no sudden jumps); the Flow variety slider scales them.
+  _synoptic(dt) {
+    const v = this.view, V = this.P.variability ?? 1, r = this.rng;
+    const cLat = v.lat(v.h / 2), cLon = v.lon(v.w / 2);
+    const hs = Math.max(v.w, v.h) * v.metersPerPx(cLat) / 2000;
+    const D = hs + Math.max(1500, hs);
+    const kx = 111.32 * Math.cos(cLat * D2R);
+    const [su0, sv0] = windFrom(this.P.steerDir, Math.max(1, this.P.steerSpd));
+    const env = a => (a < 0.35 ? (a / 0.35) ** 2 * (3 - 2 * a / 0.35) : a < 0.62 ? 1 : Math.max(0, 1 - ((a - 0.62) / 0.38) ** 2));
+    const bg = this.systems.filter(S => S.bg);
+    for (const S of bg) {
+      S.age += dt;
+      const dist = Math.hypot((S.lon - cLon) * kx, (S.lat - cLat) * 111.32);
+      if (S.age >= S.life || dist > D + 2 * S.R) S.dead = true;
+      // Lows weaken a bit faster over land (friction, no latent heat supply).
+      const landFill = S.peak < 0 && this.inside(S.lon, S.lat) && this.sampleLL(this.land, S.lon, S.lat) > 0.7 ? 0.85 : 1;
+      S.dp = S.peak * env(S.age / S.life) * V * landFill;
+    }
+    if (bg.some(S => S.dead)) this.systems = this.systems.filter(S => !S.dead);
+    const target = V > 0 ? Math.round(clamp((2 * D) ** 2 / (1700 * 1700), 3, 16)) : 0;
+    const mature = !this._synD || D > 1.3 * this._synD; // new or enlarged domain: fill with mature systems
+    this._synD = D;
+    let n = this.systems.filter(S => S.bg).length, guard = 0;
+    while (n < target && guard++ < 60) {
+      const low = this.systems.filter(S => S.bg && S.peak < 0).length <= n / 2 ? r() < 0.75 : r() < 0.3;
+      let x = (r() * 2 - 1) * D, y = (r() * 2 - 1) * D;
+      const R = low ? 450 + r() * 650 : 700 + r() * 900;
+      const lat = cLat + y / 111.32, lon = cLon + x / (111.32 * Math.cos(lat * D2R));
+      // Keep centres apart so systems don't merge into blobs.
+      const clash = this.systems.some(S => Math.hypot((S.lon - lon) * kx, (S.lat - lat) * 111.32) < 0.7 * (S.R + R));
+      if (clash) continue;
+      const life = (2 + r() * 3) * 86400;
+      const sys = {
+        id: nextId++, type: low ? 'L' : 'H', lat, lon, R, trend: 0, bg: true, synW: 0.5,
+        peak: low ? -(6 + r() * 12) : 5 + r() * 10, life, age: mature ? (0.2 + r() * 0.5) * life : 0,
+        ax: low ? 1 + r() * 0.9 : 1.2 + r() * 1.4, th: r() * Math.PI, spin: (r() - 0.5) * 0.5, fdir: Math.atan2(sv0, su0),
+      };
+      sys.dp = sys.peak * env(sys.age / sys.life) * V;
+      this.systems.push(sys);
+      n++;
+    }
   }
 
   // ---------- convection ----------
@@ -1052,7 +1198,13 @@ export class Sim {
     this.strikes = this.strikes.filter(s => !near(s.lat, s.lon));
   }
   addSystem(type, lat, lon, dp, R) {
-    const S = { id: nextId++, type, lat, lon, dp: type === 'L' ? -Math.abs(dp) : Math.abs(dp), R, trend: 0 };
+    const [su, sv] = windFrom(this.P.steerDir, Math.max(1, this.P.steerSpd));
+    const S = { id: nextId++, type, lat, lon, dp: type === 'L' ? -Math.abs(dp) : Math.abs(dp), R, trend: 0,
+      ax: type === 'L' ? 1.25 : 1.5, th: Math.atan2(sv, su), spin: (this.rng() - 0.5) * 0.3, fdir: Math.atan2(sv, su) };
+    // Background systems make way for the ones you place, so they don't
+    // merge into a much deeper storm than intended.
+    const kx = 111.32 * Math.cos(lat * D2R);
+    this.systems = this.systems.filter(B => !B.bg || Math.hypot((B.lon - lon) * kx, (B.lat - lat) * 111.32) > 0.8 * (B.R + R));
     this.systems.push(S);
     return S;
   }
@@ -1149,6 +1301,7 @@ export class Sim {
     this.time = old.time;
     this.cells = old.cells; this.systems = old.systems; this.strikes = old.strikes; this.lineSeq = old.lineSeq;
     this.pockets = old.pockets;
+    this._synD = old._synD;
     this.pox = old.pox; this.poy = old.poy; this._phase = old._phase;
     this._resetTex('A', old.texOff.A); this._resetTex('B', old.texOff.B);
     this.texDir = { A: old.texDir.A.slice(), B: old.texDir.B.slice() };
@@ -1179,6 +1332,7 @@ export class Sim {
         for (let n = 0; n < f.length; n++) f[n][k] = keep[n] + (f[n][k] - keep[n]) * wOld;
       }
     }
+    this._synoptic(0);
     this.diagnose();
   }
 }

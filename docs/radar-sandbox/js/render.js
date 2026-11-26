@@ -1,6 +1,7 @@
 // Basemaps, colour scales and vector overlays.
 
-import { distKm } from './geo.js';
+import { distKm, offsetLL } from './geo.js';
+import { frontGeom } from './sim.js';
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
@@ -261,27 +262,33 @@ export function contourSegments(sim, field, level) {
 export function drawIsobars(ctx, view, sim, dpr, dark) {
   let mn = Infinity, mx = -Infinity;
   for (const v of sim.p) { if (v < mn) mn = v; if (v > mx) mx = v; }
-  const stepHpa = mx - mn > 40 ? 4 : 2;
+  // Standard chart intervals: 4 hPa on continental maps, finer on small ones.
+  const range = mx - mn, stepHpa = range > 26 ? 4 : range > 9 ? 2 : 1;
   ctx.save();
   ctx.translate(view.ox, view.oy);
-  ctx.lineWidth = 1.2 * dpr;
   ctx.font = `600 ${Math.round(10 * dpr)}px Inter, system-ui, sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  const placed = [];
   for (let lev = Math.ceil(mn / stepHpa) * stepHpa; lev <= mx; lev += stepHpa) {
     const s = contourSegments(sim, sim.p, lev);
     if (!s.length) continue;
-    const strong = lev % (stepHpa * 2) === 0 || lev === 1012;
-    ctx.strokeStyle = dark ? `rgba(255,255,255,${strong ? 0.85 : 0.55})` : `rgba(20,30,60,${strong ? 0.8 : 0.5})`;
+    const strong = lev % 4 === 0;
+    ctx.lineWidth = (strong ? 1.5 : 1) * dpr;
+    ctx.strokeStyle = dark ? `rgba(255,255,255,${strong ? 0.85 : 0.5})` : `rgba(20,30,60,${strong ? 0.8 : 0.45})`;
     ctx.beginPath();
     for (let n = 0; n < s.length; n += 4) { ctx.moveTo(s[n], s[n + 1]); ctx.lineTo(s[n + 2], s[n + 3]); }
     ctx.stroke();
-    // A couple of labels per level.
-    const every = Math.max(4, Math.floor(s.length / 4 / 2.5)) * 4;
-    for (let n = Math.floor(every / 2); n < s.length; n += every) {
+    if (!strong && stepHpa < 4 && range > 6) continue; // label the main isobars only
+    // A few labels per level, kept apart from each other and from the edges.
+    const every = Math.max(4, Math.floor(s.length / 4 / 3)) * 4;
+    for (let n = Math.floor(every / 2) - (Math.floor(every / 2) % 4); n < s.length; n += every) {
       const x = s[n], y = s[n + 1];
-      if (x < 20 || y < 20 || x > view.w - 20 || y > view.h - 20) continue;
-      ctx.fillStyle = dark ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.75)';
-      ctx.fillRect(x - 14 * dpr, y - 6 * dpr, 28 * dpr, 12 * dpr);
+      if (x < 24 * dpr || y < 24 * dpr || x > view.w - 24 * dpr || y > view.h - 24 * dpr) continue;
+      if (placed.some(q => Math.abs(q[0] - x) < 60 * dpr && Math.abs(q[1] - y) < 22 * dpr)) continue;
+      placed.push([x, y]);
+      ctx.fillStyle = dark ? 'rgba(10,14,20,.7)' : 'rgba(255,255,255,.85)';
+      ctx.fillRect(x - 15 * dpr, y - 6.5 * dpr, 30 * dpr, 13 * dpr);
       ctx.fillStyle = dark ? '#fff' : '#142040';
       ctx.fillText(String(lev), x, y);
     }
@@ -289,24 +296,128 @@ export function drawIsobars(ctx, view, sim, dpr, dark) {
   ctx.restore();
 }
 
-export function drawSystems(ctx, view, sim, dpr) {
+// Fronts of the lows, drawn like a synoptic chart: cold fronts blue with
+// triangles, warm fronts red with semicircles, on the side they move to.
+export function drawFronts(ctx, view, sim, dpr) {
+  ctx.save();
+  ctx.translate(view.ox, view.oy);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const S of sim.systems) {
+    if (!(S.dp < -4) || S.fdir == null) continue;
+    const alpha = Math.min(1, (-S.dp - 4) / 4);
+    const mvx = S.mvx ?? Math.cos(S.fdir), mvy = S.mvy ?? Math.sin(S.fdir);
+    for (let fi = 0; fi < 2; fi++) {
+      const fr = frontGeom(S, fi);
+      const pts = [];
+      for (let t = 0; t <= 24; t++) {
+        const a = (0.06 + 0.86 * t / 24) * fr.L * (fi === 0 ? 1 : 0.9), b = fr.kap * a * a;
+        const east = a * fr.cd - b * fr.sd, north = a * fr.sd + b * fr.cd;
+        const [la, lo] = offsetLL(S.lat, S.lon, east, north);
+        pts.push([view.px(lo), view.py(la)]);
+      }
+      if (!pts.some(([x, y]) => x > -40 && y > -40 && x < view.w + 40 && y < view.h + 40)) continue;
+      const col = fr.cold ? `rgba(30,80,220,${alpha})` : `rgba(215,35,35,${alpha})`;
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2.4 * dpr;
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.stroke();
+      // Symbols every ~34 px along the line, on the side facing the motion.
+      const step = 34 * dpr, sz = 7 * dpr;
+      let acc = step / 2;
+      for (let i = 1; i < pts.length; i++) {
+        const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+        const seg = Math.hypot(x1 - x0, y1 - y0);
+        if (seg < 1e-3) continue;
+        const ux = (x1 - x0) / seg, uy = (y1 - y0) / seg;
+        let nx = -uy, ny = ux;
+        if (nx * mvx - ny * mvy < 0) { nx = -nx; ny = -ny; } // screen y points south
+        while (acc <= seg) {
+          const cx = x0 + ux * acc, cy = y0 + uy * acc;
+          ctx.beginPath();
+          if (fr.cold) {
+            ctx.moveTo(cx - ux * sz, cy - uy * sz); ctx.lineTo(cx + nx * sz * 1.3, cy + ny * sz * 1.3); ctx.lineTo(cx + ux * sz, cy + uy * sz);
+          } else {
+            const a0 = Math.atan2(uy, ux);
+            ctx.arc(cx, cy, sz, a0, a0 + Math.PI, nx * uy - ny * ux > 0);
+          }
+          ctx.closePath(); ctx.fill();
+          acc += step;
+        }
+        acc -= seg;
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// Pressure centres as on a real synoptic chart: local minima/maxima of the
+// pressure field that stand out from their surroundings (by >= 1 hPa).
+export function pressureCentres(sim) {
+  const { NX, NY, p } = sim;
+  const kmCell = sim.dx[NY >> 1] / 1000;
+  const W = Math.max(3, Math.min(40, Math.round(260 / kmCell)));
+  const out = [];
+  for (let j = 2; j < NY - 2; j++) for (let i = 2; i < NX - 2; i++) {
+    const k = j * NX + i, v = p[k];
+    let lo = true, hi = true;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      if (!di && !dj) continue;
+      const q = p[k + dj * NX + di];
+      if (q <= v) lo = false;
+      if (q >= v) hi = false;
+    }
+    if (!lo && !hi) continue;
+    let ok = true;
+    for (let dj = -W; dj <= W && ok; dj++) {
+      const jj = j + dj; if (jj < 0 || jj >= NY) continue;
+      for (let di = -W; di <= W; di++) {
+        const ii = i + di; if (ii < 0 || ii >= NX || (!di && !dj)) continue;
+        const q = p[jj * NX + ii];
+        if ((lo && q < v) || (hi && q > v)) { ok = false; break; }
+      }
+    }
+    if (!ok) continue;
+    let ring = 0, nr = 0;
+    for (let a = 0; a < 16; a++) {
+      const ii = Math.round(i + W * Math.cos(a * Math.PI / 8)), jj = Math.round(j + W * Math.sin(a * Math.PI / 8));
+      if (ii >= 0 && jj >= 0 && ii < NX && jj < NY) { ring += p[jj * NX + ii]; nr++; }
+    }
+    if (nr < 6) continue;
+    const prom = lo ? ring / nr - v : v - ring / nr;
+    if (prom < 1) continue;
+    out.push({ x: (i + 0.5) * sim.cpx, y: (j + 0.5) * sim.cpy, type: lo ? 'L' : 'H', p: v });
+  }
+  return out;
+}
+
+function drawCentre(ctx, x, y, low, pc, dpr) {
+  ctx.font = `800 ${Math.round(26 * dpr)}px Inter, system-ui, sans-serif`;
+  ctx.lineWidth = 4 * dpr; ctx.strokeStyle = 'rgba(255,255,255,.9)';
+  ctx.strokeText(low ? 'L' : 'H', x, y);
+  ctx.fillStyle = low ? '#d0202a' : '#1f4fd1';
+  ctx.fillText(low ? 'L' : 'H', x, y);
+  ctx.font = `700 ${Math.round(11 * dpr)}px Inter, system-ui, sans-serif`;
+  ctx.lineWidth = 3 * dpr;
+  ctx.strokeText(String(pc), x, y + 19 * dpr);
+  ctx.fillText(String(pc), x, y + 19 * dpr);
+}
+
+// centres: true = label the pressure field's own centres (pressure charts);
+// false = only the lows/highs you placed.
+export function drawSystems(ctx, view, sim, dpr, centres = false) {
   ctx.save();
   ctx.translate(view.ox, view.oy);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  for (const S of sim.systems) {
-    const x = view.px(S.lon), y = view.py(S.lat);
-    if (x < -20 || y < -20 || x > view.w + 20 || y > view.h + 20) continue;
-    const low = S.dp < 0;
-    ctx.font = `800 ${Math.round(26 * dpr)}px Inter, system-ui, sans-serif`;
-    ctx.lineWidth = 4 * dpr; ctx.strokeStyle = 'rgba(255,255,255,.9)';
-    ctx.strokeText(low ? 'L' : 'H', x, y);
-    ctx.fillStyle = low ? '#d0202a' : '#1f4fd1';
-    ctx.fillText(low ? 'L' : 'H', x, y);
-    const pc = Math.round(sim.inside(S.lon, S.lat) ? sim.sampleLL(sim.p, S.lon, S.lat) : 1013 + S.dp);
-    ctx.font = `700 ${Math.round(11 * dpr)}px Inter, system-ui, sans-serif`;
-    ctx.lineWidth = 3 * dpr;
-    ctx.strokeText(String(pc), x, y + 19 * dpr);
-    ctx.fillText(String(pc), x, y + 19 * dpr);
+  if (centres) {
+    for (const c of pressureCentres(sim)) drawCentre(ctx, c.x, c.y, c.type === 'L', Math.round(c.p), dpr);
+  } else {
+    for (const S of sim.systems) {
+      if (S.bg) continue;
+      const x = view.px(S.lon), y = view.py(S.lat);
+      if (x < -20 || y < -20 || x > view.w + 20 || y > view.h + 20) continue;
+      const pc = Math.round(sim.inside(S.lon, S.lat) ? sim.sampleLL(sim.p, S.lon, S.lat) : 1013 + S.dp);
+      drawCentre(ctx, x, y, S.dp < 0, pc, dpr);
+    }
   }
   ctx.restore();
 }
